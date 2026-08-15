@@ -15,13 +15,15 @@ Note `.p` is also used by Pascal: VS Code applies this language via the
 `firstLine` heuristic, or pick "Pop-11" manually / add a workspace
 `files.associations` entry.
 
-## Install (from a Poplog checkout)
+## Install
 
-```sh
-cd editors/vscode
-npx @vscode/vsce package     # produces pop11-0.1.0.vsix
-code --install-extension pop11-0.1.0.vsix
-```
+Prebuilt: download `pop11-vscode-<v>.vsix` from the
+[releases](https://github.com/IoTone/poplog/releases), then either
+`code --install-extension pop11-vscode-<v>.vsix` or the
+"Extensions: Install from VSIX…" command.
+
+From a checkout: `tools/package-editors.sh` builds the same artifact
+into `dist/`.
 
 LSP integration (`poplog-lsp`), run-buffer commands and a REPL terminal
 land with phase P2 of `poplog-language-binding-plugins.md`; Marketplace

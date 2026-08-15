@@ -28,11 +28,16 @@ this pure-config extension doesn't ship yet. The Pop-11 LSP server
 completion) works today in Neovim (`editors/nvim/`) and any client that
 can run a stdio command; Zed wiring is a planned follow-up.
 
-## Registry
+## Distribution
 
-Publishing to the Zed extension registry requires the extension to live
-in its own repository (zed-industries/extensions takes it as a
-submodule). This directory is the source of truth until then.
+- Registry PR: [zed-industries/extensions#7234](https://github.com/zed-industries/extensions/pull/7234)
+  via the standalone distribution repo
+  [IoTone/zed-pop11](https://github.com/IoTone/zed-pop11) (this
+  directory remains the working tree; sync changes there on release).
+- Starter tarball: `pop11-zed-<v>.tar.gz` on the
+  [releases](https://github.com/IoTone/poplog/releases) — unpack and
+  `zed: install dev extension` on the unpacked `pop11-zed/` directory.
+  Built by `tools/package-editors.sh`.
 
 ## Keeping queries in sync
 
