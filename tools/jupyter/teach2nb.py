@@ -49,7 +49,8 @@ def convert(path):
 
     # NB no "procedure": its typed-declaration use (`lvars procedure p;`)
     # has no closer and would hold the balance open forever.
-    PAIRS = ["define", "if", "unless", "while", "until", "for", "repeat"]
+    PAIRS = ["define", "if", "unless", "while", "until", "for", "repeat",
+             "foreach", "forevery"]
 
     def define_balance(text):
         # TEACH files develop defines AND loops across several blocks;
@@ -87,8 +88,12 @@ def convert(path):
         never_ends = (re.search(r"\brepeat\b", text)
                       and not re.search(r"\bquit(if|unless|loop)\b|\btimes\b",
                                         text))
+        # …and blocks that END with a colon are prose leading into a
+        # list ("this has two elements:"), whatever punctuation they
+        # contain.
         is_prose = (not re.search(r"[;]|=>|->", text)
-                    or text.lstrip().startswith("->") or never_ends)
+                    or text.lstrip().startswith("->") or never_ends
+                    or text.rstrip().endswith(":"))
         if is_prose:
             # never disturbs an open define accumulation
             cells.append(nbf.v4.new_markdown_cell("```\n" + text + "\n```"))
