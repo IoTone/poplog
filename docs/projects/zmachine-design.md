@@ -32,7 +32,8 @@ Seven files, each one lesson-sized. `uses zmachine` pulls the rest.
 | `zmachine_dict.p` | dictionary lookup, input tokenising | binary search; itemisation by hand |
 | `zmachine_ops.p` | the opcode tables and every handler | procedures as first-class data |
 | `zmachine_io.p` | screen/input abstraction, front ends | `dlocal` as a plug-in mechanism |
-| `zmachine.p` | header validation, frames, the fetch–decode–execute loop, `zmachine_run` | the interpreter loop itself |
+| `zmachine_core.p` | stack, frames, decoder, the fetch–decode–execute loop | the interpreter loop itself |
+| `zmachine.p` | the umbrella: `uses` the six modules above | how a Poplog library is assembled |
 
 Runner: `examples/zplay.p` (`zplay <story-file>`). Tutorial:
 `pop/teach/zmachine`. Tests: `tools/tests/test_zmachine.p`.
@@ -279,7 +280,7 @@ before the milestone starts.
 | M | Delivers | Acceptance |
 |---|---|---|
 | M1 ✅ | `zmachine_mem` + `zmachine_text` + `zmachine_obj` (done 2026-08-16) | load `czech.z3` and `minizork.z3`; dump both headers; print the abbreviations table and every object's short name — "West of House", "small mailbox", "brass lantern" prove decode + object tree in one shot |
-| M2 | frames, decoder, `zstore`/`zbranch`, ~30 opcodes | `czech.z3` runs until it *names* an unimplemented opcode; each new opcode moves the test number up |
+| M2 ✅ | frames, decoder, `zstore`/`zbranch`, the v3 instruction set bar `sread`/`save`/`restore` (done 2026-08-16) | `czech.z3` runs until it *names* an unimplemented opcode; each new opcode moves the test number up |
 | M3 | full v3 opcode set, dictionary, `read` | **`czech.z3`: 349 passed, 0 failed** — and **Mini-Zork playable**, its walkthrough transcript matching the oracle |
 | M4 | v5 additions (EXT ops, extended dictionary, `call_n`) | **`Advent.z5` playable**; `advent.z5` + `czech.z5` committed and green in CI |
 | M5 | Quetzal save/restore | the walkthrough's `save`/`restore` pair works; a save file written by tszm restores in ours and vice versa |

@@ -5,9 +5,7 @@
 ;;; distributable source (see examples/games/README.md), so the suite needs
 ;;; no commercial story file and no Inform toolchain.
 uses poptest;
-uses zmachine_mem;
-uses zmachine_text;
-uses zmachine_obj;
+uses zmachine;          ;;; the whole machine: memory, text, objects, ops
 
 vars story = '$usepop/examples/games/czech.z3';
 unless readable(sysfileok(story)) then
@@ -133,5 +131,37 @@ check_true('object 5 has properties', nprops > 0 and nprops <= 32);
 ;;; a property the object does not have falls back to the defaults table
 check('missing property uses default',
     zm_obj_prop(5, 31), zm_prop_default(31));
+
+;;; --- conformance: the whole machine, end to end -------------------------
+;;;
+;;; CZECH exercises 368 behaviours and prints its own verdict.  Capturing
+;;; that verdict needs no special support: a front end is installed simply
+;;; by dlocal-ing zio_char, which is the entire point of zmachine_io.p.
+
+lvars czech_chars = [], czech_n = 0;
+
+define lconstant grab(c);
+    lvars c;
+    conspair(if c == 13 then `\n` else c endif, czech_chars) -> czech_chars;
+    czech_n + 1 -> czech_n;
+enddefine;
+
+define lconstant run_czech() -> text;
+    lvars text;
+    dlocal zio_char = grab;
+    dlocal zm_max_steps = 2000000;      ;;; a hung interpreter must not hang CI
+    zm_play(story) -> ;
+    consstring(destlist(rev(czech_chars))) -> text;
+enddefine;
+
+lvars verdict = run_czech();
+check_true('czech ran to the end',
+    issubstring('Didn\'t crash: hooray!', 1, verdict) and true);
+check_true('czech: 349 passed',
+    issubstring('Passed: 349', 1, verdict) and true);
+check_true('czech: 0 failed',
+    issubstring('Failed: 0', 1, verdict) and true);
+check_true('czech: 368 tests performed',
+    issubstring('Performed 368 tests', 1, verdict) and true);
 
 test_summary();

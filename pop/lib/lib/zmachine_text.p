@@ -31,11 +31,16 @@ section $-zmachine =>
 ;;; The alphabets, indexed by (z-char - 6) + 1 for Pop-11's 1-based strings.
 ;;; A2's first slot is the ten-bit escape and never reaches a lookup; its
 ;;; second is newline.  (v1 ordered A2 differently; we do v3 and up.)
+;;; A2 slot 1 is the ten-bit escape (never looked up) and slot 2 is
+;;; newline, which in ZSCII is code 13 -- not Pop-11's 10.  The table is
+;;; built rather than written as a literal so that byte is unmistakable.
 lconstant
     ALPHABETS = {%
         'abcdefghijklmnopqrstuvwxyz',
         'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
-        '\s\n0123456789.,!?_#\'"/\\-:()',
+        consstring(`\s`, 13, `0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`,
+                   `9`, `.`, `,`, `!`, `?`, `_`, `#`, `\'`, `"`, `/`,
+                   `\\`, `-`, `:`, `(`, `)`, 26),
     %};
 
 ;;; Abbreviation n lives at a WORD address stored in the abbreviations

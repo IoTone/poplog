@@ -17,7 +17,8 @@
 compile_mode :pop11 +strict;
 
 section $-zmachine =>
-        zm_mem zm_version zm_load_story zm_story_file
+        zm_mem zm_orig zm_version zm_load_story zm_story_file
+        zm_restore_dynamic zm_story_checksum
         zm_byte zm_word zm_signed zm_unsigned
         zm_unpack_routine zm_unpack_string
         zm_static_base zm_high_base zm_initial_pc
@@ -28,6 +29,11 @@ section $-zmachine =>
 
 vars
     zm_mem          = false,    ;;; the story file, as a byte string
+    ;;; A pristine copy of the file as published.  The game writes all over
+    ;;; dynamic memory as it plays, but `verify` has to checksum the
+    ;;; ORIGINAL bytes, and `restart` and `restore` have to put dynamic
+    ;;; memory back the way it started -- all three need this.
+    zm_orig         = false,
     zm_story_file   = false,    ;;; where it came from
     zm_version      = 0,
     ;;; header fields, all filled in by -zm_load_story-
@@ -125,6 +131,7 @@ define zm_load_story(path);
     lvars path;
 
     read_bytes(path) -> zm_mem;
+    copy(zm_mem) -> zm_orig;
     path -> zm_story_file;
 
     ;;; The version byte governs every layout decision below, so it is read
@@ -169,6 +176,25 @@ define zm_load_story(path);
         mishap(zm_file_length, datalength(zm_mem), 2,
             'zmachine: story file shorter than its header says')
     endif;
+enddefine;
+
+;;; The published checksum: every byte from the start of dynamic memory to
+;;; the end of the story, summed modulo 65536 -- taken from the pristine
+;;; copy, because by the time a game asks, it has changed live memory.
+define zm_story_checksum();
+    lvars i, sum = 0;
+    fast_for i from 16:40 to zm_file_length fi_- 1 do
+        sum fi_+ fast_subscrs(i fi_+ 1, zm_orig) -> sum
+    endfor;
+    sum fi_&& 16:FFFF
+enddefine;
+
+;;; Put dynamic memory back as published (what restart and restore need).
+define zm_restore_dynamic();
+    lvars i;
+    fast_for i from 1 to zm_static_base do
+        fast_subscrs(i, zm_orig) -> fast_subscrs(i, zm_mem)
+    endfor
 enddefine;
 
 ;;; --- a human-readable header, for bring-up and for TEACH ----------------
