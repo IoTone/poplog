@@ -143,7 +143,10 @@ def convert(path):
             # the `** …` print convention.  In a live notebook the kernel
             # regenerates the real output, and `**` is Pop-11's power
             # operator, so these lines must not be compiled.
-            if stripped.lstrip().startswith("**"):
+            # `> …` / `< …` / `!> …` / `!< …` lines are inlined EXPECTED
+            # trace output (the trace prefix convention), same idea as
+            # `** `.  A lone `<` never starts real Pop-11 code.
+            if stripped.lstrip().startswith(("**", "> ", "< ", "!>", "!<")):
                 continue
             code_buf.append(stripped)
         elif not line.strip():
