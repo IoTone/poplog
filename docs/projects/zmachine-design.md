@@ -278,7 +278,7 @@ before the milestone starts.
 
 | M | Delivers | Acceptance |
 |---|---|---|
-| M1 | `zmachine_mem` + `zmachine_text` | load `czech.z3` and `minizork.z3`; dump both headers; print the abbreviations table and every object's short name — "West of House", "small mailbox", "brass lantern" prove decode + object tree in one shot |
+| M1 ✅ | `zmachine_mem` + `zmachine_text` + `zmachine_obj` (done 2026-08-16) | load `czech.z3` and `minizork.z3`; dump both headers; print the abbreviations table and every object's short name — "West of House", "small mailbox", "brass lantern" prove decode + object tree in one shot |
 | M2 | frames, decoder, `zstore`/`zbranch`, ~30 opcodes | `czech.z3` runs until it *names* an unimplemented opcode; each new opcode moves the test number up |
 | M3 | full v3 opcode set, dictionary, `read` | **`czech.z3`: 349 passed, 0 failed** — and **Mini-Zork playable**, its walkthrough transcript matching the oracle |
 | M4 | v5 additions (EXT ops, extended dictionary, `call_n`) | **`Advent.z5` playable**; `advent.z5` + `czech.z5` committed and green in CI |
