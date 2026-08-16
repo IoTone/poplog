@@ -9,6 +9,8 @@
  >     zmachine_mem     the story file as byte memory
  >     zmachine_text    ZSCII decoding
  >     zmachine_obj     the object tree
+ >     zmachine_dict    the dictionary and input parsing
+ >     zmachine_save    save and restore
  >     zmachine_io      pluggable screen and keyboard
  >     zmachine_core    stack, frames, decoder, execution loop
  >     zmachine_ops     the instruction set
@@ -21,5 +23,7 @@ uses zmachine_mem;
 uses zmachine_text;
 uses zmachine_obj;
 uses zmachine_io;
+uses zmachine_dict;
+uses zmachine_save;
 uses zmachine_core;
 uses zmachine_ops;

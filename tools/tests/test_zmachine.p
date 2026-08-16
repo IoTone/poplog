@@ -132,6 +132,45 @@ check_true('object 5 has properties', nprops > 0 and nprops <= 32);
 check('missing property uses default',
     zm_obj_prop(5, 31), zm_prop_default(31));
 
+;;; --- dictionary, tokenising and sread -----------------------------------
+;;;
+;;; parsertest.z3 is ours (examples/games/parsertest.inf): a story with a
+;;; known six-word dictionary that reads one line and reports what the
+;;; interpreter put in the parse buffer.
+
+vars ptstory = '$usepop/examples/games/parsertest.z3';
+unless readable(sysfileok(ptstory)) then
+    'examples/games/parsertest.z3' -> ptstory;
+endunless;
+
+zm_load_story(ptstory);
+
+check('dictionary separators', zm_dict_nseps(), 3);
+check_true('comma is a separator',
+    zm_dict_sep(1) == `.` or zm_dict_sep(2) == `.`);
+check('entry length', zm_dict_entry_len(), 7);
+check_true('dictionary is sorted', zm_dict_count() > 0);
+
+;;; a word in the dictionary decodes back to itself
+lvars e = zm_dict_lookup('mailbox');
+check_true('known word found', e /== 0);
+check('short word decodes back', zm_text(zm_dict_lookup('brass')), 'brass');
+check('unknown word not found', zm_dict_lookup('xyzzy'), 0);
+
+;;; v3 stores only six z-characters, so a seven-letter word is held
+;;; truncated -- this is exactly why Zork cannot tell FLASHLIGHT from
+;;; FLASHLIGH, and the interpreter must truncate the typed word the same
+;;; way or nothing long would ever be found
+check('long word stored truncated', zm_text(e), 'mailbo');
+check_true('so both spellings are the same word to the game',
+    zm_dict_lookup('mailbox') == zm_dict_lookup('mailbo'));
+
+;;; v3 keeps only six z-characters, so long words collide -- this is why
+;;; Zork cannot tell FLASHLIGHT from FLASHLIGH
+check('encoding is two words in v3', listlength(zm_encode_word('open')), 2);
+check_true('last encoded word has the end bit',
+    (zm_encode_word('open')(2) && 16:8000) /== 0);
+
 ;;; --- conformance: the whole machine, end to end -------------------------
 ;;;
 ;;; CZECH exercises 368 behaviours and prints its own verdict.  Capturing
@@ -163,5 +202,47 @@ check_true('czech: 0 failed',
     issubstring('Failed: 0', 1, verdict) and true);
 check_true('czech: 368 tests performed',
     issubstring('Performed 368 tests', 1, verdict) and true);
+
+;;; The whole input path, end to end: feed a line to the parser story and
+;;; check what it reports.  A canned keyboard is installed the same way a
+;;; canned screen is -- by dlocal-ing the variable.
+
+lvars pt_chars = [], pt_n = 0;
+
+define lconstant pt_grab(c);
+    lvars c;
+    conspair(if c == 13 then `\n` else c endif, pt_chars) -> pt_chars;
+    pt_n + 1 -> pt_n;
+enddefine;
+
+define lconstant pt_line() -> line;
+    lvars line = 'take brass lamp, north xyzzy';
+enddefine;
+
+define lconstant run_parsertest() -> text;
+    lvars text;
+    dlocal zio_char = pt_grab, zio_read_line = pt_line;
+    dlocal zm_max_steps = 200000;
+    zm_play(ptstory) -> ;
+    consstring(destlist(rev(pt_chars))) -> text;
+enddefine;
+
+lvars parsed = run_parsertest();
+
+;;; "take brass lamp, north xyzzy" is SIX tokens, because a word separator
+;;; is itself a word (standard 13.6.1): take/brass/lamp/,/north/xyzzy.
+;;; The reference interpreter gets this wrong and returns five, gluing the
+;;; comma onto "lamp" -- which breaks "TROLL, HELLO" and multi-sentence
+;;; input in real games.  See docs/projects/zmachine-design.md.
+check_true('six tokens including the separator',
+    issubstring('n=6', 1, parsed) and true);
+check_true('first word found at position 1',
+    issubstring('w0=found l=4 p=1', 1, parsed) and true);
+check_true('lamp split from its comma',
+    issubstring('w2=found l=4 p=12', 1, parsed) and true);
+check_true('the comma is its own one-character token',
+    issubstring('w3=unknown l=1 p=16', 1, parsed) and true);
+check_true('unknown word reported unknown',
+    issubstring('w5=unknown l=5 p=24', 1, parsed) and true);
 
 test_summary();

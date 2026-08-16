@@ -18,6 +18,8 @@ The runner takes a path, so use your own copy:
 |------|------------|-------|
 | `czech.inf` | Source of CZECH — the Comprehensive Z-machine Emulation CHecker, by Amir Karger, based on Evin Robertson's public-domain nitfol test script | The source states: *"See README.txt for license. (Basically, use/copy/modify, but be nice.)"* — freely distributable |
 | `czech.z3` | `czech.inf` compiled for Z-machine **version 3**, by us (`tools/zmachine/build-testgames.sh`) | as above |
+| `parsertest.inf` | A tiny v3 story written for this project: a known six-word dictionary, one `@sread`, and a report of what the interpreter put in the parse buffer | MIT, same as this repository |
+| `parsertest.z3` | `parsertest.inf` compiled for v3 | as above |
 
 ## Rebuilding
 

@@ -259,6 +259,15 @@ files by hand" into "diff against a reference implementation".
 
    Caveat, learned from the v5 czech run: the oracle is a reference, not
    an authority. Where they disagree, CZECH and the standard decide.
+   This was not hypothetical. On `take brass lamp, north xyzzy` the
+   reference returns five tokens, gluing the comma onto `lamp`; the
+   standard (§13.6.1) says a word separator **is itself a word**, so the
+   answer is six. Mini-Zork settles it: given our tokens, `open mailbox.
+   north` opens the mailbox *and* walks north, while the reference
+   answers *"You used the word 'north' in a way that I don't
+   understand"*. Commands addressed to characters (`TROLL, HELLO`) fail
+   the same way there. `examples/games/parsertest.inf` pins this down as
+   a regression test.
 
 4. **End-to-end golden transcript** for the committable story files, so
    the public repo has a regression test that needs no external assets.
@@ -281,9 +290,9 @@ before the milestone starts.
 |---|---|---|
 | M1 ✅ | `zmachine_mem` + `zmachine_text` + `zmachine_obj` (done 2026-08-16) | load `czech.z3` and `minizork.z3`; dump both headers; print the abbreviations table and every object's short name — "West of House", "small mailbox", "brass lantern" prove decode + object tree in one shot |
 | M2 ✅ | frames, decoder, `zstore`/`zbranch`, the v3 instruction set bar `sread`/`save`/`restore` (done 2026-08-16) | `czech.z3` runs until it *names* an unimplemented opcode; each new opcode moves the test number up |
-| M3 | full v3 opcode set, dictionary, `read` | **`czech.z3`: 349 passed, 0 failed** — and **Mini-Zork playable**, its walkthrough transcript matching the oracle |
+| M3 ✅ | full v3 opcode set, dictionary, `read`, save/restore (done 2026-08-16) | **`czech.z3`: 349 passed, 0 failed** — and **Mini-Zork playable**, its walkthrough transcript matching the oracle |
 | M4 | v5 additions (EXT ops, extended dictionary, `call_n`) | **`Advent.z5` playable**; `advent.z5` + `czech.z5` committed and green in CI |
-| M5 | Quetzal save/restore | the walkthrough's `save`/`restore` pair works; a save file written by tszm restores in ours and vice versa |
+| M5 | Quetzal save/restore (a simple native format already works; M5 makes it interchangeable) | the walkthrough's `save`/`restore` pair works; a save file written by tszm restores in ours and vice versa |
 | M6 | notebook + VED + MCP front ends | executed Adventure notebook in the gallery |
 
 TEACH ZMACHINE grows one section per milestone, written *from* the code

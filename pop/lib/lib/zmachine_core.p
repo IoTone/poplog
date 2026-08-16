@@ -280,8 +280,8 @@ enddefine;
 ;;; An unfilled slot is not a crash but a precise request: it names the
 ;;; opcode and where the game asked for it, which is exactly the loop we
 ;;; develop by -- run it, see what it asks for, write that one.
-define lconstant unimplemented(idx, n);
-    lvars idx, n;
+define lconstant unimplemented(n, idx);
+    lvars idx, n;           ;;; idx is frozen by the closure, so it comes LAST
     erasenum(n);                    ;;; discard the operands
     mishap(0, 'zmachine: unimplemented opcode ' sys_>< zm_op_name(idx)
                 sys_>< ' at PC ' sys_>< zm_pc)

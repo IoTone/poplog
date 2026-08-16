@@ -30,6 +30,11 @@ inform -h 2>&1 | head -1
 inform -v3 czech.inf czech.z3
 echo "built: examples/games/czech.z3 ($(wc -c < czech.z3 | tr -d ' ') bytes)"
 
+inform -v3 parsertest.inf parsertest.z3
+echo "built: examples/games/parsertest.z3 ($(wc -c < parsertest.z3 | tr -d ' ') bytes)"
+
 # Sanity: byte 0 of a story file is its version number.
-v="$(od -An -tu1 -N1 czech.z3 | tr -d ' ')"
-[ "$v" = 3 ] || { echo "build-testgames: czech.z3 is version $v, expected 3" >&2; exit 1; }
+for f in czech.z3 parsertest.z3; do
+    v="$(od -An -tu1 -N1 $f | tr -d ' ')"
+    [ "$v" = 3 ] || { echo "build-testgames: $f is version $v, expected 3" >&2; exit 1; }
+done

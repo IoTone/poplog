@@ -24,6 +24,8 @@
 compile_mode :pop11 +strict;
 
 uses zmachine_core;
+uses zmachine_dict;
+uses zmachine_save;
 
 section $-zmachine;
 
@@ -400,11 +402,34 @@ enddefine;
 ;;; In v3 the interpreter draws the status line; the front end decides
 ;;; whether it has anywhere to draw it.  Global 1 is the current room,
 ;;; globals 2 and 3 the score and turns.
-define lconstant op_show_status(n);
-    lvars n;
+define lconstant show_status();
     zio_status(zm_obj_name(zm_var_get(16)),
                zm_signed(zm_var_get(17)),
                zm_signed(zm_var_get(18)));
+enddefine;
+
+define lconstant op_show_status(n);
+    lvars n;
+    show_status();
+enddefine;
+
+;;; In v3 save and restore BRANCH rather than store.  The program counter
+;;; written into a save file points at this instruction's own branch data,
+;;; so a restore resumes here and takes that branch as the success -- which
+;;; is why a restored v3 game continues from the save opcode, not the
+;;; restore one.
+define lconstant op_save(n);
+    lvars n;
+    zm_branch(zm_save_state());
+enddefine;
+
+define lconstant op_restore(n);
+    lvars n;
+    if zm_restore_state() then
+        zm_branch(true)
+    else
+        zm_branch(false)
+    endif
 enddefine;
 
 ;;; verify compares the published checksum with a sum over the story as
@@ -503,6 +528,35 @@ define lconstant op_pull(n);
     zm_var_poke(var, zm_pop());
 enddefine;
 
+;;; sread is where the game hands control back to the player: read a line,
+;;; store it in the game's text buffer, and chop it into dictionary
+;;; references in the game's parse buffer.  In v3 the status line is
+;;; redrawn first -- the game never does that itself.
+define lconstant op_sread(n);
+    lvars n, text_addr, parse_addr, line, maxlen, i, len, c;
+    () -> (text_addr, parse_addr);
+    show_status();
+    zio_read_line() -> line;
+
+    ;;; The dictionary is written in lower case, so input is folded before
+    ;;; it is stored OR tokenised.
+    fast_for i from 1 to datalength(line) do
+        uppertolower(fast_subscrs(i, line)) -> fast_subscrs(i, line)
+    endfor;
+
+    zm_byte(text_addr) -> maxlen;
+    if datalength(line) fi_> maxlen then
+        substring(1, maxlen, line) -> line
+    endif;
+    datalength(line) -> len;
+    fast_for i from 1 to len do
+        fast_subscrs(i, line) -> zm_byte(text_addr fi_+ i)
+    endfor;
+    0 -> zm_byte(text_addr fi_+ len fi_+ 1);        ;;; the terminator
+
+    zm_tokenise(line, parse_addr);
+enddefine;
+
 ;;; Window and stream control: accepted and ignored until a front end has
 ;;; somewhere to put them (M6).
 define lconstant op_ignore1(n);
@@ -546,10 +600,12 @@ install(178, op_print);         install(179, op_print_ret);
 install(180, op_nop);           install(184, op_ret_popped);
 install(185, op_pop);           install(186, op_quit);
 install(187, op_new_line);      install(188, op_show_status);
+install(181, op_save);         install(182, op_restore);
 install(183, op_restart);      install(189, op_verify);
 
 install(224, op_call);          install(225, op_storew);
 install(226, op_storeb);        install(227, op_put_prop);
+install(228, op_sread);
 install(229, op_print_char);    install(230, op_print_num);
 install(231, op_random);        install(232, op_push);
 install(233, op_pull);          install(234, op_ignore1);

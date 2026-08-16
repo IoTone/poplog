@@ -13,6 +13,10 @@ unless args and args /== [] then
     sysexit();
 endunless;
 
+;;; keep saves in the current directory rather than beside the story file,
+;;; which may be read-only or somebody else's tree
+sys_fname_nam(hd(args)) sys_>< '.sav' -> zm_save_file;
+
 unless tl(args) == [] then
     strnumber(hd(tl(args))) -> zm_max_steps;
 endunless;

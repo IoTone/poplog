@@ -1,0 +1,45 @@
+! parsertest.inf -- a tiny Z-machine v3 story for testing an interpreter's
+! dictionary lookup, input tokeniser and sread opcode.
+!
+! Written for IoTone/poplog (docs/projects/zmachine-design.md) and released
+! under the same MIT terms as the rest of that repository, so the compiled
+! parsertest.z3 can be committed and used in CI.
+!
+! It uses no Inform library: Main reads one line with @read and reports
+! what the interpreter put in the parse buffer -- how many tokens it found,
+! whether each was in the dictionary, and each one's length and position in
+! the text buffer.  Feeding it "open mailbox" and diffing the output tests
+! the whole input path.
+!
+! Compile:  inform -v3 parsertest.inf parsertest.z3
+! (v3 spells the opcode @sread; @read is the v5 form.)
+
+Constant Story "PARSERTEST";
+
+Array buffer -> 64;         ! text buffer: byte 0 is the maximum length
+Array parse  -> 32;         ! parse buffer: byte 0 is the maximum token count
+
+! Naming words puts them in the story's dictionary; the interpreter has to
+! find these and only these.
+Array Vocab --> 'open' 'mailbox' 'north' 'take' 'brass' 'lamp';
+
+[ Main i n;
+    buffer->0 = 60;
+    parse->0  = 6;
+
+    print "PARSERTEST^";
+    @sread buffer parse;
+
+    n = parse->1;
+    print "n=", n, "^";
+
+    ! Four bytes per token after the two-byte header: a two-byte dictionary
+    ! address (zero when the word is unknown), then its length, then where
+    ! it started in the text buffer.
+    for (i = 0 : i < n : i++) {
+        print "w", i, "=";
+        if (parse-->(1 + i*2) ~= 0) print "found"; else print "unknown";
+        print " l=", parse->(4 + i*4), " p=", parse->(5 + i*4), "^";
+    }
+    @quit;
+];
