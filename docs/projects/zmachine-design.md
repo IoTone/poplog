@@ -215,22 +215,61 @@ PC and the last opcode.
 
 ## 7. Testing
 
-Three layers, all cheap to run:
+We are unusually well equipped here, because the sibling project
+`IfWhenZMachineSpectacles` already contains a working TypeScript
+Z-machine (`tszm`), a curated story library with the licensing research
+done, and scripted walkthroughs. That turns testing from "write golden
+files by hand" into "diff against a reference implementation".
+
+**Four layers:**
 
 1. **Unit** (`tools/tests/test_zmachine.p`, poptest, joins
    `tools/test-libs.sh`): header parsing against a hand-built byte
    string; `signed16`/`unsigned16` edges; ZSCII decode of known words
    and encode/decode round trips; object accessors against a synthesized
    miniature object table; branch-offset decoding of all four forms.
-2. **Conformance**: `czech.z5` and `praxix.z5` — the public Z-machine
-   test suites — run headless, output diffed against their expected
-   transcripts. This is the real correctness gate.
-3. **End-to-end golden transcript**: a fixed command sequence fed to
-   `Advent.z5`, output diffed against a committed transcript. Catches
-   the parser/dictionary/text bugs a conformance suite doesn't.
+
+2. **Conformance — the hard gate.** CZECH (the Comprehensive Z-machine
+   Emulation CHecker) compiled for v3. Its source is freely
+   distributable, so we compile and commit the artifact ourselves
+   (`tools/zmachine/build-testgames.sh` → `examples/games/czech.z3`,
+   10.7 KB) and CI needs no Inform toolchain. A correct v3 interpreter
+   reports exactly:
+
+   ```
+   Performed 368 tests.
+   Passed: 349, Failed: 0, Print tests: 19
+   ```
+
+   Verified against the reference interpreter before we wrote a line —
+   and note v3 is *cleaner* than v5, where the same suite exposes a real
+   bug in the reference (`[241] Expected 6; got 7`). Another argument
+   for finishing v3 first.
+
+3. **Differential against the oracle.** `node tszm/test/run.js
+   <story> <input-script>` replays a scripted session; our runner takes
+   the same story and script and the transcripts are diffed. This is far
+   stronger than hand-written goldens: any story file plus any command
+   list becomes a test, and disagreements point at a specific turn.
+   Bring-up target is `minizork.z3` (Mini-Zork I — a real 52 KB v3
+   Infocom game) with the project's existing `minizork-walk.txt`, which
+   exercises the mailbox, leaflet, lamp, rug, trap door, and a
+   save/restore pair.
+
+   Caveat, learned from the v5 czech run: the oracle is a reference, not
+   an authority. Where they disagree, CZECH and the standard decide.
+
+4. **End-to-end golden transcript** for the committable story files, so
+   the public repo has a regression test that needs no external assets.
 
 The notebook front end doubles as a demo *and* a test: an executed
 notebook is a transcript that must reproduce.
+
+**Licensing line.** `czech.z3` (ours, from free source) is committed.
+`minizork.z3` is Activision property and stays out of the repository —
+it is a local bring-up target only, reached by path. `advent.z5` is
+freely distributable and can be committed when v5 lands in M4. Recorded
+in `examples/games/README.md`.
 
 ## 8. Milestones
 
@@ -239,11 +278,11 @@ before the milestone starts.
 
 | M | Delivers | Acceptance |
 |---|---|---|
-| M1 | `zmachine_mem` + `zmachine_text` | load a story file; dump the header; print the abbreviations table and every object's short name |
-| M2 | frames, decoder, `zstore`/`zbranch`, ~30 opcodes | run `czech.z5` until it names an unimplemented opcode |
-| M3 | full v3 opcode set, dictionary, `read` | **Zork I playable**; golden-transcript test green |
-| M4 | v5 additions (EXT ops, extended dictionary, `call_n`) | **`Advent.z5` playable**; conformance suites green in CI |
-| M5 | Quetzal save/restore | save, quit, restore, continue — verified against another interpreter's save file |
+| M1 | `zmachine_mem` + `zmachine_text` | load `czech.z3` and `minizork.z3`; dump both headers; print the abbreviations table and every object's short name — "West of House", "small mailbox", "brass lantern" prove decode + object tree in one shot |
+| M2 | frames, decoder, `zstore`/`zbranch`, ~30 opcodes | `czech.z3` runs until it *names* an unimplemented opcode; each new opcode moves the test number up |
+| M3 | full v3 opcode set, dictionary, `read` | **`czech.z3`: 349 passed, 0 failed** — and **Mini-Zork playable**, its walkthrough transcript matching the oracle |
+| M4 | v5 additions (EXT ops, extended dictionary, `call_n`) | **`Advent.z5` playable**; `advent.z5` + `czech.z5` committed and green in CI |
+| M5 | Quetzal save/restore | the walkthrough's `save`/`restore` pair works; a save file written by tszm restores in ours and vice versa |
 | M6 | notebook + VED + MCP front ends | executed Adventure notebook in the gallery |
 
 TEACH ZMACHINE grows one section per milestone, written *from* the code
@@ -268,17 +307,34 @@ optimisation work is planned; if a hot spot ever appears, `fast_subscrs`
 and lexical locals are already in use and the next lever is simply
 inlining `zbyte`.
 
-## 10. Decisions needed
+## 10. Decisions
 
-1. **v3 first, then v5** *(recommended)*. v3 has the simpler decode and
-   Zork I is the icon; v5 follows immediately in M4 because
-   `Advent.z5` is the only *shippable* game. Alternative is v5-first,
-   which reaches a committable, legally-clean playable game one
-   milestone sooner at the cost of a harder first decoder.
-2. **Story files**: confirm the repo ships only `Advent.z5` + the test
-   suites, and that Zork I stays user-supplied (`zplay ~/zork1.z3`).
-3. **Where the notebook front end lands** — `examples/notebooks/` beside
-   the TEACH gallery, or its own `examples/games/` page.
+1. **v3 first, then v5** — *decided 2026-08-16*. Simpler decoder, and
+   the bring-up target is Mini-Zork I, a real Infocom v3 game. The v5
+   czech failure in the reference interpreter (§7) is a second reason
+   not to start there.
+2. **Story files** — *resolved*. `czech.z3` is compiled from free
+   source and committed; `advent.z5` joins it at M4; Mini-Zork and Zork
+   stay outside the repo and are reached by path. Recorded in
+   `examples/games/README.md`.
+3. **Where the notebook front end lands** — still open, and not needed
+   until M6: `examples/notebooks/` beside the TEACH gallery, or its own
+   games page.
 
 Nothing here needs an external account or any hosting decision; those
 start at rung 3 of the hosting ladder in the companion brief.
+
+## 11. Assets in hand
+
+From the sibling project `IfWhenZMachineSpectacles` (nothing is copied
+into this repo except where the licence allows):
+
+- **`tszm`** — a working TypeScript Z-machine with a scripted-I/O CLI
+  harness (`node test/run.js <story> <input-file>`). Our oracle.
+- **`minizork.z3`** (52 KB, v3) + **`minizork-walk.txt`** — the M3
+  bring-up target and its walkthrough.
+- **`advent.z5`** (135 KB, v5) + **`advent-walk.txt`** — the M4 target;
+  freely distributable, committable when we get there.
+- **`czech.inf`** — conformance source, from which we build v3.
+- **`GAMES-LICENSES.md`** — provenance and terms for 11 story files,
+  already researched. Worth re-reading before committing any of them.
