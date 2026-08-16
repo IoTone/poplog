@@ -180,8 +180,8 @@ enddefine;
 ;;; Word separators (usually the comma and the full stop) are not thrown
 ;;; away like spaces -- each is a token in its own right, which is how
 ;;; "TROLL, HELLO" reaches the game as three words.
-define zm_tokenise(text, parse_addr);
-    lvars text, parse_addr, len = datalength(text), i = 1, start,
+define zm_tokenise(text, parse_addr, posbase);
+    lvars text, parse_addr, posbase, len = datalength(text), i = 1, start,
           maxtok = zm_byte(parse_addr), ntok = 0, tok, c, entry, p;
     if maxtok == 0 then return endif;
 
@@ -210,9 +210,9 @@ define zm_tokenise(text, parse_addr);
         parse_addr fi_+ 2 fi_+ (ntok fi_* 4) -> p;
         entry            -> zm_word(p);
         datalength(tok)  -> zm_byte(p fi_+ 2);
-        ;;; the position the game is told is one-based within the buffer,
-        ;;; where the text itself starts at byte 1 in v3
-        start            -> zm_byte(p fi_+ 3);
+        ;;; where the word starts, counted in the game's own buffer: the
+        ;;; text begins at byte 1 in v3 and byte 2 from v5
+        posbase fi_+ start fi_- 1 -> zm_byte(p fi_+ 3);
         ntok fi_+ 1 -> ntok;
     endwhile;
 

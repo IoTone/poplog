@@ -11,8 +11,9 @@
 #                                         apt install inform
 #
 # CZECH compiles for several Z-machine versions; we build the ones the
-# interpreter targets.  On v3 a correct interpreter reports:
-#     Performed 368 tests.  Passed: 349, Failed: 0, Print tests: 19
+# interpreter targets.  A correct interpreter reports:
+#     v3:  Performed 368 tests.  Passed: 349, Failed: 0, Print tests: 19
+#     v5:  Performed 425 tests.  Passed: 406, Failed: 0, Print tests: 19
 set -e
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -30,6 +31,11 @@ inform -h 2>&1 | head -1
 inform -v3 czech.inf czech.z3
 echo "built: examples/games/czech.z3 ($(wc -c < czech.z3 | tr -d ' ') bytes)"
 
+# the same suite for version 5, which exercises the extended opcodes,
+# the eight-operand calls and the v5 input model
+inform -v5 czech.inf czech.z5
+echo "built: examples/games/czech.z5 ($(wc -c < czech.z5 | tr -d ' ') bytes)"
+
 inform -v3 parsertest.inf parsertest.z3
 echo "built: examples/games/parsertest.z3 ($(wc -c < parsertest.z3 | tr -d ' ') bytes)"
 
@@ -38,3 +44,5 @@ for f in czech.z3 parsertest.z3; do
     v="$(od -An -tu1 -N1 $f | tr -d ' ')"
     [ "$v" = 3 ] || { echo "build-testgames: $f is version $v, expected 3" >&2; exit 1; }
 done
+v="$(od -An -tu1 -N1 czech.z5 | tr -d ' ')"
+[ "$v" = 5 ] || { echo "build-testgames: czech.z5 is version $v, expected 5" >&2; exit 1; }

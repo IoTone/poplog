@@ -20,6 +20,7 @@ The runner takes a path, so use your own copy:
 | `czech.z3` | `czech.inf` compiled for Z-machine **version 3**, by us (`tools/zmachine/build-testgames.sh`) | as above |
 | `parsertest.inf` | A tiny v3 story written for this project: a known six-word dictionary, one `@sread`, and a report of what the interpreter put in the parse buffer | MIT, same as this repository |
 | `parsertest.z3` | `parsertest.inf` compiled for v3 | as above |
+| `czech.z5` | `czech.inf` compiled for **version 5** — the extended opcodes, eight-operand calls and v5 input model | as `czech.inf` |
 
 ## Rebuilding
 
@@ -45,8 +46,13 @@ These live outside the repo and are used locally for bring-up:
   historically given away on a UK magazine cassette but never formally
   licensed. Local development only.
 - **`advent.z5`** — Adventure (Crowther & Woods; Graham Nelson's Inform
-  port, Release 9). Freely distributable and *could* be committed when
-  the interpreter reaches v5 (milestone M4).
+  port, Release 9). Plays correctly here as of M4, and its walkthrough
+  matches the reference interpreter exactly. **Not committed**: the
+  original is public domain and the Inform port is widely redistributed,
+  but the sibling project's own licence audit lists "capture the
+  author's licence statement verbatim" as still outstanding, and that is
+  a call for the repository owner rather than something to assume.
+  Until then it stays a local target, reached by path.
 
 Both, plus a reference TypeScript interpreter and walkthrough scripts,
 are in the sibling project `IfWhenZMachineSpectacles` (see

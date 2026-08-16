@@ -322,6 +322,17 @@ define zm_step();
 
     zm_fetch_byte() -> op;
 
+    ;;; $BE introduces the extended form (v5+): a second opcode byte, a
+    ;;; types byte, and a table of its own.  It sits inside the short-form
+    ;;; range, so it has to be checked before the forms are decoded.
+    if op == 16:BE and zm_version fi_>= 5 then
+        zm_fetch_byte() -> idx;
+        read_typed_operands(zm_fetch_byte()) -> n;
+        n;
+        fast_subscrv(idx fi_+ 1, zm_ops_ext)();
+        return
+    endif;
+
     if op fi_< 16:80 then
         ;;; long form: two operands, bit 6 and bit 5 saying small-constant
         ;;; (0) or variable (1) for the first and second
@@ -346,7 +357,23 @@ define zm_step();
         ;;; variable form: a types byte follows.  Bit 5 of the opcode says
         ;;; whether this is a VAR instruction or a 2OP one that happens to
         ;;; be encoded this way (which is how a 2OP gets a large constant).
-        read_typed_operands(zm_fetch_byte()) -> n;
+        ;;; call_vs2 ($EC) and call_vn2 ($FA) are the only instructions that
+        ;;; can take eight operands, and they say so with a SECOND types
+        ;;; byte.  BOTH type bytes come before any operand -- reading the
+        ;;; second one after the first four operands walks off the
+        ;;; instruction and calls a routine at a nonsense address.
+        lvars t1 = zm_fetch_byte(), t2;
+        if op == 16:EC or op == 16:FA then
+            zm_fetch_byte() -> t2;
+            read_typed_operands(t1) -> n;
+            if n == 4 then
+                lvars n2;
+                read_typed_operands(t2) -> n2;
+                n fi_+ n2 -> n
+            endif
+        else
+            read_typed_operands(t1) -> n
+        endif;
         if (op fi_&& 16:20) == 0 then
             op fi_&& 2:11111 -> idx
         else
@@ -379,6 +406,26 @@ define zm_reset();
     6  -> zm_byte(16:1E);       ;;; interpreter number: "IBM PC"
     `P` -> zm_byte(16:1F);      ;;; interpreter version letter
 
+    ;;; From v4 the interpreter also declares the screen it has and which
+    ;;; presentation features it can honour.  We are a plain terminal:
+    ;;; fixed-pitch text, no colour, pictures, sound, mouse or undo.
+    if zm_version fi_>= 4 then
+        24 -> zm_byte(16:20);           ;;; screen height, in lines
+        80 -> zm_byte(16:21);           ;;; screen width, in characters
+        80 -> zm_word(16:22);           ;;; ...and in "units", which for us
+        24 -> zm_word(16:24);           ;;; are simply characters and lines
+        1  -> zm_byte(16:26);           ;;; font width  in units
+        1  -> zm_byte(16:27);           ;;; font height in units
+        ;;; flags1: keep only "fixed-pitch font available" (bit 4)
+        (zm_byte(16:01) fi_&& 2:00010000) -> zm_byte(16:01);
+        ;;; flags2: refuse pictures, undo, mouse, sound and menus by
+        ;;; clearing the bits the game uses to ask for them
+        (zm_word(16:10) fi_&& 2:0000000101000111) -> zm_word(16:10);
+        1 -> zm_byte(16:32);            ;;; standard revision 1.0
+        0 -> zm_byte(16:33);
+    endif;
+
+    zm_window_reset();
     true -> zm_running;
 enddefine;
 

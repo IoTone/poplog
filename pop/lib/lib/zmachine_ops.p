@@ -65,6 +65,14 @@ define lconstant unlink_object(obj);
     0 -> zm_obj_sibling(obj);
 enddefine;
 
+;;; Pull a run of bytes out of story memory as a Pop-11 string.
+define lconstant substring_of_memory(addr, len) -> s;
+    lvars addr, len, i, s = inits(len);
+    fast_for i from 1 to len do
+        zm_byte(addr fi_+ i fi_- 1) -> fast_subscrs(i, s)
+    endfor
+enddefine;
+
 ;;; ---- 2OP ---------------------------------------------------------------
 
 ;;; je is the one comparison that takes a variable number of operands:
@@ -302,7 +310,7 @@ enddefine;
 define lconstant op_print_addr(n);
     lvars n, addr;
     () -> addr;
-    zm_text_out(addr, zio_char) -> ;
+    zm_text_out(addr, zm_emit) -> ;
 enddefine;
 
 define lconstant op_remove_obj(n);
@@ -314,7 +322,7 @@ enddefine;
 define lconstant op_print_obj(n);
     lvars n, obj;
     () -> obj;
-    zm_text_out(zm_obj_prop_table(obj) fi_+ 1, zio_char) -> ;
+    zm_text_out(zm_obj_prop_table(obj) fi_+ 1, zm_emit) -> ;
 enddefine;
 
 define lconstant op_ret(n);
@@ -334,13 +342,25 @@ enddefine;
 define lconstant op_print_paddr(n);
     lvars n, paddr;
     () -> paddr;
-    zm_text_out(zm_unpack_string(paddr), zio_char) -> ;
+    zm_text_out(zm_unpack_string(paddr), zm_emit) -> ;
 enddefine;
 
 define lconstant op_load(n);
     lvars n, var;
     () -> var;
     zm_store(zm_var_peek(var));
+enddefine;
+
+;;; 1OP:15 is `not` up to v4; from v5 the encoding was reused for
+;;; call_1n -- a call whose result is thrown away.
+define lconstant op_not_or_call_1n(n);
+    lvars n, a;
+    () -> a;
+    if zm_version fi_<= 4 then
+        zm_store(zm_unsigned(16:FFFF fi_- (a fi_&& 16:FFFF)))
+    else
+        zm_call(a, [], false)
+    endif
 enddefine;
 
 define lconstant op_not(n);
@@ -365,13 +385,13 @@ enddefine;
 ;;; the address after it, which is where execution resumes.
 define lconstant op_print(n);
     lvars n;
-    zm_text_out(zm_pc, zio_char) -> zm_pc;
+    zm_text_out(zm_pc, zm_emit) -> zm_pc;
 enddefine;
 
 define lconstant op_print_ret(n);
     lvars n;
-    zm_text_out(zm_pc, zio_char) -> zm_pc;
-    zio_char(13);
+    zm_text_out(zm_pc, zm_emit) -> zm_pc;
+    zm_emit(13);
     zm_return(1);
 enddefine;
 
@@ -384,9 +404,15 @@ define lconstant op_ret_popped(n);
     zm_return(zm_pop());
 enddefine;
 
-define lconstant op_pop(n);
+;;; 0OP:9 is pop up to v4 and catch from v5.  catch hands the game a token
+;;; for the current call depth, which throw later unwinds back to.
+define lconstant op_pop_or_catch(n);
     lvars n;
-    zm_pop() -> ;
+    if zm_version fi_<= 4 then
+        zm_pop() -> 
+    else
+        zm_store(listlength(zm_frames) fi_+ 1)
+    endif
 enddefine;
 
 define lconstant op_quit(n);
@@ -396,7 +422,7 @@ enddefine;
 
 define lconstant op_new_line(n);
     lvars n;
-    zio_char(13);
+    zm_emit(13);
 enddefine;
 
 ;;; In v3 the interpreter draws the status line; the front end decides
@@ -418,17 +444,31 @@ enddefine;
 ;;; so a restore resumes here and takes that branch as the success -- which
 ;;; is why a restored v3 game continues from the save opcode, not the
 ;;; restore one.
+;;; v3 branches on the result; v4 stores it; from v5 these live in the
+;;; extended table instead (EXT:0 and EXT:1) and store as well.
 define lconstant op_save(n);
-    lvars n;
-    zm_branch(zm_save_state());
+    lvars n, ok;
+    zm_save_state() -> ok;
+    if zm_version fi_<= 3 then
+        zm_branch(ok)
+    else
+        zm_store(if ok then 1 else 0 endif)
+    endif
 enddefine;
 
 define lconstant op_restore(n);
-    lvars n;
-    if zm_restore_state() then
-        zm_branch(true)
+    lvars n, ok;
+    zm_restore_state() -> ok;
+    if zm_version fi_<= 3 then
+        ;;; a restored v3 game resumes at the SAVE instruction's branch
+        ;;; data, and takes that branch as its success
+        zm_branch(ok)
+    elseif ok then
+        ;;; likewise from v4, except that save stored rather than branched:
+        ;;; the resumed store writes 2, meaning "this is a restored game"
+        zm_store(2)
     else
-        zm_branch(false)
+        zm_store(0)
     endif
 enddefine;
 
@@ -462,6 +502,145 @@ define lconstant op_call(n);
     zm_call(routine, args, zm_fetch_byte());
 enddefine;
 
+;;; call_1s/call_2s/call_vs2 store their result; call_1n/call_2n/call_vn/
+;;; call_vn2 discard it.  All of them are zm_call with a different idea of
+;;; where the answer goes.
+define lconstant op_call_store(n);
+    lvars n, args, routine;
+    conslist(n) -> args;
+    dest(args) -> (routine, args);
+    zm_call(routine, args, zm_fetch_byte());
+enddefine;
+
+define lconstant op_call_discard(n);
+    lvars n, args, routine;
+    conslist(n) -> args;
+    dest(args) -> (routine, args);
+    zm_call(routine, args, false);
+enddefine;
+
+;;; throw unwinds the call stack back to the depth a catch recorded, and
+;;; returns the given value from there.
+define lconstant op_throw(n);
+    lvars n, value, frame;
+    () -> (value, frame);
+    until (listlength(zm_frames) fi_+ 1) fi_<= frame or zm_frames == [] do
+        fast_destpair(zm_frames) -> zm_frames -> zm_frame
+    enduntil;
+    zm_return(value);
+enddefine;
+
+define lconstant op_check_arg_count(n);
+    lvars n, k;
+    () -> k;
+    zm_branch(k fi_<= zf_nargs(zm_frame));
+enddefine;
+
+;;; log_shift fills with zeros; art_shift keeps the sign when shifting right
+define lconstant op_log_shift(n);
+    lvars n, number, places;
+    () -> (number, places);
+    zm_signed(places) -> places;
+    zm_store(if places fi_>= 0 then
+                 zm_unsigned(number fi_<< places)
+             else
+                 (number fi_&& 16:FFFF) fi_>> negate(places)
+             endif);
+enddefine;
+
+define lconstant op_art_shift(n);
+    lvars n, number, places;
+    () -> (number, places);
+    zm_signed(places) -> places;
+    zm_store(if places fi_>= 0 then
+                 zm_unsigned(zm_signed(number) fi_<< places)
+             else
+                 zm_unsigned(zm_signed(number) fi_>> negate(places))
+             endif);
+enddefine;
+
+;;; scan_table looks for a value in an array of records.  The form byte
+;;; says whether the fields are words or bytes (bit 7) and how far apart
+;;; they are (the rest); the default is words, two bytes apart.
+define lconstant op_scan_table(n);
+    lvars n, args, x, table, len, form = 16:82, i, addr, fieldlen, wordwise;
+                                    ;;; not `isword` -- Pop-11 owns that
+    conslist(n) -> args;
+    args(1) -> x; args(2) -> table; args(3) -> len;
+    if listlength(args) fi_>= 4 then args(4) -> form endif;
+    form fi_&& 2:1111111 -> fieldlen;
+    (form fi_&& 16:80) /== 0 -> wordwise;
+    fast_for i from 0 to len fi_- 1 do
+        table fi_+ (i fi_* fieldlen) -> addr;
+        if (if wordwise then zm_word(addr) else zm_byte(addr) endif) == x then
+            zm_store(addr);
+            zm_branch(true);
+            return
+        endif
+    endfor;
+    zm_store(0);
+    zm_branch(false);
+enddefine;
+
+;;; copy_table zeroes a block when its destination is 0, and otherwise
+;;; copies -- backwards when the blocks overlap the wrong way, unless a
+;;; negative size says the game wants a plain forward copy.
+define lconstant op_copy_table(n);
+    lvars n, first, second, size, i;
+    () -> (first, second, size);
+    zm_signed(size) -> size;
+    if second == 0 then
+        fast_for i from 0 to abs(size) fi_- 1 do 0 -> zm_byte(first fi_+ i) endfor
+    elseif size fi_< 0 or first fi_> second then
+        fast_for i from 0 to abs(size) fi_- 1 do
+            zm_byte(first fi_+ i) -> zm_byte(second fi_+ i)
+        endfor
+    else
+        fast_for i from size fi_- 1 by -1 to 0 do
+            zm_byte(first fi_+ i) -> zm_byte(second fi_+ i)
+        endfor
+    endif
+enddefine;
+
+;;; print_table prints a rectangle of characters out of memory
+define lconstant op_print_table(n);
+    lvars n, args, text, width, height = 1, skip = 0, r, c;
+    conslist(n) -> args;
+    args(1) -> text; args(2) -> width;
+    if listlength(args) fi_>= 3 then args(3) -> height endif;
+    if listlength(args) fi_>= 4 then args(4) -> skip endif;
+    fast_for r from 0 to height fi_- 1 do
+        fast_for c from 0 to width fi_- 1 do
+            zm_emit(zm_byte(text fi_+ c))
+        endfor;
+        text fi_+ width fi_+ skip -> text;
+        if r fi_< height fi_- 1 then zm_emit(13) endif
+    endfor
+enddefine;
+
+define lconstant op_read_char(n);
+    lvars n;
+    erasenum(n);
+    zm_store(zio_read_char());
+enddefine;
+
+define lconstant op_tokenise(n);
+    lvars n, args, text_addr, parse_addr, i, len, line;
+    conslist(n) -> args;
+    args(1) -> text_addr; args(2) -> parse_addr;
+    ;;; recover the text the game has in its buffer and re-tokenise it
+    if zm_version fi_<= 4 then
+        1 -> i; 0 -> len;
+        until zm_byte(text_addr fi_+ 1 fi_+ len) == 0 do len fi_+ 1 -> len enduntil;
+        substring_of_memory(text_addr fi_+ 1, len) -> line;
+        zm_tokenise(line, parse_addr, 1)
+    else
+        zm_byte(text_addr fi_+ 1) -> len;
+        substring_of_memory(text_addr fi_+ 2, len) -> line;
+        zm_tokenise(line, parse_addr, 2)
+    endif
+enddefine;
+
 define lconstant op_storew(n);
     lvars n, array, idx, val;
     () -> (array, idx, val);
@@ -491,7 +670,7 @@ enddefine;
 define lconstant op_print_char(n);
     lvars n, c;
     () -> c;
-    zio_char(c);
+    zm_emit(c);
 enddefine;
 
 define lconstant op_print_num(n);
@@ -533,9 +712,12 @@ enddefine;
 ;;; references in the game's parse buffer.  In v3 the status line is
 ;;; redrawn first -- the game never does that itself.
 define lconstant op_sread(n);
-    lvars n, text_addr, parse_addr, line, maxlen, i, len, c;
-    () -> (text_addr, parse_addr);
-    show_status();
+    lvars n, args, text_addr, parse_addr = 0, line, maxlen, i, len;
+    conslist(n) -> args;
+    args(1) -> text_addr;
+    if listlength(args) fi_>= 2 then args(2) -> parse_addr endif;
+    ;;; only v1-3 have the interpreter draw the status line
+    if zm_version fi_<= 3 then show_status() endif;
     zio_read_line() -> line;
 
     ;;; The dictionary is written in lower case, so input is folded before
@@ -549,12 +731,65 @@ define lconstant op_sread(n);
         substring(1, maxlen, line) -> line
     endif;
     datalength(line) -> len;
-    fast_for i from 1 to len do
-        fast_subscrs(i, line) -> zm_byte(text_addr fi_+ i)
-    endfor;
-    0 -> zm_byte(text_addr fi_+ len fi_+ 1);        ;;; the terminator
 
-    zm_tokenise(line, parse_addr);
+    if zm_version fi_<= 4 then
+        ;;; text from byte 1, ended by a zero
+        fast_for i from 1 to len do
+            fast_subscrs(i, line) -> zm_byte(text_addr fi_+ i)
+        endfor;
+        0 -> zm_byte(text_addr fi_+ len fi_+ 1);
+        if parse_addr /== 0 then zm_tokenise(line, parse_addr, 1) endif
+    else
+        ;;; from v5 byte 1 holds the count and the text begins at byte 2;
+        ;;; parsing is optional, and the key that ended the line is stored
+        len -> zm_byte(text_addr fi_+ 1);
+        fast_for i from 1 to len do
+            fast_subscrs(i, line) -> zm_byte(text_addr fi_+ 1 fi_+ i)
+        endfor;
+        if parse_addr /== 0 then zm_tokenise(line, parse_addr, 2) endif;
+        zm_store(13)
+    endif
+enddefine;
+
+;;; split_window reserves lines at the top of the screen; set_window
+;;; chooses which window print goes to.  Switching back to the main window
+;;; means the status bar has just been drawn in full, so that is when the
+;;; front end is handed it.
+define lconstant op_split_window(n);
+    lvars n, lines;
+    () -> lines;
+    lines -> zm_upper_height;
+enddefine;
+
+define lconstant op_set_window(n);
+    lvars n, w;
+    () -> w;
+    if w == 0 and zm_window /== 0 then zm_upper_flush() endif;
+    w -> zm_window;
+enddefine;
+
+define lconstant op_erase_window(n);
+    lvars n, w;
+    () -> w;
+    if zm_window /== 0 then zm_upper_flush() endif;
+enddefine;
+
+;;; Stream 1 is the screen and is always on; 2 is a transcript file and 4 a
+;;; record of commands, neither of which we keep; 3 redirects into a table
+;;; in the game's memory and is the one that matters.
+define lconstant op_output_stream(n);
+    lvars n, args, num, table;
+    conslist(n) -> args;
+    zm_signed(args(1)) -> num;
+    if num == 3 then
+        args(2) -> table;
+        0 -> zm_word(table);            ;;; the table starts empty
+        conspair(table, zm_mem_streams) -> zm_mem_streams;
+    elseif num == -3 then
+        if zm_mem_streams /== [] then
+            fast_back(zm_mem_streams) -> zm_mem_streams
+        endif;
+    endif
 enddefine;
 
 ;;; Window and stream control: accepted and ignored until a front end has
@@ -562,6 +797,28 @@ enddefine;
 define lconstant op_ignore1(n);
     lvars n;
     erasenum(n);
+enddefine;
+
+;;; The piracy opcode lets a game ask whether it thinks it is a legitimate
+;;; copy.  The standard's advice is to always branch.
+define lconstant op_piracy(n);
+    lvars n;
+    zm_branch(true);
+enddefine;
+
+;;; save_undo/restore_undo: a game may ask for a single-turn undo.  We do
+;;; not keep an undo buffer yet, so we answer "not supported" (-1), which
+;;; every well-behaved game handles.
+define lconstant op_save_undo(n);
+    lvars n;
+    erasenum(n);
+    zm_store(zm_unsigned(-1));
+enddefine;
+
+define lconstant op_restore_undo(n);
+    lvars n;
+    erasenum(n);
+    zm_store(0);
 enddefine;
 
 ;;; ---- install -----------------------------------------------------------
@@ -593,23 +850,47 @@ install(134, op_dec);           install(135, op_print_addr);
 install(137, op_remove_obj);    install(138, op_print_obj);
 install(139, op_ret);           install(140, op_jump);
 install(141, op_print_paddr);   install(142, op_load);
-install(143, op_not);
+install(143, op_not_or_call_1n);
 
 install(176, op_rtrue);         install(177, op_rfalse);
 install(178, op_print);         install(179, op_print_ret);
 install(180, op_nop);           install(184, op_ret_popped);
-install(185, op_pop);           install(186, op_quit);
+install(185, op_pop_or_catch);  install(186, op_quit);
 install(187, op_new_line);      install(188, op_show_status);
 install(181, op_save);         install(182, op_restore);
 install(183, op_restart);      install(189, op_verify);
+
+install(25, op_call_store);     install(26, op_call_discard);
+install(27, op_ignore1);        install(28, op_throw);
+install(136, op_call_store);
+install(191, op_piracy);
 
 install(224, op_call);          install(225, op_storew);
 install(226, op_storeb);        install(227, op_put_prop);
 install(228, op_sread);
 install(229, op_print_char);    install(230, op_print_num);
 install(231, op_random);        install(232, op_push);
-install(233, op_pull);          install(234, op_ignore1);
-install(235, op_ignore1);       install(243, op_ignore1);
-install(244, op_ignore1);
+install(233, op_pull);          install(234, op_split_window);
+install(235, op_set_window);    install(236, op_call_store);
+install(237, op_erase_window);       install(238, op_ignore1);
+install(239, op_ignore1);       install(240, op_ignore1);
+install(241, op_ignore1);       install(242, op_ignore1);
+install(243, op_output_stream); install(244, op_ignore1);
+install(245, op_ignore1);       install(246, op_read_char);
+install(247, op_scan_table);    install(248, op_not);
+install(249, op_call_discard);  install(250, op_call_discard);
+install(251, op_tokenise);      install(253, op_copy_table);
+install(254, op_print_table);   install(255, op_check_arg_count);
+
+;;; the extended table (v5+)
+define lconstant install_ext(idx, p);
+    lvars idx, procedure p;
+    p -> fast_subscrv(idx fi_+ 1, zm_ops_ext);
+enddefine;
+
+install_ext(0, op_save);        install_ext(1, op_restore);
+install_ext(2, op_log_shift);   install_ext(3, op_art_shift);
+install_ext(4, op_ignore1);     install_ext(9, op_save_undo);
+install_ext(10, op_restore_undo);
 
 endsection;

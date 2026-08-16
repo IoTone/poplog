@@ -242,10 +242,13 @@ files by hand" into "diff against a reference implementation".
    Passed: 349, Failed: 0, Print tests: 19
    ```
 
-   Verified against the reference interpreter before we wrote a line —
-   and note v3 is *cleaner* than v5, where the same suite exposes a real
-   bug in the reference (`[241] Expected 6; got 7`). Another argument
-   for finishing v3 first.
+   Verified against the reference interpreter before we wrote a line.
+   (An early note here claimed the v5 suite exposed a bug in the
+   reference at test 241. That was misread from a *stored* transcript
+   in the sibling project, presumably from an older build; run live,
+   the reference passes v5 cleanly. The correction is kept visible
+   because the lesson is the point: a checked-in transcript is not a
+   test result.)
 
 3. **Differential against the oracle.** `node tszm/test/run.js
    <story> <input-script>` replays a scripted session; our runner takes
@@ -291,7 +294,7 @@ before the milestone starts.
 | M1 ✅ | `zmachine_mem` + `zmachine_text` + `zmachine_obj` (done 2026-08-16) | load `czech.z3` and `minizork.z3`; dump both headers; print the abbreviations table and every object's short name — "West of House", "small mailbox", "brass lantern" prove decode + object tree in one shot |
 | M2 ✅ | frames, decoder, `zstore`/`zbranch`, the v3 instruction set bar `sread`/`save`/`restore` (done 2026-08-16) | `czech.z3` runs until it *names* an unimplemented opcode; each new opcode moves the test number up |
 | M3 ✅ | full v3 opcode set, dictionary, `read`, save/restore (done 2026-08-16) | **`czech.z3`: 349 passed, 0 failed** — and **Mini-Zork playable**, its walkthrough transcript matching the oracle |
-| M4 | v5 additions (EXT ops, extended dictionary, `call_n`) | **`Advent.z5` playable**; `advent.z5` + `czech.z5` committed and green in CI |
+| M4 ✅ | v5: extended opcodes, eight-operand calls, windows, output streams, the v5 input model (done 2026-08-16) | **Adventure playable**, its walkthrough matching the reference; `czech.z5` committed, 406/406 green in CI. `advent.z5` itself is NOT committed pending a licence confirmation (see `examples/games/README.md`) |
 | M5 | Quetzal save/restore (a simple native format already works; M5 makes it interchangeable) | the walkthrough's `save`/`restore` pair works; a save file written by tszm restores in ours and vice versa |
 | M6 | notebook + VED + MCP front ends | executed Adventure notebook in the gallery |
 

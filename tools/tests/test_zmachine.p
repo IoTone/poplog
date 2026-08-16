@@ -245,4 +245,47 @@ check_true('the comma is its own one-character token',
 check_true('unknown word reported unknown',
     issubstring('w5=unknown l=5 p=24', 1, parsed) and true);
 
+;;; --- v5 -----------------------------------------------------------------
+;;;
+;;; The same conformance suite compiled for version 5, which is a different
+;;; machine in several ways: extended (two-byte) opcodes, calls taking up to
+;;; eight operands, wider object entries and dictionary words, packed
+;;; addresses scaled by four, and an input model where the buffer carries a
+;;; count rather than a terminator.
+
+vars story5 = '$usepop/examples/games/czech.z5';
+unless readable(sysfileok(story5)) then
+    'examples/games/czech.z5' -> story5;
+endunless;
+
+lvars c5_chars = [], c5_n = 0;
+
+define lconstant c5_grab(c);
+    lvars c;
+    conspair(if c == 13 then `\n` else c endif, c5_chars) -> c5_chars;
+    c5_n + 1 -> c5_n;
+enddefine;
+
+define lconstant run_czech5() -> text;
+    lvars text;
+    dlocal zio_char = c5_grab;
+    dlocal zm_max_steps = 2000000;
+    zm_play(story5) -> ;
+    consstring(destlist(rev(c5_chars))) -> text;
+enddefine;
+
+lvars verdict5 = run_czech5();
+check('v5 story loaded', zm_version, 5);
+check('v5 packs addresses by four', zm_unpack_routine(1000), 4000);
+check_true('czech v5 ran to the end',
+    issubstring('Didn\'t crash: hooray!', 1, verdict5) and true);
+check_true('czech v5: 406 passed',
+    issubstring('Passed: 406', 1, verdict5) and true);
+check_true('czech v5: 0 failed',
+    issubstring('Failed: 0', 1, verdict5) and true);
+check_true('czech v5 exercised the extended opcodes',
+    issubstring('art_shift', 1, verdict5) and true);
+check_true('czech v5 exercised the eight-operand calls',
+    issubstring('call_vs2', 1, verdict5) and true);
+
 test_summary();
