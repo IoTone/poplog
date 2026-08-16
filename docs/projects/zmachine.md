@@ -27,6 +27,16 @@ naturally:
 A TEACH ZMACHINE file grows alongside the code — the project *is* the
 tutorial, the way TEACH CHAT builds Eliza.
 
+## Design
+
+The technical design — module decomposition, data representations,
+dispatch strategy, testing layers, milestones — is in
+[`zmachine-design.md`](zmachine-design.md). Headline decisions: memory
+is a Pop-11 string (byte array), operands ride the open stack through a
+256-entry vector of opcode procedures, front ends plug in via `dlocal`,
+and a measured spike puts dispatch at 45M/sec — two to three orders of
+magnitude more than the games need, so the code is written for a reader.
+
 ## Scope ladder
 
 1. **Rung 1 — v3 story files** (Zork I, era-standard `.z3`): memory
