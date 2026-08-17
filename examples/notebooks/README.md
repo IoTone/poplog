@@ -9,6 +9,10 @@ Run them yourself: `tools/jupyter/install-kernel.sh`, then
 `jupyter lab` and pick the **Pop-11** kernel.
 
 - [pop11-live.ipynb](pop11-live.ipynb) — tour of the language and kernel
+- [zmachine-cave.ipynb](zmachine-cave.ipynb) — **play interactive fiction
+  in a notebook**: Poplog's Z-machine (the VM Infocom shipped *Zork* on)
+  written in Pop-11, running a game live in the kernel session, one turn
+  per cell
 
 ## The TEACH corpus, runnable
 

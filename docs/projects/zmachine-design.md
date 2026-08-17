@@ -34,6 +34,7 @@ Seven files, each one lesson-sized. `uses zmachine` pulls the rest.
 | `zmachine_io.p` | screen/input abstraction, front ends | `dlocal` as a plug-in mechanism |
 | `zmachine_core.p` | stack, frames, decoder, the fetch–decode–execute loop | the interpreter loop itself |
 | `zmachine.p` | the umbrella: `uses` the six modules above | how a Poplog library is assembled |
+| `zmachine_play.p` | turn-by-turn sessions, the interpreter suspended in a Pop-11 process | coroutines as an inversion of control |
 
 Runner: `examples/zplay.p` (`zplay <story-file>`). Tutorial:
 `pop/teach/zmachine`. Tests: `tools/tests/test_zmachine.p`.
@@ -296,7 +297,7 @@ before the milestone starts.
 | M3 ✅ | full v3 opcode set, dictionary, `read`, save/restore (done 2026-08-16) | **`czech.z3`: 349 passed, 0 failed** — and **Mini-Zork playable**, its walkthrough transcript matching the oracle |
 | M4 ✅ | v5: extended opcodes, eight-operand calls, windows, output streams, the v5 input model (done 2026-08-16) | **Adventure playable**, its walkthrough matching the reference; `czech.z5` committed, 406/406 green in CI. `advent.z5` itself is NOT committed pending a licence confirmation (see `examples/games/README.md`) |
 | M5 ✅ | Quetzal save/restore (done 2026-08-16) | **bidirectional interoperability with Frotz 2.55**: our save restores there and its save restores here, both landing on the same room, inventory and move count |
-| M6 | notebook + VED + MCP front ends | executed Adventure notebook in the gallery |
+| M6 ✅ | notebook + MCP front ends, over a process-based turn API (done 2026-08-16) | `examples/notebooks/zmachine-cave.ipynb`, executed, one turn per cell; the `pop11_play` MCP tool. A VED front end is still open — the `zio_*` hooks are there for it |
 
 TEACH ZMACHINE grows one section per milestone, written *from* the code
 that just landed.
@@ -330,9 +331,10 @@ inlining `zbyte`.
    source and committed; `advent.z5` joins it at M4; Mini-Zork and Zork
    stay outside the repo and are reached by path. Recorded in
    `examples/games/README.md`.
-3. **Where the notebook front end lands** — still open, and needed for
-   M6: `examples/notebooks/` beside the TEACH gallery, or its own
-   games page.
+3. **Where the notebook front end lands** — *resolved*: it sits in
+   `examples/notebooks/` beside the TEACH gallery, and the story files
+   it needs ship in the release tarball so `$usepop/examples/games`
+   resolves in a checkout and an installed tree alike.
 
 Nothing here needs an external account or any hosting decision; those
 start at rung 3 of the hosting ladder in the companion brief.

@@ -21,6 +21,8 @@ The runner takes a path, so use your own copy:
 | `parsertest.inf` | A tiny v3 story written for this project: a known six-word dictionary, one `@sread`, and a report of what the interpreter put in the parse buffer | MIT, same as this repository |
 | `parsertest.z3` | `parsertest.inf` compiled for v3 | as above |
 | `czech.z5` | `czech.inf` compiled for **version 5** — the extended opcodes, eight-operand calls and v5 input model | as `czech.inf` |
+| `cave.inf` | **THE POPLOG CAVE** — a miniature adventure written for this project: four locations, a lamp, a gem and a light puzzle, in library-free Inform 6. Something freely licensed to actually *play*, since every interactive fiction worth playing belongs to somebody | MIT, same as this repository |
+| `cave.z3` | `cave.inf` compiled for v3 | as above |
 
 ## Rebuilding
 

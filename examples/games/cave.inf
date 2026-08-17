@@ -1,0 +1,135 @@
+! cave.inf -- THE POPLOG CAVE, a miniature adventure.
+!
+! Written for IoTone/poplog (docs/projects/zmachine-design.md) and released
+! under the same MIT terms as the rest of that repository, so the compiled
+! cave.z3 can be committed, played in the notebooks and used in CI.  Every
+! other interactive fiction worth playing belongs to somebody; this one is
+! ours, which is the whole point of it.
+!
+! It uses no Inform library -- there is no room for one in a story this
+! small -- so Main is the entire game: a look-and-move loop over four
+! locations, two objects and a light puzzle, parsing with @sread and
+! comparing dictionary addresses directly.
+!
+! Compile:  inform -v3 cave.inf cave.z3
+
+Constant Story "THE POPLOG CAVE";
+
+Array buffer -> 80;             ! text buffer:  byte 0 is the maximum length
+Array parse  -> 40;             ! parse buffer: byte 0 is the token capacity
+
+Global loc        = 1;          ! 1 mouth, 2 passage, 3 chamber, 4 treasure
+Global has_lamp   = 0;
+Global lamp_lit   = 0;
+Global has_gem    = 0;
+Global turns      = 0;
+
+[ Look;
+   switch (loc) {
+     1: print "^Cave Mouth^";
+        print "A crack in the hillside opens north into the dark. Daylight lies south.^";
+        if (has_lamp == 0) print "A brass lamp has been left here.^";
+     2: print "^Twisty Passage^";
+        print "The passage doubles back on itself. It runs north and south.^";
+     3: if (lamp_lit == 0) {
+           print "^Darkness^";
+           print "It is pitch black here.^";
+        } else {
+           print "^Dark Chamber^";
+           print "Wet walls glisten in the lamplight. Ways lead north and south.^";
+        }
+     4: print "^Treasure Room^";
+        print "A vaulted chamber, its ceiling lost above you. The way out is south.^";
+        if (has_gem == 0) print "A great gem rests on a pedestal.^";
+   }
+];
+
+[ Go dir dest;
+   dest = 0;
+   switch (loc) {
+     1: if (dir == 'north') dest = 2;
+     2: if (dir == 'north') dest = 3;
+        if (dir == 'south') dest = 1;
+     3: if (dir == 'north') {
+           if (lamp_lit == 0) {
+              print "You grope forward, think better of it, and stay put.^";
+              return;
+           }
+           dest = 4;
+        }
+        if (dir == 'south') dest = 2;
+     4: if (dir == 'south') dest = 3;
+   }
+   if (dest == 0) { print "You cannot go that way.^"; return; }
+   loc = dest;
+   Look();
+];
+
+[ Take obj;
+   if (obj == 'lamp' or 'brass') {
+      if (loc ~= 1 || has_lamp == 1) { print "You see no lamp here.^"; return; }
+      has_lamp = 1; print "Taken.^"; return;
+   }
+   if (obj == 'gem') {
+      if (loc ~= 4 || has_gem == 1) { print "You see no gem here.^"; return; }
+      has_gem = 1;
+      print "Taken. The cave seems to hold its breath.^"; return;
+   }
+   print "You cannot take that.^";
+];
+
+[ Inventory;
+   if (has_lamp == 0 && has_gem == 0) { print "You are empty-handed.^"; return; }
+   print "You are carrying:^";
+   if (has_lamp == 1) {
+      print "  a brass lamp";
+      if (lamp_lit == 1) print " (lit)";
+      print "^";
+   }
+   if (has_gem == 1) print "  a great gem^";
+];
+
+[ Light;
+   if (has_lamp == 0) { print "You have no lamp.^"; return; }
+   if (lamp_lit == 1) { print "It is already lit.^"; return; }
+   lamp_lit = 1;
+   print "The lamp catches, and throws a small steady light.^";
+   if (loc == 3) Look();
+];
+
+[ Score;
+   print "You have taken ", turns, " turns";
+   if (has_gem == 1) print " and you are carrying the gem. You have won.^";
+   else print ".^";
+];
+
+[ Main w x n;
+   buffer->0 = 78;
+   parse->0  = 10;
+
+   print "^THE POPLOG CAVE^";
+   print "A miniature, written to exercise a Z-machine written in Pop-11.^";
+   print "Try: LOOK, NORTH, SOUTH, TAKE LAMP, LIGHT LAMP, INVENTORY, SCORE, QUIT.^";
+   Look();
+
+   while (true) {
+      print "^>";
+      @sread buffer parse;
+      n = parse->1;
+      if (n == 0) { print "Say something.^"; continue; }
+      w = parse-->1;                 ! the first word's dictionary address
+      x = 0;
+      if (n > 1) x = parse-->3;      ! and the second's, if there is one
+      turns++;
+
+      if (w == 'look' or 'l')        { Look(); continue; }
+      if (w == 'north' or 'n')       { Go('north'); continue; }
+      if (w == 'south' or 's')       { Go('south'); continue; }
+      if (w == 'take' or 'get')      { Take(x); continue; }
+      if (w == 'light' or 'rub')     { Light(); continue; }
+      if (w == 'inventory' or 'i')   { Inventory(); continue; }
+      if (w == 'score')              { Score(); continue; }
+      if (w == 'quit')               { print "Goodbye.^"; @quit; }
+      print "That is not a word this small cave knows.^";
+   }
+];

@@ -6,6 +6,7 @@
 ;;; no commercial story file and no Inform toolchain.
 uses poptest;
 uses zmachine;          ;;; the whole machine: memory, text, objects, ops
+uses zmachine_play;     ;;; turn-by-turn sessions
 
 vars story = '$usepop/examples/games/czech.z3';
 unless readable(sysfileok(story)) then
@@ -340,5 +341,48 @@ savefile -> zm_save_file;
 check_false('save from another story refused', zm_restore_state());
 
 sysdelete(savefile) -> ;
+
+;;; --- turn-by-turn sessions ----------------------------------------------
+;;;
+;;; zplay runs the interpreter inside a Pop-11 process, so a game can be
+;;; suspended mid-instruction (inside sread, in fact) and resumed a turn
+;;; later.  The story is The Poplog Cave, written for this repository so
+;;; that something freely licensed ships with Poplog.
+
+vars cave = '$usepop/examples/games/cave.z3';
+unless readable(sysfileok(cave)) then
+    'examples/games/cave.z3' -> cave;
+endunless;
+
+lvars opening = zplay_start(cave);
+check_true('game started', issubstring('THE POPLOG CAVE', 1, opening) and true);
+check_true('and described where we are',
+    issubstring('Cave Mouth', 1, opening) and true);
+check_true('a game is now running', zplay_playing());
+
+check_true('a turn returns just that turn',
+    issubstring('Taken.', 1, zplay_turn('take lamp')) and true);
+check_true('and the world remembered it',
+    issubstring('lamp', 1, zplay_turn('inventory')) and true);
+
+;;; the dark room is the game's one puzzle, and it needs the lamp lit
+zplay_turn('north') -> ;                ;;; into the passage
+lvars dark_room = zplay_turn('north');  ;;; and on into the chamber
+check_true('dark without a light',
+    issubstring('pitch black', 1, dark_room) and true);
+zplay_turn('light lamp') -> ;
+check_true('lit changes what is there',
+    issubstring('glisten', 1, zplay_turn('look')) and true);
+check_true('and opens the way on',
+    issubstring('Treasure Room', 1, zplay_turn('north')) and true);
+check_true('the gem is takeable', 
+    issubstring('Taken', 1, zplay_turn('take gem')) and true);
+check_true('and winning is reported',
+    issubstring('won', 1, zplay_turn('score')) and true);
+
+zplay_turn('quit') -> ;
+check_false('the game is over', zplay_playing());
+check_true('and says so rather than crashing',
+    issubstring('over', 1, zplay_turn('look')) and true);
 
 test_summary();
