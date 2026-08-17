@@ -49,7 +49,8 @@ def convert(path):
 
     # NB no "procedure": its typed-declaration use (`lvars procedure p;`)
     # has no closer and would hold the balance open forever.
-    PAIRS = ["define", "if", "unless", "while", "until", "for", "repeat"]
+    PAIRS = ["define", "if", "unless", "while", "until", "for", "repeat",
+             "foreach", "forevery"]
 
     def define_balance(text):
         # TEACH files develop defines AND loops across several blocks;
@@ -71,17 +72,6 @@ def convert(path):
         if re.search(r"<\s*[a-z][^>\n]*>", text):
             cells.append(nbf.v4.new_markdown_cell("```\n" + text + "\n```"))
             return
-        # TEACH files often develop ONE procedure across several indented
-        # blocks with prose between (header … body … enddefine).  Those
-        # fragments are not compilable alone, so accumulate while the
-        # define/enddefine balance is open and emit a single complete
-        # cell at the closing fragment.
-        if pending or define_balance(text) > 0:
-            pending.append(text)
-            if define_balance("\n".join(pending)) > 0:
-                return
-            text = "\n".join(pending)
-            pending.clear()
         # Indented blocks that carry no statement machinery (no `;`, `=>`
         # or `->`) are prose or reference lists — fenced markdown.  So are
         # blocks that BEGIN with `->`: they are the second half of a
@@ -90,14 +80,44 @@ def convert(path):
         # …and so are non-terminating demos: TEACH files use bare
         # `repeat`-forever loops to teach interruption, which a notebook
         # cell cannot do.
+        # This classification runs BEFORE balance accounting (like the
+        # template fence): the balance regexes match `if`/`for`/… as
+        # plain English inside indented prose, and one such block used
+        # to open the balance and swallow every later code block in the
+        # file (TEACH DATABASE came out with zero code cells).
         never_ends = (re.search(r"\brepeat\b", text)
                       and not re.search(r"\bquit(if|unless|loop)\b|\btimes\b",
                                         text))
-        if not re.search(r"[;]|=>|->", text) \
-           or text.lstrip().startswith("->") or never_ends:
+        # …and blocks that END with a colon are prose leading into a
+        # list ("this has two elements:"), whatever punctuation they
+        # contain.
+        is_prose = (not re.search(r"[;]|=>|->", text)
+                    or text.lstrip().startswith("->") or never_ends
+                    or text.rstrip().endswith(":"))
+        if is_prose:
+            # never disturbs an open define accumulation
             cells.append(nbf.v4.new_markdown_cell("```\n" + text + "\n```"))
-        else:
-            cells.append(nbf.v4.new_code_cell(text))
+            return
+        # TEACH files often develop ONE procedure across several indented
+        # blocks with prose between (header … body … enddefine).  Those
+        # fragments are not compilable alone, so accumulate while the
+        # define/enddefine balance is open and emit a single complete
+        # cell at the closing fragment.
+        # A FRESH `define` while one is already open means the pending
+        # fragments were pedagogical re-displays of a header, not a
+        # development (TEACH STACK shows the same header repeatedly):
+        # fence them and restart the accumulation from this block.
+        if pending and re.match(r"\s*define\b", text):
+            cells.append(nbf.v4.new_markdown_cell(
+                "```\n" + "\n".join(pending) + "\n```"))
+            pending.clear()
+        if pending or define_balance(text) > 0:
+            pending.append(text)
+            if define_balance("\n".join(pending)) > 0:
+                return
+            text = "\n".join(pending)
+            pending.clear()
+        cells.append(nbf.v4.new_code_cell(text))
 
     in_contents = False
     for i, raw in enumerate(lines):
@@ -123,7 +143,10 @@ def convert(path):
             # the `** …` print convention.  In a live notebook the kernel
             # regenerates the real output, and `**` is Pop-11's power
             # operator, so these lines must not be compiled.
-            if stripped.lstrip().startswith("**"):
+            # `> …` / `< …` / `!> …` / `!< …` lines are inlined EXPECTED
+            # trace output (the trace prefix convention), same idea as
+            # `** `.  A lone `<` never starts real Pop-11 code.
+            if stripped.lstrip().startswith(("**", "> ", "< ", "!>", "!<")):
                 continue
             code_buf.append(stripped)
         elif not line.strip():

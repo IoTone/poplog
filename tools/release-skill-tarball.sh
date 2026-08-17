@@ -56,6 +56,11 @@ cp "$repo/tools/pop11-mcp" "$stage/$name/tools/pop11-mcp"
 # ... and the LSP server (same launcher fallback scheme)
 cp "$repo/pop/lsp/pop11_lsp.p" "$stage/$name/pop/lsp/pop11_lsp.p"
 cp "$repo/tools/pop11-lsp" "$stage/$name/tools/pop11-lsp"
+# The freely-licensed story files, so LIB ZMACHINE has something to play
+# out of the box ($usepop/examples/games/cave.z3).
+mkdir -p "$stage/$name/examples/games"
+cp "$repo"/examples/games/*.z3 "$repo"/examples/games/*.z5 \
+   "$repo/examples/games/README.md" "$stage/$name/examples/games/"
 
 mkdir -p "$out"
 tar -C "$stage" -czf "$out/$name.tar.gz" "$name"

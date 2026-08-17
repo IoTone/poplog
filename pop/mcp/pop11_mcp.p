@@ -19,6 +19,7 @@
      pop11_checkpoint  save the session image, optionally gated on a
                        verify expression (mishap/false => no image)
      pop11_state       session facts (evals, memory, restored?)
+     pop11_play        play interactive fiction on the Pop-11 Z-machine
 
    A mishap in user code is caught (the skill_run trap pattern): the
    diagnostics come back in the tool result with isError true, and the
@@ -28,6 +29,23 @@
 compile_mode :pop11 +strict;
 
 uses json;
+
+;;; LIB ZMACHINE (the Z-machine interpreter, for the pop11_play tool) ships
+;;; with Poplog, but this server may be running against an older installed
+;;; tree that predates it.  Load it if it is there and simply do without
+;;; the tool if it is not -- a missing game must not cost an agent its
+;;; whole session.
+vars zmachine_ok = false;
+vars procedure (zstart, zturn, zplaying);
+
+define lconstant load_zmachine();
+    dlocal interrupt = procedure(); exitfrom(load_zmachine) endprocedure;
+    pop11_compile(stringin(
+        'uses zmachine_play; zplay_start -> zstart; zplay_turn -> zturn; '
+            <> 'zplay_playing -> zplaying;'));
+    true -> zmachine_ok;
+enddefine;
+load_zmachine();
 
 ;;; JSON-RPC framing is one message per line: charout's automatic line
 ;;; wrapping (poplinemax) would split messages, so kill it outright.
@@ -269,7 +287,24 @@ lconstant tool_list =
        mkobj([% 'name', 'pop11_state',
                 'description', 'Session facts: eval count, heap use, whether '
                 sys_>< 'this session was restored from an image.',
-                'inputSchema', schema(mkobj([]), {}) %])
+                'inputSchema', schema(mkobj([]), {}) %]),
+       mkobj([% 'name', 'pop11_play',
+                'description',
+                'Play interactive fiction. Poplog ships a Z-machine written '
+                sys_>< 'in Pop-11 (LIB ZMACHINE), so Infocom-format story '
+                sys_>< 'files run in this same session. Give STORY to begin a '
+                sys_>< 'game (a .z3 or .z5 path; examples/games/cave.z3 ships '
+                sys_>< 'with Poplog) or COMMAND to take one turn in the game '
+                sys_>< 'already running. Returns exactly what the game '
+                sys_>< 'printed. The game keeps its state between calls, so '
+                sys_>< 'play it as you would at a terminal.',
+                'inputSchema',
+                schema(mkobj([% 'story',
+                               strprop('path to a story file, to start a game'),
+                               'command',
+                               strprop('one command for the running game, '
+                                   sys_>< 'e.g. "take lamp"') %]),
+                       {}) %])
     %};
 
 ;;; --- tool dispatch -------------------------------------------------------
@@ -293,6 +328,29 @@ define lconstant call_tool(name, args) -> (text, iserror, respond);
             read_doc(path, 400) -> text;
         else
             'no HELP/REF/TEACH entry named "' sys_>< out sys_>< '"' -> text;
+            true -> iserror;
+        endif;
+
+    elseif name = 'pop11_play' then
+        ;;; the Z-machine lives in the same session, so a game survives
+        ;;; between tool calls exactly as a compiled procedure does
+        lvars story = args('story'), cmd = args('command');
+        if not(zmachine_ok) then
+            'LIB ZMACHINE is not available in this Poplog tree.' -> text;
+            true -> iserror;
+        elseif story and not(isundef(story)) then
+            zstart(story) -> text
+        elseif cmd and not(isundef(cmd)) then
+            unless zplaying() then
+                'No game is running. Call again with "story" to start one.'
+                    -> text;
+                true -> iserror;
+            else
+                zturn(cmd) -> text
+            endunless
+        else
+            'Give either "story" (to start a game) or "command" (to play the '
+                sys_>< 'running one).' -> text;
             true -> iserror;
         endif;
 
