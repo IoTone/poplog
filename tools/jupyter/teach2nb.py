@@ -88,11 +88,17 @@ def convert(path):
         never_ends = (re.search(r"\brepeat\b", text)
                       and not re.search(r"\bquit(if|unless|loop)\b|\btimes\b",
                                         text))
+        # `........` is the TEACH convention for "the reader fills this in".
+        # It is not Pop-11, and compiling an exercise stub leaves the
+        # session in a state where the NEXT cell (which calls the procedure
+        # the reader was meant to write) hangs rather than simply failing.
+        is_stub = "......" in text
         # …and blocks that END with a colon are prose leading into a
         # list ("this has two elements:"), whatever punctuation they
         # contain.
         is_prose = (not re.search(r"[;]|=>|->", text)
                     or text.lstrip().startswith("->") or never_ends
+                    or is_stub
                     or text.rstrip().endswith(":"))
         if is_prose:
             # never disturbs an open define accumulation
@@ -135,7 +141,14 @@ def convert(path):
             continue
         if in_contents:
             continue                       # the <ENTER> g index; menus not needed
-        if re.match(r"^    \S", raw):      # 4-space indent = code for the reader
+        # 4-space indent = code for the reader.  DEEPER indents are the
+        # nesting inside that code (a loop body, a define's statements), so
+        # they are code too -- matching only `^    \S` exiled every body
+        # line into the prose buffer and left behind loop headers with
+        # nothing in them.  `until z > 20 do / enduntil;` with the two body
+        # lines missing is an infinite loop, and one of those ran for three
+        # days at 100% CPU before anyone noticed.
+        if raw.startswith("    ") and raw.strip():
             if md_buf:
                 flush_md()
             stripped = raw[4:]
