@@ -33,6 +33,7 @@ uses zmachine_io;
 section $-zmachine =>
         zm_pc zm_running zm_sp zm_stack zm_frame zm_frames zm_max_steps
         zf_return_pc zf_store_var zf_locals zf_nargs zf_eval_base
+        zf_nlocals conszframe
         zm_push zm_pop zm_var_get zm_var_put zm_var_peek zm_var_poke
         zm_fetch_byte zm_fetch_word zm_store zm_branch
         zm_call zm_return
@@ -48,7 +49,8 @@ defclass zframe {
     zf_store_var,       ;;; variable to put the result in, or false
     zf_locals,          ;;; intvec of 15 (locals are numbered 1..15)
     zf_nargs,           ;;; how many arguments were actually supplied
-    zf_eval_base        ;;; zm_sp on entry
+    zf_eval_base,       ;;; zm_sp on entry
+    zf_nlocals          ;;; how many the routine actually declared
 };
 
 ;;; zm_branch can end a routine (offsets 0 and 1 mean return), so it needs
@@ -218,7 +220,7 @@ define zm_call(paddr, arglist, store_var);
     endfor;
 
     conspair(zm_frame, zm_frames) -> zm_frames;
-    conszframe(zm_pc, store_var, locals, n, zm_sp) -> zm_frame;
+    conszframe(zm_pc, store_var, locals, n, zm_sp, nlocals) -> zm_frame;
     addr -> zm_pc;
 enddefine;
 
@@ -392,7 +394,7 @@ define zm_reset();
     0 -> zm_sp;
     ;;; The game begins in a routine that never returns; give it a frame so
     ;;; nothing has to special-case "no current frame".
-    conszframe(0, false, initintvec(15), 0, 0) -> zm_frame;
+    conszframe(0, false, initintvec(15), 0, 0, 0) -> zm_frame;
     [] -> zm_frames;
     zm_initial_pc -> zm_pc;
 

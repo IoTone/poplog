@@ -288,4 +288,57 @@ check_true('czech v5 exercised the extended opcodes',
 check_true('czech v5 exercised the eight-operand calls',
     issubstring('call_vs2', 1, verdict5) and true);
 
+;;; --- Quetzal save and restore -------------------------------------------
+;;;
+;;; The format is the standard one, so these files interchange with other
+;;; interpreters; what is checked here is the round trip through our own
+;;; reader and writer, including the CMem compression (dynamic memory
+;;; stored as a run-length-encoded XOR against the published story).
+
+zm_load_story(story);           ;;; back to czech.z3
+zm_reset();
+
+vars savefile = systmpfile(false, 'zmsave', '.qzl');
+savefile -> zm_save_file;
+
+;;; build a state worth saving: a changed byte deep in dynamic memory, a
+;;; couple of values on the stack, and a program counter of our choosing
+16:1234 -> zm_word(16:40);
+zm_push(999);
+zm_push(1000);
+4321 -> zm_pc;
+
+check_true('save wrote a file', zm_save_state());
+
+;;; a Quetzal file is an IFF FORM of type IFZS
+lvars sdev = sysopen(savefile, 0, true), shead = inits(12);
+sysread(sdev, shead, 12) -> ;
+sysclose(sdev);
+check('save is an IFF FORM', substring(1, 4, shead), 'FORM');
+check('of type IFZS', substring(9, 4, shead), 'IFZS');
+check_true('compression is worth it',
+    sysfilesize(savefile) < zm_static_base);
+
+;;; now disturb every part of that state
+16:5678 -> zm_word(16:40);
+zm_pop() -> ;
+zm_pop() -> ;
+9999 -> zm_pc;
+
+check_true('restore read it back', zm_restore_state());
+check('dynamic memory restored', zm_word(16:40), 16:1234);
+check('program counter restored', zm_pc, 4321);
+check('stack depth restored', zm_sp, 2);
+check('stack contents restored', zm_pop(), 1000);
+check('and the one below it', zm_pop(), 999);
+
+;;; a save belonging to a different story must be refused rather than
+;;; loaded into the wrong game
+zm_load_story(story5);          ;;; czech.z5, a different release
+zm_reset();
+savefile -> zm_save_file;
+check_false('save from another story refused', zm_restore_state());
+
+sysdelete(savefile) -> ;
+
 test_summary();
