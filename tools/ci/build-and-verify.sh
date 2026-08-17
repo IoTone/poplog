@@ -142,3 +142,9 @@ printf 'Content-Length: %s\r\n\r\n%s' "${#lspreq}" "$lspreq" \
 rm -rf "$sandbox"
 
 echo "ci: OK $out/$tarball"
+
+# Record the sizes.  Only appends for the platform just built; run it on
+# each host, or once at the end over a dist/ holding every tarball.
+if [ "${POP11_CI_SIZES:-1}" = 1 ]; then
+    DIST="$repo/$out" sh tools/release-sizes.sh --print
+fi
