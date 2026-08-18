@@ -1,0 +1,93 @@
+HELP JSONRPC                            JSON-RPC 2.0 framing and dispatch
+
+    uses jsonrpc;
+
+The transport under LIB * JSON: read a message, frame a reply, trap a
+handler mishap, keep serving.  Two framings and two endpoints, because
+the protocols that matter disagree about the first and the useful
+servers disagree about the second.
+
+    "line"      one JSON value per line.  MCP over stdio.
+    "header"    Content-Length: N CRLF CRLF then N bytes.  LSP.
+
+CONNECTIONS
+
+jsonrpc_stdio(FRAMING) -> CONN
+    This process's stdin and stdout.
+
+jsonrpc_listen(PORT) -> LISTENER
+jsonrpc_accept(LISTENER, FRAMING) -> CONN
+jsonrpc_connect(HOST, PORT, FRAMING) -> CONN
+jsonrpc_wrap(DEVICE, FRAMING) -> CONN
+    TCP, or any device you already have (one half of a
+    sys_socket_pair, a pipe).  The listener is a plain device, not a
+    connection; SO_REUSEADDR is set on it so a restart does not have
+    to wait out TIME_WAIT.
+
+jsonrpc_close(CONN)
+jsonrpc_device(CONN) -> DEVICE          false for stdio
+jsonrpc_state(CONN) -> ITEM             a free slot for the owner
+ITEM -> jsonrpc_state(CONN)
+
+MESSAGES
+
+jsonrpc_read(CONN) -> MSG
+    The parsed message; termin at end of stream; false on a malformed
+    frame or unparseable JSON (never a mishap, whatever arrives).
+
+jsonrpc_write(CONN, ITEM)
+jsonrpc_obj([% KEY, VALUE, ... %]) -> PROPERTY
+jsonrpc_respond(CONN, ID, RESULT)
+jsonrpc_error(CONN, ID, CODE, MESSAGE)
+jsonrpc_notify(CONN, METHOD, PARAMS)
+
+SERVING
+
+jsonrpc_serve(CONN, HANDLER)
+    Read and dispatch until the stream ends or jsonrpc_stop is called.
+    HANDLER(CONN, MSG) does the work.  A mishap inside it is answered
+    with -32603 and the loop carries on; unparseable input is answered
+    with -32700.  Anything the handler leaves on the user stack is
+    discarded, and anything it over-popped is made up, because the
+    user stack has no underflow guard and the next message would
+    inherit the damage.
+
+jsonrpc_stop(CONN)
+
+    uses jsonrpc;
+    define handle(conn, msg);
+        if msg('method') = 'ping' then
+            jsonrpc_respond(conn, msg('id'), 'pong')
+        elseif msg('id') then
+            jsonrpc_error(conn, msg('id'), -32601, 'method not found')
+        endif
+    enddefine;
+    jsonrpc_serve(jsonrpc_stdio("line"), handle);
+
+TWO THINGS WORTH KNOWING
+
+Writes to a socket are flushed explicitly.  Poplog builds socket
+devices with the interactive flag set (see make_sock_dev in
+LIB * UNIX_SOCKETS), so syswrite holds back everything after the last
+newline until the device is flushed or closed.  A JSON body carries no
+trailing newline, so under header framing the peer would receive the
+Content-Length line and then wait forever for the body it was
+promised.  LIB * HTTP_SERVER escapes this only by closing the
+connection after each response.
+
+Writes to stdio go straight at the device rather than through
+cucharout.  charout's automatic wrapping at poplinewidth would insert
+newlines into a message and break both framings, and a server that
+dlocals cucharout to capture a user's output — as pop/mcp/pop11_mcp.p
+does — would otherwise capture its own replies.
+
+Limits (v1, by design): one connection served at a time, no batch
+requests, no client-side request/response correlation (write and read
+yourself for that).
+
+See also: LIB * JSON, LIB * INCOMPLETE_CODE, LIB * UNIX_SOCKETS,
+REF * SOCKETS, pop/mcp/pop11_mcp.p and pop/lsp/pop11_lsp.p (both
+servers built on this), tools/tests/test_jsonrpc.p.
+
+--- pop/help/jsonrpc
+--- Author: D.Kordsmeier (@truedat101) and Claude (@claude), Aug 2026

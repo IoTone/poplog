@@ -96,7 +96,8 @@ for path in target/pop/basepop11 poplog pop/lib skill/SKILL.md \
             skill/lib/popcurl_shim.c skill/lib/popsqlite_shim.c \
             pop/mcp/pop11_mcp.p tools/pop11-mcp \
             pop/lsp/pop11_lsp.p tools/pop11-lsp \
-            pop/lib/lib/json.p; do
+            pop/lib/lib/json.p pop/lib/lib/jsonrpc.p \
+            pop/lib/lib/incomplete_code.p; do
     echo "$list" | grep -q "/$path" || {
         echo "ci: tarball missing $path" >&2; exit 1; }
 done

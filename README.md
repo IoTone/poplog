@@ -157,6 +157,7 @@ started here.  Resume a checkpointed session with
 format are documented in the
 [Claude Code MCP docs](https://docs.claude.com/en/docs/claude-code/mcp);
 other MCP clients configure the same stdio command their own way.
+End-to-end protocol tests: `python3 tools/mcp/test-e2e.py`.
 
 ## Editors: the LSP server
 
@@ -170,6 +171,12 @@ under the cursor, and completion draws from the live dictionary. The
 [Neovim plugin](editors/nvim/) starts it automatically for `pop11`
 buffers; any LSP client can run the same stdio command. End-to-end
 protocol tests: `python3 tools/lsp/test-e2e.py`.
+
+Both servers sit on one transport, `pop/lib/lib/jsonrpc.p` — line and
+Content-Length framing, stdio and TCP endpoints, and a serve loop that
+turns a handler mishap into a `-32603` and keeps going. Factoring it out
+took 342 lines out of the two servers, and it is what a socket-based
+evaluation server will be built on.
 
 The [Emacs package](editors/emacs/) goes further and reaches for the
 other half of the idea: `M-x run-pop11` puts a real Poplog listener in a

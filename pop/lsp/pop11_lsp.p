@@ -6,8 +6,10 @@
    server IS a Poplog session, so diagnostics come from the real
    compiler and hover text from the real HELP/REF corpus.
 
-   Speaks LSP over stdio: Content-Length framed JSON-RPC 2.0, parsed
-   and generated with lib json.  Launch via tools/pop11-lsp.
+   Speaks LSP over stdio: Content-Length framed JSON-RPC 2.0.  The
+   framing, dispatch and error handling are LIB * JSONRPC, shared with
+   the MCP server; this file is the language brain on top of it.
+   Launch via tools/pop11-lsp.
 
    v1 capabilities:
      textDocumentSync (full)   didOpen/didChange/didClose
@@ -27,149 +29,37 @@
 
 compile_mode :pop11 +strict;
 
+;;; The launcher hands us the library directory of the checkout this
+;;; script came from: the ENGINE root may be an older tarball install
+;;; whose pop/lib predates the libraries below.  `uses' searches
+;;; popuseslist, so extend that before the first one.
+lvars lib_extra = systranslate('POP11_LIB_EXTRA');
+if lib_extra then [^lib_extra ^^popuseslist] -> popuseslist endif;
+
 uses json;
+uses jsonrpc;
+uses incomplete_code;
 
-;;; charout line wrapping would corrupt Content-Length framing
-false ->> poplinemax -> poplinewidth;
-
-;;; --- stdio framing ------------------------------------------------------
-
-;;; one header line, CRLF or LF terminated -> string (sans terminator),
-;;; or termin at EOF
-define lconstant read_header_line() -> line;
-    lvars c, acc = [], n = 0;
-    repeat
-        charin() -> c;
-        if c == termin then
-            if n == 0 then termin -> line; return endif;
-            quitloop;
-        endif;
-        quitif(c == `\n`);
-        unless c == `\r` then
-            conspair(c, acc) -> acc;
-            n + 1 -> n;
-        endunless;
-    endrepeat;
-    consstring(destlist(rev(acc))) -> line;
-enddefine;
-
-define lconstant read_message() -> msg;
-    lvars line, len = false, i, c, body;
-    false -> msg;
-    ;;; headers
-    repeat
-        read_header_line() -> line;
-        returnif(line == termin);
-        quitif(line = nullstring);
-        if isstartstring('Content-Length:', line) then
-            0 -> len;
-            for i from 16 to length(line) do
-                line(i) -> c;
-                if isnumbercode(c) then len * 10 + (c - `0`) -> len endif;
-            endfor;
-        endif;
-    endrepeat;
-    returnunless(len);
-    ;;; body: exactly len bytes
-    inits(len) -> body;
-    for i from 1 to len do
-        charin() -> c;
-        returnif(c == termin);
-        c -> body(i);
-    endfor;
-    json_parse(body) -> msg;
-enddefine;
-
-define lconstant send_message(item);
-    lvars s = json_generate(item), i;
-    appdata('Content-Length: ' sys_>< length(s) sys_>< '\r\n\r\n', cucharout);
-    for i from 1 to length(s) do cucharout(s(i)) endfor;
-    sysflush(popdevout);
-enddefine;
-
-;;; --- small json builders ------------------------------------------------
-
-define lconstant mkobj(l) -> p;
-    lvars k, v;
-    newmapping([], 8, false, true) -> p;
-    until l == [] do
-        dest(l) -> (k, l);
-        dest(l) -> (v, l);
-        v -> p(k);
-    enduntil;
-enddefine;
+;;; The one connection this process serves.  A stdio server has exactly
+;;; one, so the reply helpers below close over it rather than threading
+;;; it through every call site.
+lvars conn = jsonrpc_stdio("header");
 
 define lconstant respond(id, result);
-    send_message(mkobj([% 'jsonrpc', '2.0', 'id', id, 'result', result %]));
+    jsonrpc_respond(conn, id, result);
 enddefine;
 
 define lconstant respond_error(id, code, msg);
-    send_message(mkobj([% 'jsonrpc', '2.0', 'id', id,
-        'error', mkobj([% 'code', code, 'message', msg %]) %]));
+    jsonrpc_error(conn, id, code, msg);
 enddefine;
 
 define lconstant notify(method, params);
-    send_message(mkobj([% 'jsonrpc', '2.0', 'method', method,
-                          'params', params %]));
+    jsonrpc_notify(conn, method, params);
 enddefine;
 
 ;;; --- open documents -----------------------------------------------------
 
 lconstant documents = newmapping([], 16, false, true);
-
-;;; --- structural precheck (shared logic with the MCP server) --------------
-
-;;; -> false, or a description of what is unclosed
-define lconstant incomplete_code(s) -> why;
-    lvars i = 1, len = length(s), c, depth = 0, cdepth, j;
-    false -> why;
-    while i <= len do
-        s(i) -> c;
-        if c == `;` and i + 2 <= len
-        and s(i+1) == `;` and s(i+2) == `;` then
-            while i <= len and s(i) /== `\n` do i + 1 -> i endwhile;
-        elseif c == `/` and i < len and s(i+1) == `*` then
-            1 -> cdepth; i + 2 -> i;
-            while i <= len and cdepth > 0 do
-                if s(i) == `/` and i < len and s(i+1) == `*` then
-                    cdepth + 1 -> cdepth; i + 2 -> i;
-                elseif s(i) == `*` and i < len and s(i+1) == `/` then
-                    cdepth - 1 -> cdepth; i + 2 -> i;
-                else
-                    i + 1 -> i;
-                endif;
-            endwhile;
-            if cdepth > 0 then 'unclosed /* comment' -> why; return endif;
-            nextloop;
-        elseif c == `'` then
-            i + 1 -> i;
-            while i <= len and s(i) /== `'` do
-                if s(i) == `\\` then i + 1 -> i endif;
-                i + 1 -> i;
-            endwhile;
-            if i > len then 'unterminated string' -> why; return endif;
-        elseif c == `"` then
-            i + 1 -> i;
-            while i <= len and s(i) /== `"` and s(i) /== `\n` do
-                i + 1 -> i
-            endwhile;
-        elseif c == `\`` then
-            false -> j;
-            lvars k = i + 1;
-            while k <= len and s(k) /== `\n` and k <= i + 8 do
-                if s(k) == `\`` then k -> j; quitloop endif;
-                k + 1 -> k;
-            endwhile;
-            if j then j -> i else i + 1 -> i endif;
-        elseif c == `(` or c == `[` or c == `{` then
-            depth + 1 -> depth;
-        elseif c == `)` or c == `]` or c == `}` then
-            depth - 1 -> depth;
-        endif;
-        i + 1 -> i;
-    endwhile;
-    if depth > 0 then 'unclosed bracket' -> why endif;
-enddefine;
 
 ;;; --- diagnostics --------------------------------------------------------
 
@@ -224,9 +114,9 @@ enddefine;
 
 define lconstant one_diag(line0, msg) -> d;
     lconstant BIGCOL = 400;
-    mkobj([% 'range',
-                mkobj([% 'start', mkobj([% 'line', line0, 'character', 0 %]),
-                         'end',   mkobj([% 'line', line0, 'character', BIGCOL %]) %]),
+    jsonrpc_obj([% 'range',
+                jsonrpc_obj([% 'start', jsonrpc_obj([% 'line', line0, 'character', 0 %]),
+                         'end',   jsonrpc_obj([% 'line', line0, 'character', BIGCOL %]) %]),
              'severity', 1,
              'source', 'pop11',
              'message', msg %]) -> d;
@@ -254,7 +144,7 @@ enddefine;
 
 define lconstant publish_diagnostics(uri, text);
     notify('textDocument/publishDiagnostics',
-        mkobj([% 'uri', uri, 'diagnostics', diagnostics_for(text) %]));
+        jsonrpc_obj([% 'uri', uri, 'diagnostics', diagnostics_for(text) %]));
 enddefine;
 
 ;;; --- text/position helpers ----------------------------------------------
@@ -351,8 +241,8 @@ define lconstant hover_for(word) -> result;
     json_null -> result;
     returnunless(path);
     read_doc(path, 40) -> text;
-    mkobj([% 'contents',
-        mkobj([% 'kind', 'markdown',
+    jsonrpc_obj([% 'contents',
+        jsonrpc_obj([% 'kind', 'markdown',
                  'value', '```\n' sys_>< text sys_>< '```' %]) %]) -> result;
 enddefine;
 
@@ -385,17 +275,15 @@ define lconstant completions_for(pre) -> result;
             returnunless(isstartstring(pre, s));
             returnif(identprops(w) == "undef");
             returnunless(length(s) > length(pre));
-            conspair(mkobj([% 'label', copy(s),
+            conspair(jsonrpc_obj([% 'label', copy(s),
                              'kind', completion_kind(w) %]), acc) -> acc;
             n + 1 -> n;
         endprocedure);
-    mkobj([% 'isIncomplete', n >= COMPLETION_LIMIT,
+    jsonrpc_obj([% 'isIncomplete', n >= COMPLETION_LIMIT,
              'items', consvector(destlist(rev(acc))) %]) -> result;
 enddefine;
 
 ;;; --- request handling ---------------------------------------------------
-
-lvars lsp_running = true;
 
 define lconstant get_doc_and_pos(params) -> (uri, text, line0, char0);
     lvars pos = params('position');
@@ -410,13 +298,13 @@ define lconstant handle(msg);
     lvars td, uri, changes, text, line0, char0, w;
 
     if method = 'initialize' then
-        respond(id, mkobj([%
-            'capabilities', mkobj([%
+        respond(id, jsonrpc_obj([%
+            'capabilities', jsonrpc_obj([%
                 'textDocumentSync', 1,
                 'hoverProvider', true,
-                'completionProvider', mkobj([% 'resolveProvider', false %])
+                'completionProvider', jsonrpc_obj([% 'resolveProvider', false %])
             %]),
-            'serverInfo', mkobj([% 'name', 'pop11-lsp',
+            'serverInfo', jsonrpc_obj([% 'name', 'pop11-lsp',
                                    'version', '0.1.0' %])
         %]));
 
@@ -430,7 +318,7 @@ define lconstant handle(msg);
         ;;; trapped diagnostic mishaps set pop_exit_ok false; an orderly
         ;;; exit must still report success to the client's process check
         true -> pop_exit_ok;
-        false -> lsp_running;
+        jsonrpc_stop(conn);
 
     elseif method = 'textDocument/didOpen' then
         params('textDocument') -> td;
@@ -452,7 +340,7 @@ define lconstant handle(msg);
         params('textDocument')('uri') -> uri;
         false -> documents(uri);
         notify('textDocument/publishDiagnostics',
-            mkobj([% 'uri', uri, 'diagnostics', consvector(0) %]));
+            jsonrpc_obj([% 'uri', uri, 'diagnostics', consvector(0) %]));
 
     elseif method = 'textDocument/hover' then
         get_doc_and_pos(params) -> (uri, text, line0, char0);
@@ -473,42 +361,12 @@ define lconstant handle(msg);
     endif;
 enddefine;
 
-;;; a mishap in a handler must not kill the server
-lvars handled_ok = true;
-
-define lconstant handle_trapped(msg);
-    dlocal interrupt =
-        procedure();
-            false -> handled_ok;
-            exitfrom(handle_trapped);
-        endprocedure;
+;;; jsonrpc_serve traps a mishap in here, answers -32603 and carries on.
+define lconstant dispatch(c, msg);
     handle(msg);
 enddefine;
 
-define lconstant safe_handle(msg);
-    lvars id;
-    true -> handled_ok;
-    handle_trapped(msg);
-    returnif(handled_ok);
-    msg('id') -> id;
-    if id and not(isundef(id)) then
-        respond_error(id, -32603, 'internal error handling ' sys_><
-                                  (msg('method') or 'request'));
-    endif;
-enddefine;
-
-define lconstant serve();
-    lvars msg;
-    repeat
-        quitunless(lsp_running);
-        read_message() -> msg;
-        quitif(msg == false or msg == termin);
-        nextunless(isproperty(msg));
-        safe_handle(msg);
-    endrepeat;
-enddefine;
-
-serve();
+jsonrpc_serve(conn, dispatch);
 ;;; trapped diagnostic mishaps set pop_exit_ok false; EOF or an exit
 ;;; notification is an orderly shutdown and must exit 0
 true -> pop_exit_ok;
