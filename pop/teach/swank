@@ -41,7 +41,7 @@ A TERMINAL.  Run pop11 and type at it.  Everything a tool built this
 way knows, it learned by reading characters off a pipe.  It cannot tell
 a value from the text that value printed as.
 
-A LANGUAGE SERVER.  LIB * POP11_LSP answers questions about TEXT: does
+A LANGUAGE SERVER.  pop/lsp/pop11_lsp.p answers questions about TEXT: does
 this buffer compile, what does HELP say about this word, which
 dictionary words start with these letters.  It is a Poplog session, so
 its answers come from the real compiler -- but it is asking about a

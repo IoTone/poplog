@@ -172,17 +172,28 @@ waits for the rest, which is how one builds a procedure interactively.
 
 ## Language server
 
-Not wired up yet. `pop/lsp/pop11_lsp.p` (launched by `tools/pop11-lsp`)
-speaks LSP over stdio and gives real-compiler diagnostics, HELP/REF
-hover and dictionary completion; point `eglot` at it by hand:
+`pop/lsp/pop11_lsp.p` (launched by `tools/pop11-lsp`) speaks LSP over
+stdio and gives real-compiler diagnostics, HELP/REF hover and dictionary
+completion. It registers itself with Eglot when Eglot loads, resolving
+the launcher under the same Poplog root everything else uses — so `M-x
+eglot` in a `pop11-mode` buffer just works.
+
+Starting one per project automatically is opt-in:
 
 ```elisp
-(add-to-list 'eglot-server-programs
-             '(pop11-mode . ("/path/to/poplog/tools/pop11-lsp")))
+(setq pop11-lsp-autostart t)
 ```
 
-Automatic registration lands alongside the socket server, when the
-question of which of the two answers a given request has an answer.
+Override the command with `pop11-lsp-program` if your launcher lives
+somewhere unusual.
+
+Which of the two servers answers a given request is not arbitrary. The
+LSP server reads your **buffer** — so it works on a file you have not
+compiled, and its diagnostics point at text you have not run. The swank
+server reads the **session** — so it knows about `sq` that you defined
+at the prompt, which is in no file at all. Completion is the clearest
+case: with a connection you get both, and the live dictionary is the one
+that knows what you just wrote.
 
 ## Understanding what it is talking to
 

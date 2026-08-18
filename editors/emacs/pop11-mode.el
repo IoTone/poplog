@@ -593,6 +593,49 @@ This is the range VED's ENTER lcp would compile."
      1)))
 
 ;;;; ------------------------------------------------------------------
+;;;; The language server
+
+(defcustom pop11-lsp-program nil
+  "Command that runs the Pop-11 language server, as a list.
+Nil means find `tools/pop11-lsp' under the Poplog tree `pop11-root'
+resolves to."
+  :type '(choice (const :tag "Find it under the Poplog root" nil)
+                 (repeat string))
+  :group 'pop11)
+
+(defcustom pop11-lsp-autostart nil
+  "Whether every `pop11-mode' buffer should get a language server.
+Off by default: a Poplog process per project is the sort of thing that
+ought to be asked for.  With Eglot installed, turning it on is
+all that is needed --
+
+    (setq pop11-lsp-autostart t)
+
+-- and `\[eglot]' starts one by hand meanwhile."
+  :type 'boolean
+  :group 'pop11)
+
+(declare-function pop11-root "inferior-pop11" ())
+(declare-function eglot-ensure "eglot" ())
+(defvar eglot-server-programs)
+
+(defun pop11-lsp-command (&optional _interactive)
+  "Return the command line for the Pop-11 language server.
+Shaped for `eglot-server-programs', which calls this with one argument."
+  (or pop11-lsp-program
+      (let* ((root (progn (require 'inferior-pop11) (pop11-root)))
+             (launcher (and root (expand-file-name "tools/pop11-lsp" root))))
+        (unless (and launcher (file-executable-p launcher))
+          (user-error
+           "Cannot find tools/pop11-lsp; set `pop11-lsp-program'"))
+        (list launcher))))
+
+;; Registering the program is free -- Eglot starts nothing until asked --
+;; so it happens whether or not `pop11-lsp-autostart' is set.
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs '(pop11-mode . pop11-lsp-command)))
+
+;;;; ------------------------------------------------------------------
 ;;;; The mode
 
 (autoload 'run-pop11 "inferior-pop11" "Run an inferior Pop-11." t)
@@ -656,7 +699,9 @@ This is the range VED's ENTER lcp would compile."
   (setq-local beginning-of-defun-function #'pop11-beginning-of-defun)
   (setq-local end-of-defun-function #'pop11-end-of-defun)
   (setq-local imenu-generic-expression pop11--imenu-generic-expression)
-  (setq-local add-log-current-defun-function #'pop11-current-defun-name))
+  (setq-local add-log-current-defun-function #'pop11-current-defun-name)
+  (when (and pop11-lsp-autostart (fboundp 'eglot-ensure))
+    (eglot-ensure)))
 
 (defun pop11-current-defun-name ()
   "Name of the `define' around point, for `add-log' and which-function."

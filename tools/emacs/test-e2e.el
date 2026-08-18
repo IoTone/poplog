@@ -299,6 +299,23 @@ for the rest, which is how one builds a procedure interactively."
     (should (>= clean (/ total 2)))))
 
 ;;;; ------------------------------------------------------------------
+;;;; Language server registration
+
+(ert-deftest pop11-lsp-registers-with-eglot ()
+  "Eglot should know how to start the server without being told."
+  (skip-unless (require 'eglot nil t))
+  (should (equal '(pop11-mode . pop11-lsp-command)
+                 (assq 'pop11-mode eglot-server-programs))))
+
+(ert-deftest pop11-lsp-command-resolves ()
+  (let ((pop11-root pop11-test-root))
+    (should (file-executable-p (car (pop11-lsp-command))))))
+
+(ert-deftest pop11-lsp-command-honours-the-override ()
+  (let ((pop11-lsp-program '("/somewhere/else/pop11-lsp")))
+    (should (equal '("/somewhere/else/pop11-lsp") (pop11-lsp-command)))))
+
+;;;; ------------------------------------------------------------------
 ;;;; Live listener
 
 (defun pop11-test-wait (regexp &optional seconds)

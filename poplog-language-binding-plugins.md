@@ -255,8 +255,9 @@ natively:
     real frames, `C-c C-i` inspects a value and drills in by handle,
     `M-.` and completion read the running heap, and `C-c C-a`
     interrupts by signalling the pid from the handshake.
-* Not yet wired: `eglot` registration for `tools/pop11-lsp` (documented
-  as a two-line manual recipe meanwhile).
+* Eglot registration is automatic (`pop11-lsp-command` resolves the
+  launcher under the Poplog root); auto-starting one per project is
+  opt-in via `pop11-lsp-autostart`.
 * Tests: `emacs -Q --batch -l tools/emacs/test-e2e.el` — 31 ERT tests
   including a live listener driven over a pty.
 
