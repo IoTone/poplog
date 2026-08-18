@@ -126,7 +126,11 @@ lconstant
 endexload;
 
 lconstant macro (
-    SOL_SOCKET      = 16:FFFF,  ;;; options for socket level
+    ;;; The socket option LEVEL, like the option numbers in
+    ;;; unix_sockets.ph, is 4.4BSD's here and something else on Linux
+    ;;; (1, from asm-generic/socket.h).  Getting it wrong makes every
+    ;;; setsockopt fail with ENOPROTOOPT.
+    SOL_SOCKET      = #_IF DEF LINUX 1 #_ELSE 16:FFFF #_ENDIF,
     ;;; see $popsrc/errors.p for definition of DO_ERRNO_VAL
     ERRNO           = [DO_ERRNO_VAL],
     NAMEBUF_SIZE    = 256,

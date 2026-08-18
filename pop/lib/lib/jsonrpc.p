@@ -68,6 +68,13 @@ define jsonrpc_wrap(dev, framing) -> conn;
     new_conn(dev, framing) -> conn;
 enddefine;
 
+define lconstant set_reuseaddr(sock);
+    dlocal interrupt =
+        procedure(); exitfrom(set_reuseaddr) endprocedure;
+    dlocal cucharerr = erase;
+    true -> sys_socket_option(sock, SO_REUSEADDR);
+enddefine;
+
 ;;; Bind and listen on port; returns the listening device, which is not
 ;;; a connection -- pass it to jsonrpc_accept.
 define jsonrpc_listen(port) -> listener;
@@ -77,8 +84,11 @@ define jsonrpc_listen(port) -> listener;
     sys_socket(`i`, `S`, false) -> listener;
     ;;; Without SO_REUSEADDR the port stays unbindable for the length of
     ;;; TIME_WAIT after the last connection closes, which turns a server
-    ;;; restart -- or a second test run -- into a spurious failure.
-    true -> sys_socket_option(listener, SO_REUSEADDR);
+    ;;; restart -- or a second test run -- into a spurious failure.  It
+    ;;; is a nicety rather than a requirement though, and the option
+    ;;; numbers are per-platform (see unix_sockets.ph), so a system that
+    ;;; rejects it should still get its listener.
+    set_reuseaddr(listener);
     [* ^port] -> sys_socket_name(listener, 5);
 enddefine;
 
