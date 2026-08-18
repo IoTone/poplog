@@ -171,6 +171,14 @@ under the cursor, and completion draws from the live dictionary. The
 buffers; any LSP client can run the same stdio command. End-to-end
 protocol tests: `python3 tools/lsp/test-e2e.py`.
 
+The [Emacs package](editors/emacs/) goes further and reaches for the
+other half of the idea: `M-x run-pop11` puts a real Poplog listener in a
+comint buffer, and the editing buffer gets VED's `ENTER` commands on
+Emacs keys — `C-x C-e` for `ENTER l1`, `C-c C-r` for `ENTER lmr`,
+`C-M-x` for `ENTER lcp` — so a procedure goes from buffer to running
+image without leaving the file. Tests:
+`emacs -Q --batch -l tools/emacs/test-e2e.el`.
+
 ## Packaging (Nix)
 
 A self-contained **Nix flake** builds and bootstraps the whole system — all

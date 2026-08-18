@@ -13,7 +13,7 @@ Related: roadmap items 1.2 (editor support) and 1.3 (Jupyter kernel);
 
 Goals (v1):
 
-* Syntax highlighting for Pop-11 in all three editors, and on GitHub.
+* Syntax highlighting for Pop-11 in every supported editor, and on GitHub.
 * Completion (identifiers, library names), hover documentation drawn
   from the real HELP/REF/TEACH corpus, document outline, and
   compile-check diagnostics.
@@ -50,7 +50,7 @@ Two build-once components:
   (linguist) also requires a standalone tree-sitter grammar repo, so
   this one component covers three surfaces.
 * **`poplog-lsp`** — a Language Server Protocol server **written in
-  Pop-11**, running on the Poplog engine itself.  All three editors
+  Pop-11**, running on the Poplog engine itself.  Every editor
   speak LSP; each needs only launch-and-attach glue.
 
 VS Code is the one editor that does not consume tree-sitter for
@@ -178,7 +178,7 @@ that the system does modern work.
   generalises) ship engine + image so editors can point at one binary
   path with no build step.
 
-## 5. Component C: the three clients
+## 5. Component C: the editor clients
 
 ### 5.1 Neovim
 
@@ -230,6 +230,29 @@ natively:
 * Later tie-in: the Jupyter kernel (roadmap 1.3) makes `.ipynb`
   Pop-11 notebooks work inside VS Code with zero extra effort here.
 
+### 5.4 Emacs
+
+* `editors/emacs/` — two files, no build step:
+  * `pop11-mode.el`: syntax table plus a `syntax-propertize-function`
+    for the two constructs a table cannot express — `;;;` (a
+    three-character comment opener, where a lone `;` is the statement
+    separator) and the quote character literal `` `'` `` (which would
+    otherwise open a string and swallow the line). Font-lock,
+    `define`-aware indentation and motion, imenu, and the same `.p`
+    content heuristic as §3.
+  * `inferior-pop11.el`: a comint REPL on a **pty** — mandatory, not
+    cosmetic, since Poplog prints no prompt on a pipe and
+    `setpop_reset` calls `sysexit()` when a mishap arrives with stdin
+    not a terminal. Plus the VED `ENTER` command set on Emacs keys
+    (`l1`/`lmr`/`lcp`/`load`/`im`/`showlib`/`help`/`teach`/`ref`), a
+    structural precheck before anything reaches the itemiser, and
+    HELP/TEACH/REF lookup straight out of the tree.
+* Not yet wired: `eglot` registration for `tools/pop11-lsp` (documented
+  as a two-line manual recipe meanwhile), and the socket server that
+  would make evaluation asynchronous and mishaps interactive.
+* Tests: `emacs -Q --batch -l tools/emacs/test-e2e.el` — 31 ERT tests
+  including a live listener driven over a pty.
+
 ## 6. Repository layout
 
 ```
@@ -240,6 +263,7 @@ IoTone/poplog                   (this repo)
   editors/nvim/                 ftdetect + parser registration + lspconfig
   editors/zed/                  extension.toml + language config
   editors/vscode/               TextMate grammar + LSP client extension
+  editors/emacs/                major mode + comint REPL (VED ENTER keys)
 ```
 
 Everything except the grammar lives in the main tree so server and
@@ -250,7 +274,7 @@ clients version together with the engine.
 | Phase | Contents | Effort |
 | --- | --- | --- |
 | **P1** | tree-sitter grammar core + corpus tests; Neovim highlighting + ftdetect; VS Code TextMate grammar + language config (no LSP yet) — **shipped 2026-08**: [tree-sitter-pop11](https://github.com/IoTone/tree-sitter-pop11) (95.2 % clean parse over the full 1,805-file tree), `editors/nvim/` (heuristic ftdetect, parser registration, vendored queries), `editors/vscode/` (TextMate grammar + language config) | 1–2 weeks |
-| **P2** | poplog-lsp v0.1 (symbols, completion, hover); wire all three clients; Zed extension | 2–3 weeks |
+| **P2** | poplog-lsp v0.1 (symbols, completion, hover); wire the clients; Zed extension | 2–3 weeks |
 | **P3** | Diagnostics + definition (v0.2); linguist PR; Marketplace/OpenVSX/Zed-registry/nvim upstream submissions; saved-image packaging | ~2 weeks |
 
 P1 alone already changes how the project reads on GitHub and in
