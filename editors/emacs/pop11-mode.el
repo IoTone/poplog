@@ -27,6 +27,13 @@
 ;;   M-.       ENTER showlib   jump to a library definition
 ;;   C-c C-d h/t/r/d        HELP / TEACH / REF / doc-at-point
 ;;
+;; With a swank connection (`M-x pop11-swank') those commands go to the
+;; live session instead of a terminal, and three more become useful:
+;;
+;;   C-c C-i                inspect a value
+;;   C-c C-s                describe a name as the session has it
+;;   C-c C-a                interrupt a running evaluation
+;;
 ;; Two things about the lexical syntax are worth knowing, because they
 ;; are why this file needs a `syntax-propertize-function' rather than a
 ;; plain syntax table:
@@ -601,6 +608,11 @@ This is the range VED's ENTER lcp would compile."
 (autoload 'pop11-doc-teach "inferior-pop11" nil t)
 (autoload 'pop11-doc-ref "inferior-pop11" nil t)
 (autoload 'pop11-doc-at-point "inferior-pop11" nil t)
+(autoload 'pop11-swank "pop11-swank" "Start a Pop-11 session and connect." t)
+(autoload 'pop11-swank-connect "pop11-swank" nil t)
+(autoload 'pop11-swank-inspect "pop11-swank" nil t)
+(autoload 'pop11-swank-describe "pop11-swank" nil t)
+(autoload 'pop11-swank-interrupt "pop11-swank" nil t)
 
 (defvar pop11-mode-map
   (let ((map (make-sparse-keymap)))
@@ -617,6 +629,10 @@ This is the range VED's ENTER lcp would compile."
     (define-key map (kbd "C-c C-d t") #'pop11-doc-teach)
     (define-key map (kbd "C-c C-d r") #'pop11-doc-ref)
     (define-key map (kbd "C-c C-d d") #'pop11-doc-at-point)
+    ;; Only meaningful with a live session behind them.
+    (define-key map (kbd "C-c C-i") #'pop11-swank-inspect)
+    (define-key map (kbd "C-c C-s") #'pop11-swank-describe)
+    (define-key map (kbd "C-c C-a") #'pop11-swank-interrupt)
     map)
   "Keymap for `pop11-mode', mapping VED's ENTER commands onto Emacs keys.")
 

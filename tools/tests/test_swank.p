@@ -132,6 +132,83 @@ result_of('swank/describe',
           jsonrpc_obj([% 'name', 'no_such_thing_at_all' %])) -> d;
 check('describe: undefined name', d('defined'), false);
 
+;;; --- inspecting a live value --------------------------------------------
+
+vars ins = result_of('swank/inspect',
+                     jsonrpc_obj([% 'expr', '{1 \'two\' [3 4]}' %]));
+check('inspect: ok', ins('ok'), true);
+check('inspect: class', ins('class'), 'vector');
+check('inspect: printed', ins('printed'), '{1 two [3 4]}');
+check('inspect: part count', ins('partCount'), 3);
+check('inspect: second part', ins('parts')(2)('printed'), 'two');
+check('inspect: part classes', ins('parts')(3)('class'), 'pair');
+
+;;; Drill into the third part by its handle -- no re-evaluation, so this
+;;; works even for a value no expression could name twice.
+vars sub = result_of('swank/inspect',
+                     jsonrpc_obj([% 'handle', ins('parts')(3)('handle') %]));
+check('inspect: drilled in', sub('printed'), '[3 4]');
+check('inspect: sublist parts', sub('partCount'), 2);
+
+;;; A record made in the session inspects like anything else.
+evaluate('defclass point {px, py}; vars pt = conspoint(3, 4);') -> ;
+result_of('swank/inspect', jsonrpc_obj([% 'expr', 'pt' %])) -> ins;
+check('inspect: session record class', ins('class'), 'point');
+check('inspect: session record parts', ins('partCount'), 2);
+
+;;; An undeclared name is not an error in Pop-11 -- the compiler declares
+;;; it and the value is undef -- so that is what comes back.
+result_of('swank/inspect', jsonrpc_obj([% 'expr', 'no_such_variable' %]))
+    -> ins;
+check('inspect: undeclared name yields undef', ins('class'), 'undef');
+;;; An expression that really mishaps is reported, and is not fatal.
+result_of('swank/inspect', jsonrpc_obj([% 'expr', 'hd(3)' %])) -> ins;
+check('inspect: mishapping expression is reported', ins('ok'), false);
+result_of('swank/inspect', jsonrpc_obj([% 'expr', '1 + 1' %])) -> ins;
+check('inspect: server survived it', ins('printed'), '2');
+
+;;; A simple value has no parts, and saying so must not be a mishap.
+result_of('swank/inspect', jsonrpc_obj([% 'expr', '42' %])) -> ins;
+check('inspect: integer', ins('printed'), '42');
+check('inspect: integer has no parts', ins('partCount'), 0);
+
+;;; --- completion over the live dictionary --------------------------------
+
+vars comp = result_of('swank/complete', jsonrpc_obj([% 'prefix', 'syssle' %]));
+check_true('complete: finds syssleep',
+           member('syssleep', [% explode(comp('items')) %]) and true);
+result_of('swank/complete', jsonrpc_obj([% 'prefix', 'sq' %])) -> comp;
+check_true('complete: sees session definitions',
+           member('sq', [% explode(comp('items')) %]) and true);
+
+;;; --- tracing ------------------------------------------------------------
+
+check('trace: accepted',
+      result_of('swank/trace', jsonrpc_obj([% 'name', 'sq' %]))('ok'), true);
+evaluate('sq(3) -> ;') -> r;
+check_true('trace: the call is reported',
+           issubstring('sq', output_text()) and true);
+check('untrace: accepted',
+      result_of('swank/trace',
+                jsonrpc_obj([% 'name', 'sq', 'untrace', true %]))('ok'), true);
+evaluate('sq(3) -> ;') -> r;
+check('untrace: quiet again', output_text(), nullstring);
+
+;;; --- where a name comes from --------------------------------------------
+
+;;; An AUTOLOADABLE name is a file named after the identifier; anything
+;;; defined inside a larger library has no such trail.
+result_of('swank/describe', jsonrpc_obj([% 'name', 'appdic' %])) -> d;
+check_true('describe: finds the autoloadable library file',
+           d('sourceFile') and issubstring('appdic.p', d('sourceFile'))
+           and true);
+result_of('swank/describe', jsonrpc_obj([% 'name', 'json_parse' %])) -> d;
+check('describe: no file for a name defined inside a library',
+      d('sourceFile'), false);
+result_of('swank/describe', jsonrpc_obj([% 'name', 'npr' %])) -> d;
+check_true('describe: finds the doc file',
+           d('docFile') and true);
+
 ;;; --- state and shutdown -------------------------------------------------
 
 vars st = result_of('swank/state', jsonrpc_obj([]));

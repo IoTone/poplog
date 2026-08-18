@@ -363,6 +363,127 @@ for the rest, which is how one builds a procedure interactively."
       (when (pop11-process t) (kill-process (pop11-process))))))
 
 ;;;; ------------------------------------------------------------------
+;;;; The swank client, against a real live session
+
+(require 'pop11-swank)
+
+(defun pop11-test-swank-port ()
+  "A port unlikely to collide with anything else on this machine."
+  (+ 14700 (mod (car (last (current-time) 2)) 200)))
+
+(ert-deftest pop11-live-swank ()
+  "Drive the whole client -- eval, output, mishap, inspect, complete,
+trace, describe, interrupt -- against a real server."
+  (skip-unless (pop11-test-engine-available-p))
+  (let ((pop11-root pop11-test-root)
+        (pop11-swank-port (pop11-test-swank-port)))
+    (unwind-protect
+        (progn
+          (pop11-swank)
+          (should (pop11-swank-connected-p))
+          (should (equal "pop11-swank"
+                         (pop11-swank--get pop11-swank--info "name")))
+          (should (integerp (pop11-swank--get pop11-swank--info "pid")))
+
+          ;; A value comes back as a value, not as text to scrape.
+          (let ((r (pop11-swank-call "swank/eval" '(("code" . "1 + 1;")))))
+            (should (equal '("2") (pop11-swank--get r "values"))))
+
+          ;; Output streams into the REPL buffer.
+          (pop11-swank-eval "npr('hello from the session');" nil)
+          (pop11-test-wait-for-swank "hello from the session")
+
+          ;; Sending a defun from a source buffer teaches M-. where it
+          ;; came from -- something the session itself cannot know.
+          (let ((file (expand-file-name "pop11-test-defun.p"
+                                        temporary-file-directory)))
+            (with-temp-file file
+              (insert "define test_squared(n);\n"
+                      "    lvars n;\n    n * n\nenddefine;\n"))
+            (with-current-buffer (find-file-noselect file)
+              (goto-char (point-min))
+              (forward-line 1)
+              (pop11-eval-defun)
+              (pop11-test-wait-for-swank "^: " 10)
+              (should (equal file
+                             (car (gethash "test_squared"
+                                           pop11-swank--source-map)))))
+            (delete-file file))
+          (let ((r (pop11-swank-call "swank/eval"
+                                     '(("code" . "test_squared(9);")))))
+            (should (equal '("81") (pop11-swank--get r "values"))))
+
+          ;; Completion reads the LIVE dictionary, so it knows a name
+          ;; that was defined a moment ago.
+          (let ((items (pop11-swank--get
+                        (pop11-swank-call "swank/complete"
+                                          '(("prefix" . "test_squ")))
+                        "items")))
+            (should (member "test_squared" items)))
+
+          ;; describe likewise, and it finds a library file when there
+          ;; is one to find.
+          (let ((d (pop11-swank-call "swank/describe"
+                                     '(("name" . "test_squared")))))
+            (should (eq t (pop11-swank--get d "defined")))
+            (should (eq t (pop11-swank--get d "isProcedure"))))
+          (let ((d (pop11-swank-call "swank/describe" '(("name" . "appdic")))))
+            (should (string-match-p "appdic\\.p"
+                                    (pop11-swank--get d "sourceFile"))))
+
+          ;; A mishap opens a backtrace buffer with real frames.
+          (pop11-swank-eval "hd(3);" nil)
+          (pop11-test-wait-for-swank "MISHAP" 10)
+          (with-current-buffer "*pop11-mishap*"
+            (should (string-match-p "LIST NEEDED" (buffer-string)))
+            (should (string-match-p "^ +[0-9]+ +hd$"
+                                    (buffer-string))))
+
+          ;; The inspector walks a live structure by handle.
+          (pop11-swank-inspect "{1 'two' [3 4]}")
+          (with-current-buffer "*pop11-inspector*"
+            (should (string-match-p "vector" (buffer-string)))
+            (should (string-match-p "two" (buffer-string)))
+            (goto-char (point-min))
+            (should (re-search-forward "pair" nil t))
+            (beginning-of-line)
+            (pop11-inspector-drill))
+          (with-current-buffer "*pop11-inspector*"
+            (should (string-match-p "\\[3 4\\]" (buffer-string)))
+            (pop11-inspector-back))
+          (with-current-buffer "*pop11-inspector*"
+            (should (string-match-p "vector" (buffer-string))))
+
+          ;; Tracing goes through the session too.
+          (pop11-swank-toggle-trace "test_squared")
+          (should (member "test_squared" pop11-swank--traced))
+          (pop11-swank-toggle-trace "test_squared")
+          (should-not (member "test_squared" pop11-swank--traced))
+
+          ;; And a runaway loop is stopped by signalling the pid.
+          (pop11-swank-eval
+           "vars spin = 0; until false do spin + 1 -> spin enduntil;" nil)
+          (accept-process-output pop11-swank--process 0.5)
+          (pop11-swank-interrupt)
+          (pop11-test-wait-for-swank "interrupted" 20)
+          (let ((r (pop11-swank-call "swank/eval" '(("code" . "spin > 0;")))))
+            (should (equal '("<true>") (pop11-swank--get r "values")))))
+      (ignore-errors (pop11-swank-quit)))))
+
+(defun pop11-test-wait-for-swank (regexp &optional seconds)
+  "Wait for REGEXP to appear in the swank REPL buffer."
+  (let ((deadline (+ (float-time) (or seconds 30))) found)
+    (while (and (not found) (< (float-time) deadline))
+      (accept-process-output pop11-swank--process 0.1)
+      (when (get-buffer pop11-swank-buffer-name)
+        (with-current-buffer pop11-swank-buffer-name
+          (save-excursion
+            (goto-char (point-min))
+            (when (re-search-forward regexp nil t) (setq found t))))))
+    (should found)
+    found))
+
+;;;; ------------------------------------------------------------------
 
 (let ((ert-batch-backtrace-right-margin 200))
   (ert-run-tests-batch-and-exit))

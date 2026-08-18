@@ -39,10 +39,15 @@ fi
 basepop="$root/target/pop/basepop11"
 [ -x "$basepop" ] || { echo "pop11-swank: $basepop not found" >&2; exit 2; }
 
-# As for the other servers: the engine root may be an older tarball
-# install, so the libraries come from this checkout.  `uses' searches
-# popuseslist, which has no environment hook, so extend it inline before
-# the first `uses'.
+# Documentation lives in the checkout even when the ENGINE root is a
+# tarball install (which ships pop/lib only), as for the other servers.
+POP11_SWANK_DOCROOT="$here"
+POP11_LIB_EXTRA="$here/pop/lib/lib/"
+export POP11_SWANK_DOCROOT POP11_LIB_EXTRA
+
+# The engine root may be an older tarball install, so the libraries come
+# from this checkout.  `uses' searches popuseslist, which has no
+# environment hook, so extend it inline before the first `uses'.
 exec "$root/poplog" "$basepop" \
   ":lvars d = '$here/pop/lib/lib/'; [^d ^^popuseslist] -> popuseslist;
     uses swank; swank_serve_n($port, $count); sysexit();"

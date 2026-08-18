@@ -7,14 +7,27 @@ comint buffer and gives the editing buffer the VED `ENTER` commands that
 drive it. `.pop11` and `.ph` are claimed outright; `.p` is sniffed (see
 below).
 
-This is the interactive half of what SLIME gives Common Lisp: one
-persistent, natively-compiled session you develop *into*, rather than a
-compile-and-restart loop. The deeper half — streamed output, an
-interactive mishap handler with a real frame list, a live-image
-inspector, `M-.` into procedures you defined at the prompt — needs a
-socket server inside the image. That server now exists
-(`pop/lib/lib/swank.p`, `HELP * SWANK`); this package does not talk to
-it yet, and will in the next phase.
+This is what SLIME gives Common Lisp: one persistent, natively-compiled
+session you develop *into*, rather than a compile-and-restart loop.
+
+There are two ways to reach a session, and they are genuinely different.
+`M-x run-pop11` opens a **terminal** on a fresh engine — comint, a
+prompt, everything it knows it learned by reading text off the wire.
+`M-x pop11-swank` opens a **connection to the session itself** over a
+socket, and from then on the same editing commands go there instead:
+
+|  | `run-pop11` | `pop11-swank` |
+| --- | --- | --- |
+| output | when the chunk finishes | *while the code runs* |
+| a mishap | a block of text | a backtrace buffer with real frames |
+| `M-.` | grep the library | ask the running heap |
+| completion | LSP, over text | the live dictionary |
+| a runaway loop | `C-c C-c`, hope | `C-c C-a`, which signals the pid |
+| inspecting a value | — | `C-c C-i`, and drill in by handle |
+
+Use the terminal when you want to type at Pop-11, the connection when
+you want to develop against it. Both can be up at once; the send
+commands prefer the connection.
 
 ## Install
 
@@ -64,6 +77,53 @@ a region and a "current procedure" is a defun:
 `C-c C-b` and `C-c C-k` differ in a way worth knowing: only the latter
 compiles a real file, so only its mishaps carry a filename and line
 number.
+
+With a connection there are three more, which have nothing to
+correspond to in VED because VED had no notion of a session you could
+interrogate from outside:
+
+| Emacs | What it does |
+| --- | --- |
+| `C-c C-i` | inspect a value; `RET` on a part drills in, `l` goes back |
+| `C-c C-s` | describe a name as the *session* has it |
+| `C-c C-a` | interrupt a running evaluation |
+
+## The live session
+
+`M-x pop11-swank` starts a server (`tools/pop11-swank`) and connects.
+`*pop11-swank*` is then a REPL you can type at — `RET` evaluates, `M-p`
+and `M-n` walk the history, `TAB` completes from the live dictionary.
+
+To hand over a session you are **already** using, with everything in it,
+start the server from inside that session instead and attach with `M-x
+pop11-swank-connect`:
+
+```pop11
+uses swank;
+swank_serve(4005);
+```
+
+That session then belongs to the editor: `swank_serve` blocks, so it
+stops being a terminal you can type at. That is the trade, and it is
+usually the right one — you get the whole heap you had built up.
+
+Two details are worth knowing because they explain the shape of things.
+
+**Interrupting works by signal, not by message.** Nothing can arrive on
+the socket while the session is inside your loop: Pop-11 is
+single-threaded and the server is *in* that loop. So `C-c C-a` sends
+SIGINT to the pid the handshake handed over, and the engine notices at
+the next `I_CHECK` planted in the running code. That check was an empty
+stub on arm64 and riscv64 until August 2026, which is why runaway loops
+used to be unkillable on those ports.
+
+**`M-.` on something you just compiled works because Emacs remembers,
+not because the session knows.** A procedure defined inside a file
+leaves no trail back to it — Poplog records `pdprops`, not a source
+location. The session can find an *autoloadable* library, where the file
+is named after the identifier (VED's `ENTER showlib` relies on the same
+thing), and for everything else this package keeps a map of what it
+compiled and where it came from.
 
 ## The `.p` extension
 
@@ -130,8 +190,12 @@ question of which of the two answers a given request has an answer.
 emacs -Q --batch -l tools/emacs/test-e2e.el
 ```
 
-31 tests: syntax, indentation against the real corpus, motion, the `.p`
-heuristic, the structural precheck, and a live end-to-end run that
-starts a real listener over a pty, sends it a procedure from a source
-buffer, calls it, kills it with a mishap and checks that it comes back.
-The live test skips itself when no engine can be found.
+32 tests: syntax, indentation against the real corpus, motion, the `.p`
+heuristic, the structural precheck, and two live end-to-end runs. The
+first starts a real listener over a pty, sends it a procedure from a
+source buffer, calls it, kills it with a mishap and checks that it comes
+back. The second starts a real swank server and drives the whole client
+against it — eval, streamed output, the source map, completion,
+describe, the backtrace buffer, the inspector drilling in and back,
+tracing, and interrupting a runaway loop. Both skip themselves when no
+engine can be found.

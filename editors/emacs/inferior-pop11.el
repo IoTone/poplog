@@ -45,6 +45,7 @@
 (require 'seq)
 (require 'xref)
 (require 'pop11-mode)
+(require 'pop11-swank)
 
 (defcustom pop11-repl-buffer-name "*pop11*"
   "Name of the buffer running the inferior Pop-11 process."
@@ -224,16 +225,26 @@ itemiser mid-token, and every later chunk would be read as part of it."
               ((> (nth 0 state) 0) (user-error "Pop-11: unclosed bracket"))
               ((< (nth 0 state) 0) (user-error "Pop-11: stray closing bracket")))))))
 
-(defun pop11--send (code &optional what)
-  "Send CODE to the inferior Pop-11, describing it as WHAT."
-  (let ((proc (pop11-process))
-        (trimmed (string-trim code)))
+(defun pop11--send (code &optional what position)
+  "Send CODE to Pop-11, describing it as WHAT.
+Over the swank connection when there is one -- so output streams, values
+come back as values and a mishap opens a backtrace -- and otherwise down
+the comint terminal.  POSITION, when given, is where in this buffer the
+code came from, which is what lets \[pop11-find-definition] come back to
+a definition the session has no file for."
+  (let ((trimmed (string-trim code)))
     (when (string-empty-p trimmed)
       (user-error "Nothing to send"))
     (pop11--check-complete trimmed)
-    (pop11--echo trimmed what)
-    (comint-send-string proc (concat trimmed "\n"))
-    (when what (message "Pop-11: sent %s" what))))
+    (if (pop11-swank-connected-p)
+        (progn
+          (pop11-swank-remember-definitions
+           trimmed (buffer-file-name) position)
+          (pop11-swank-eval trimmed what))
+      (let ((proc (pop11-process)))
+        (pop11--echo trimmed what)
+        (comint-send-string proc (concat trimmed "\n"))
+        (when what (message "Pop-11: sent %s" what))))))
 
 (defun pop11--echo (code what)
   "Show CODE, described as WHAT, in the REPL buffer before sending it.
@@ -270,7 +281,8 @@ lands after it."
     (unless bounds
       (user-error "Point is not inside a define ... enddefine"))
     (pop11--send (buffer-substring-no-properties (car bounds) (cdr bounds))
-                 (or (pop11-current-defun-name) "procedure"))))
+                 (or (pop11-current-defun-name) "procedure")
+                 (car bounds))))
 
 (defun pop11-eval-buffer ()
   "Compile the whole buffer, without saving it."
@@ -293,11 +305,13 @@ disk, so mishaps carry a real filename and line number."
                  (file-name-nondirectory file))))
 
 (defun pop11-switch-to-repl ()
-  "Switch to the Pop-11 listener, starting one if needed.  VED's ENTER im."
+  "Switch to the Pop-11 session, starting a listener if needed.
+VED's ENTER im.  Prefers the swank connection when there is one."
   (interactive)
-  (if (pop11-process t)
-      (pop-to-buffer pop11-repl-buffer-name)
-    (run-pop11)))
+  (cond
+   ((pop11-swank-connected-p) (pop-to-buffer pop11-swank-buffer-name))
+   ((pop11-process t) (pop-to-buffer pop11-repl-buffer-name))
+   (t (run-pop11))))
 
 ;;;; ------------------------------------------------------------------
 ;;;; Tracing
@@ -306,13 +320,15 @@ disk, so mishaps carry a real filename and line number."
   "Toggle `trace' on WORD, by default the identifier at point."
   (interactive
    (list (read-string "Trace: " (thing-at-point 'symbol t))))
-  (if (member word pop11--traced)
-      (progn (pop11--send (format "untrace %s;" word))
-             (setq pop11--traced (delete word pop11--traced))
-             (message "Pop-11: untraced %s" word))
-    (pop11--send (format "trace %s;" word))
-    (push word pop11--traced)
-    (message "Pop-11: traced %s" word)))
+  (if (pop11-swank-connected-p)
+      (pop11-swank-toggle-trace word)
+    (if (member word pop11--traced)
+        (progn (pop11--send (format "untrace %s;" word))
+               (setq pop11--traced (delete word pop11--traced))
+               (message "Pop-11: untraced %s" word))
+      (pop11--send (format "trace %s;" word))
+      (push word pop11--traced)
+      (message "Pop-11: traced %s" word))))
 
 ;;;; ------------------------------------------------------------------
 ;;;; Documentation: HELP, TEACH, REF
@@ -404,8 +420,10 @@ lookup is exact.  For anything else -- a procedure defined inside a
 larger file -- fall back to searching the tree for its `define'."
   (interactive (list (read-string "Find definition: "
                                   (thing-at-point 'symbol t))))
-  (let ((file (pop11--library-file name)))
+  (let ((file (and (not (pop11-swank-connected-p))
+                   (pop11--library-file name))))
     (cond
+     ((pop11-swank-connected-p) (pop11-swank-find-definition name))
      (file
       (xref-push-marker-stack)
       (find-file file)

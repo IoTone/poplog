@@ -46,6 +46,20 @@ swank/describe {name} -> {name, defined, identprops, isProcedure,
     What the name is bound to in this session -- including procedures
     defined at the prompt a moment ago, which no static tool can see.
 
+swank/inspect {expr} | {handle}
+        -> {ok, class, printed, parts: [{index, class, printed, handle}],
+            partCount, handle}
+    Handles let a client walk into a structure without re-evaluating
+    anything, which matters for a value no expression could name
+    twice.  They are reset whenever an inspection starts from an
+    expression, so the table stays one object graph.
+
+swank/complete {prefix} -> {items, truncated}
+    Dictionary words, from the live dictionary -- so a procedure
+    defined at the prompt a minute ago completes like any other.
+
+swank/trace {name} | {name, untrace: true} -> {ok, name, traced}
+
 swank/state -> {evals, heapBytes, pid}
 swank/stop  -> {stopping: true}
 
@@ -88,8 +102,17 @@ LIMITS (v1, by design)
 
 One connection at a time, one evaluation at a time, no authentication
 (bind to localhost and treat the port as a shell -- anything that
-connects can evaluate anything).  No inspector, no completion, no
-tracing yet; the LSP server covers completion over text meanwhile.
+connects can evaluate anything).
+
+Inspector parts are indexed rather than labelled: Pop-11 class keys
+carry field types, not field names, so `class_spec' cannot tell you a
+record's slot is called `px'.
+
+swank/describe finds a source file only for an AUTOLOADABLE name, where
+the file is named after the identifier.  A procedure defined inside a
+larger library has no such trail; a client that compiled the definition
+itself should remember where it came from (editors/emacs/pop11-swank.el
+keeps exactly that map).
 
 See also: LIB * JSONRPC, LIB * INCOMPLETE_CODE, HELP * POPLOG_LSP,
 tools/pop11-swank, tools/tests/test_swank.p, editors/emacs/.

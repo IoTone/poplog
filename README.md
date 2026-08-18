@@ -202,8 +202,16 @@ swank_serve(4005);          ;;; SLIME's port, since it is the same idea
 ```
 
 or `tools/pop11-swank` to start a fresh one. Tests:
-`sh tools/test-libs.sh tools/tests/test_swank.p` — 32 checks against a
+`sh tools/test-libs.sh tools/tests/test_swank.p` — 56 checks against a
 real server in a second process, including the interrupt.
+
+The [Emacs package](editors/emacs/) is the client: `M-x pop11-swank`
+starts a session and connects, and from then on the editing commands go
+there. Output streams into the REPL as the code runs, a mishap opens a
+backtrace buffer with real frames, `C-c C-i` inspects a value and drills
+into its parts by handle, `M-.` asks the running heap where a name came
+from, completion reads the live dictionary, and `C-c C-a` stops a
+runaway loop.
 
 The [Emacs package](editors/emacs/) goes further and reaches for the
 other half of the idea: `M-x run-pop11` puts a real Poplog listener in a

@@ -24,6 +24,10 @@
  >   swank/eval        compile code here; streams swank/output; returns
  >                     values, or a structured mishap, or interrupted
  >   swank/describe    what a name is bound to in this session
+ >   swank/inspect     a value's class, printing and parts, with handles
+ >                     for drilling further in without re-evaluating
+ >   swank/complete    live dictionary words matching a prefix
+ >   swank/trace       trace or untrace a procedure by name
  >   swank/state       evals so far, heap, pid
  >   swank/stop        close the connection and stop serving
  >
@@ -215,6 +219,237 @@ define lconstant do_eval(conn, code) -> result;
     endif;
 enddefine;
 
+;;; --- stack discipline ---------------------------------------------------
+
+;;; exitfrom unwinds the call chain but not the user stack, and a mishap
+;;; has usually pushed the operands of the raise before it fires.  Every
+;;; trap in this file has to put the stack back afterwards, or the junk
+;;; surfaces as the arguments of whatever is called next -- which shows
+;;; up as an absurd mishap a long way from the cause.
+define lconstant restack(base);
+    until stacklength() == base do
+        if stacklength() fi_> base then erase() else false endif;
+    enduntil;
+enddefine;
+
+;;; --- printing values for a client ---------------------------------------
+
+lconstant PRINT_LIMIT = 240;
+
+;;; Bounded on two axes: nesting, because a cyclic or merely deep
+;;; structure would otherwise print forever, and length, because the
+;;; client is showing this in one line of a buffer.
+define lconstant printed(x) -> s;
+    dlocal pop_pr_level = 4, pop_pr_quotes = true;
+    x sys_>< nullstring -> s;
+    if length(s) fi_> PRINT_LIMIT then
+        substring(1, PRINT_LIMIT, s) <> '...' -> s;
+    endif;
+enddefine;
+
+define lconstant class_name(x) -> s;
+    class_dataword(datakey(x)) sys_>< nullstring -> s;
+enddefine;
+
+;;; --- inspecting a live value --------------------------------------------
+
+;;; Handles let the client drill into a structure without the server
+;;; having to re-evaluate anything.  They are reset whenever a new
+;;; inspection starts from an expression, which bounds the table to one
+;;; object graph.
+lvars handles = false, nhandles = 0;
+
+define lconstant reset_handles();
+    newmapping([], 64, false, false) -> handles;
+    0 -> nhandles;
+enddefine;
+reset_handles();
+
+define lconstant new_handle(x) -> h;
+    nhandles fi_+ 1 -> nhandles;
+    x -> handles(nhandles);
+    nhandles -> h;
+enddefine;
+
+;;; datalist explodes anything compound and mishaps on everything else,
+;;; which is as good a definition of "has parts" as Pop-11 offers.
+lvars parts_ok = true, parts_list = [];
+
+define lconstant parts_of(x);
+    dlocal interrupt =
+        procedure(); false -> parts_ok; exitfrom(parts_of) endprocedure;
+    dlocal cucharerr = erase;
+    datalist(x) -> parts_list;
+enddefine;
+
+define lconstant describe_value(x) -> p;
+    lvars part, acc = [], n = 0;
+    jsonrpc_obj([]) -> p;
+    class_name(x) -> p('class');
+    printed(x) -> p('printed');
+    lvars base = stacklength();
+    true -> parts_ok;
+    [] -> parts_list;
+    parts_of(x);
+    restack(base);
+    if isprocedure(x) then
+        (pdprops(x) or false) sys_>< nullstring -> p('pdprops');
+        pdnargs(x) -> p('nargs');
+    endif;
+    if parts_ok then
+        for part in parts_list do
+            n fi_+ 1 -> n;
+            conspair(jsonrpc_obj([%
+                'index', n,
+                'printed', printed(part),
+                'class', class_name(part),
+                'handle', new_handle(part) %]), acc) -> acc;
+        endfor;
+        consvector(destlist(rev(acc))) -> p('parts');
+    else
+        {} -> p('parts');
+    endif;
+    ;;; Field NAMES are not recoverable from a class key -- class_spec
+    ;;; gives types, not names -- so parts are indexed, not labelled.
+    n -> p('partCount');
+enddefine;
+
+lvars value_ok = true, value_got = false;
+
+define lconstant value_trapped(expr);
+    dlocal prmishap =
+        procedure(msg, culprits);
+            lvars msg, culprits;
+            false -> value_ok;
+            msg -> value_got;
+            exitfrom(value_trapped);
+        endprocedure;
+    dlocal interrupt =
+        procedure(); false -> value_ok; exitfrom(value_trapped) endprocedure;
+    dlocal cucharout = erase, cucharerr = erase;
+    lvars base = stacklength();
+    pop11_compile(stringin(expr));
+    if stacklength() fi_> base then
+        -> value_got;
+        until stacklength() == base do erase() enduntil;
+    else
+        false -> value_ok;
+        'the expression left no value on the stack' -> value_got;
+    endif;
+enddefine;
+
+define lconstant do_inspect(params) -> result;
+    lvars h = params('handle'), expr = params('expr'), x;
+    if h then
+        handles(h) -> x;
+        unless x or h fi_<= nhandles then
+            jsonrpc_obj([% 'ok', false,
+                           'error', 'no such handle' %]) -> result;
+            return;
+        endunless;
+    else
+        returnunless(expr)
+            (jsonrpc_obj([% 'ok', false,
+                            'error', 'expr or handle needed' %]) -> result);
+        reset_handles();
+        true -> value_ok;
+        false -> value_got;
+        lvars base = stacklength();
+        value_trapped(expr);
+        restack(base);
+        unless value_ok then
+            jsonrpc_obj([% 'ok', false,
+                'error', value_got sys_>< nullstring %]) -> result;
+            return;
+        endunless;
+        value_got -> x;
+    endif;
+    describe_value(x) -> result;
+    true -> result('ok');
+    if h then h else new_handle(x) endif -> result('handle');
+enddefine;
+
+;;; --- tracing ------------------------------------------------------------
+
+;;; trace and untrace are syntax words taking identifiers, so the name
+;;; goes back through the compiler rather than through a procedure call.
+;;; (`wanted' rather than the obvious `on', which is a loop keyword.)
+define lconstant do_trace(name, wanted) -> result;
+    lvars base = stacklength();
+    true -> value_ok;
+    value_trapped((if wanted then 'trace ' else 'untrace ' endif)
+                  sys_>< name sys_>< '; 0;');
+    restack(base);
+    jsonrpc_obj([% 'ok', value_ok, 'name', name, 'traced', wanted %]) -> result;
+enddefine;
+
+;;; --- completion over the live dictionary --------------------------------
+
+lconstant COMPLETION_LIMIT = 200;
+
+define lconstant do_complete(prefix) -> result;
+    lvars acc = [], n = 0;
+    returnunless(length(prefix) fi_>= 1)
+        (jsonrpc_obj([% 'items', {} %]) -> result);
+    appdic(
+        procedure(w);
+            lvars w, s = fast_word_string(w);
+            returnif(n fi_>= COMPLETION_LIMIT);
+            returnunless(isstartstring(prefix, s));
+            returnif(identprops(w) == "undef");
+            conspair(copy(s), acc) -> acc;
+            n fi_+ 1 -> n;
+        endprocedure);
+    jsonrpc_obj([% 'items', consvector(destlist(rev(acc))),
+                   'truncated', n fi_>= COMPLETION_LIMIT %]) -> result;
+enddefine;
+
+;;; --- where a name comes from --------------------------------------------
+
+;;; An autoloadable library is a file named after the identifier, which
+;;; is exactly what VED's ENTER showlib relies on.  A procedure defined
+;;; inside a larger file has no such trail -- the client tracks those
+;;; itself, since it is the one that compiled them.
+lconstant library_dirs =
+    ['$popautolib/' '$popliblib/' '$popvedlib/' '$poplocalauto/'
+     '$popdatalib/'];
+
+lconstant doc_sections = ['help' 'ref' 'teach'];
+
+;;; The engine root can be a tarball install, which ships pop/lib but no
+;;; documentation, while the launcher was run from a checkout that has
+;;; both.  Same split the LSP server handles with POP11_LSP_DOCROOT.
+define lconstant search_dirs() -> dirs;
+    lvars extra = systranslate('POP11_LIB_EXTRA');
+    if extra then [^extra ^^library_dirs] else library_dirs endif -> dirs;
+enddefine;
+
+define lconstant docroot() -> d;
+    (systranslate('POP11_SWANK_DOCROOT') or systranslate('usepop')) -> d;
+enddefine;
+
+define lconstant find_file(dirs, name, suffix) -> path;
+    lvars dir, try, dev;
+    false -> path;
+    for dir in dirs do
+        sysfileok(dir sys_>< name sys_>< suffix) -> try;
+        if (readable(try) ->> dev) then
+            sysclose(dev);
+            try -> path;
+            return;
+        endif;
+    endfor;
+enddefine;
+
+define lconstant doc_file(name) -> path;
+    lvars sec, dirs = [];
+    for sec in doc_sections do
+        conspair(docroot() dir_>< 'pop' dir_>< sec dir_>< nullstring,
+                 dirs) -> dirs;
+    endfor;
+    find_file(rev(dirs), name, nullstring) -> path;
+enddefine;
+
 ;;; --- describing a name --------------------------------------------------
 
 lvars desc_ok = true;
@@ -244,9 +479,13 @@ define lconstant do_describe(name) -> result;
     name -> result('name');
     unless desc_ok and result('identprops') /= 'undef' then
         jsonrpc_obj([% 'name', name, 'defined', false %]) -> result;
+        find_file(search_dirs(), name, '.p') -> result('sourceFile');
+        doc_file(name) -> result('docFile');
         return;
     endunless;
     true -> result('defined');
+    find_file(search_dirs(), name, '.p') -> result('sourceFile');
+    doc_file(name) -> result('docFile');
 enddefine;
 
 ;;; --- request handling ---------------------------------------------------
@@ -261,13 +500,26 @@ define lconstant handle(conn, msg);
             'version', swank_version,
             'pid', poppid,
             'poplogVersion', popversion sys_>< nullstring,
-            'features', {'eval' 'output' 'mishap' 'interrupt' 'describe'} %]));
+            'features', {'eval' 'output' 'mishap' 'interrupt' 'describe'
+                         'inspect' 'complete' 'trace'} %]));
 
     elseif method = 'swank/eval' then
         jsonrpc_respond(conn, id, do_eval(conn, params('code') or nullstring));
 
     elseif method = 'swank/describe' then
         jsonrpc_respond(conn, id, do_describe(params('name') or nullstring));
+
+    elseif method = 'swank/inspect' then
+        jsonrpc_respond(conn, id, do_inspect(params));
+
+    elseif method = 'swank/complete' then
+        jsonrpc_respond(conn, id,
+                        do_complete(params('prefix') or nullstring));
+
+    elseif method = 'swank/trace' then
+        jsonrpc_respond(conn, id,
+            do_trace(params('name') or nullstring,
+                     params('untrace') /== true));
 
     elseif method = 'swank/state' then
         jsonrpc_respond(conn, id, jsonrpc_obj([%
