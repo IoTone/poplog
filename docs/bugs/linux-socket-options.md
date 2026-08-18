@@ -45,9 +45,19 @@ is presumably why this survived however many years of the Linux port.
 
 A `#_IF DEF LINUX` branch in `pop/lib/include/unix_sockets.ph` with the
 values from `asm-generic/socket.h`, and the same treatment for
-`SOL_SOCKET` in `unix_sockets.p`. Verified on x86_64 and riscv64, which
-share those values; the architectures that do not (mips, sparc, parisc)
-are not targets here and would need their own branch.
+`SOL_SOCKET` in `unix_sockets.p`.
+
+Verified on x86_64 (`test_jsonrpc` 38 checks, `test_swank` 56) and on
+riscv64 (`test_jsonrpc` 38 checks — the socket constants confirmed
+directly against that kernel's headers as well). The architectures whose
+values differ (mips, sparc, parisc) are not targets here and would need
+their own branch.
+
+`test_swank` was *not* run on riscv64: the engine on that host dates
+from 2026-08-09, before the `I_CHECK` fix, so SIGINT does not stop a hot
+loop there and the suite's interrupt test cannot pass for reasons that
+have nothing to do with sockets. That engine needs a rebuild before any
+riscv64 result involving interrupts or coroutines means anything.
 
 `SO_USELOOPBACK` and `SO_PROTOTYPE` have no Linux equivalent. They are
 defined as `-1` rather than left undefined, so code mentioning them
