@@ -88,6 +88,14 @@ def convert(path):
         never_ends = (re.search(r"\brepeat\b", text)
                       and not re.search(r"\bquit(if|unless|loop)\b|\btimes\b",
                                         text))
+        # …and so are calls that block on the outside world.  A server
+        # loop or an interactive reader never returns to the kernel, and
+        # a notebook cell has no way to interrupt it.  (TEACH SWANK is
+        # full of `swank_serve' calls the reader is meant to type into a
+        # second window.)
+        never_ends = never_ends or re.search(
+            r"\b(?:swank_serve(?:_n)?|http_serve(?:_n)?|readline|ved)\s*\(",
+            text)
         # `........` is the TEACH convention for "the reader fills this in".
         # It is not Pop-11, and compiling an exercise stub leaves the
         # session in a state where the NEXT cell (which calls the procedure

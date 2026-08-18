@@ -114,8 +114,10 @@ larger library has no such trail; a client that compiled the definition
 itself should remember where it came from (editors/emacs/pop11-swank.el
 keeps exactly that map).
 
-See also: LIB * JSONRPC, LIB * INCOMPLETE_CODE, HELP * POPLOG_LSP,
-tools/pop11-swank, tools/tests/test_swank.p, editors/emacs/.
+See also: TEACH * SWANK (a walkthrough from first connection to
+interrupting a runaway loop, by hand before any editor is involved),
+LIB * JSONRPC, LIB * INCOMPLETE_CODE, tools/pop11-swank,
+tools/tests/test_swank.p, editors/emacs/.
 
 --- pop/help/swank
 --- Author: D.Kordsmeier (@truedat101) and Claude (@claude), Aug 2026

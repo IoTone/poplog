@@ -213,6 +213,10 @@ into its parts by handle, `M-.` asks the running heap where a name came
 from, completion reads the live dictionary, and `C-c C-a` stops a
 runaway loop.
 
+`TEACH SWANK` is the walkthrough: connecting by hand, watching output
+stream, taking a mishap apart, interrupting a runaway loop, inspecting a
+live value -- before any editor is involved.
+
 The [Emacs package](editors/emacs/) goes further and reaches for the
 other half of the idea: `M-x run-pop11` puts a real Poplog listener in a
 comint buffer, and the editing buffer gets VED's `ENTER` commands on

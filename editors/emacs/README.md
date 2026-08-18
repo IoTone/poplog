@@ -184,6 +184,19 @@ hover and dictionary completion; point `eglot` at it by hand:
 Automatic registration lands alongside the socket server, when the
 question of which of the two answers a given request has an answer.
 
+## Understanding what it is talking to
+
+`TEACH * SWANK` walks through the session server from the outside in --
+connecting by hand, watching output stream, taking a mishap apart,
+interrupting a runaway loop, inspecting a live value -- before any
+editor is involved. Worth an hour if you want to know what these keys
+are actually doing:
+
+```sh
+./poplog target/pop/basepop11 -c "teach swank"     # or, in Emacs:
+```
+`C-c C-d t` and answer `swank`.
+
 ## Tests
 
 ```sh
