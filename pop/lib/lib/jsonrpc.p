@@ -32,7 +32,9 @@ include unix_sockets.ph;
 
 section $-jsonrpc =>
     jsonrpc_stdio jsonrpc_wrap jsonrpc_listen jsonrpc_accept
-    jsonrpc_connect jsonrpc_close jsonrpc_device jsonrpc_state
+    jsonrpc_connect jsonrpc_connect_n jsonrpc_connect_wait
+    jsonrpc_close
+    jsonrpc_device jsonrpc_state
     jsonrpc_read jsonrpc_write jsonrpc_obj
     jsonrpc_respond jsonrpc_error jsonrpc_notify
     jsonrpc_serve jsonrpc_stop;
@@ -84,10 +86,45 @@ define jsonrpc_accept(listener, framing) -> conn;
     new_conn(sys_socket_accept(listener, false), framing) -> conn;
 enddefine;
 
-define jsonrpc_connect(host, port, framing) -> conn;
+;;; do_connect in LIB * UNIX_SOCKETS is supposed to retry a refused
+;;; connection at one-second intervals, five times by default.  It does
+;;; not do so on Darwin -- a connect to a dead port fails instantly
+;;; whatever the count (docs/bugs/darwin-connect-retry.md) -- so do not
+;;; rely on it to cover a peer that is still starting.  Use
+;;; jsonrpc_connect_wait for that.
+define jsonrpc_connect_n(host, port, framing, retries) -> conn;
     lvars sock = sys_socket(`i`, `S`, false);
-    [^host ^port] -> sys_socket_peername(sock);
+    [^host ^port] -> sys_socket_peername(sock, retries);
     new_conn(sock, framing) -> conn;
+enddefine;
+
+define jsonrpc_connect(host, port, framing) -> conn;
+    jsonrpc_connect_n(host, port, framing, 5) -> conn;
+enddefine;
+
+;;; Connect, tolerating a peer that has not finished starting: returns
+;;; false rather than mishapping if it is still refused after `secs'.
+;;; The polling is here rather than left to do_connect because that
+;;; retry is not portable (see above), and because a client would
+;;; rather have false than an exception.
+lvars wait_conn = false;
+
+define lconstant connect_once(host, port, framing);
+    dlocal interrupt =
+        procedure(); false -> wait_conn; exitfrom(connect_once) endprocedure;
+    dlocal cucharerr = erase;
+    jsonrpc_connect_n(host, port, framing, 1) -> wait_conn;
+enddefine;
+
+define jsonrpc_connect_wait(host, port, framing, secs) -> conn;
+    lvars deadline = sys_real_time() + secs;
+    repeat
+        false -> wait_conn;
+        connect_once(host, port, framing);
+        returnif(wait_conn) (wait_conn -> conn);
+        returnif(sys_real_time() >= deadline) (false -> conn);
+        syssleep(10);
+    endrepeat;
 enddefine;
 
 define jsonrpc_close(conn);

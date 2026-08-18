@@ -175,8 +175,35 @@ protocol tests: `python3 tools/lsp/test-e2e.py`.
 Both servers sit on one transport, `pop/lib/lib/jsonrpc.p` — line and
 Content-Length framing, stdio and TCP endpoints, and a serve loop that
 turns a handler mishap into a `-32603` and keeps going. Factoring it out
-took 342 lines out of the two servers, and it is what a socket-based
-evaluation server will be built on.
+took 342 lines out of the two servers, and it is what the swank server
+below is built on.
+
+## Editors: the live session
+
+`pop/lib/lib/swank.p` is the other half of the idea, named after SLIME's
+swank for the same reason: the interesting thing an editor can talk to
+is not a compiler but a **running session**. The LSP server answers
+questions about text; this answers questions about a live heap — what a
+name is bound to *now*, what a procedure printed *while it ran*, which
+frames were on the stack when it died.
+
+Output streams back as it is produced rather than arriving in one lump
+at the end, mishaps come back as data (`message`, `culprits`, `frames`)
+rather than as a block of text to scrape, and a runaway loop is stopped
+by signalling the pid the handshake hands you — which works because
+`I_CHECK` was implemented on arm64 and riscv64 earlier in this arc.
+
+Start one from a session you are already using, and the editor gets that
+session, with everything in it:
+
+```pop11
+uses swank;
+swank_serve(4005);          ;;; SLIME's port, since it is the same idea
+```
+
+or `tools/pop11-swank` to start a fresh one. Tests:
+`sh tools/test-libs.sh tools/tests/test_swank.p` — 32 checks against a
+real server in a second process, including the interrupt.
 
 The [Emacs package](editors/emacs/) goes further and reaches for the
 other half of the idea: `M-x run-pop11` puts a real Poplog listener in a

@@ -56,6 +56,10 @@ cp "$repo/tools/pop11-mcp" "$stage/$name/tools/pop11-mcp"
 # ... and the LSP server (same launcher fallback scheme)
 cp "$repo/pop/lsp/pop11_lsp.p" "$stage/$name/pop/lsp/pop11_lsp.p"
 cp "$repo/tools/pop11-lsp" "$stage/$name/tools/pop11-lsp"
+
+# The swank server is a LIBRARY (it has to be `uses'-able from a live
+# session), so it travels with pop/lib; only its launcher needs copying.
+cp "$repo/tools/pop11-swank" "$stage/$name/tools/pop11-swank"
 # The freely-licensed story files, so LIB ZMACHINE has something to play
 # out of the box ($usepop/examples/games/cave.z3).
 mkdir -p "$stage/$name/examples/games"

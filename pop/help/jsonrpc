@@ -18,11 +18,19 @@ jsonrpc_stdio(FRAMING) -> CONN
 jsonrpc_listen(PORT) -> LISTENER
 jsonrpc_accept(LISTENER, FRAMING) -> CONN
 jsonrpc_connect(HOST, PORT, FRAMING) -> CONN
+jsonrpc_connect_n(HOST, PORT, FRAMING, RETRIES) -> CONN
+jsonrpc_connect_wait(HOST, PORT, FRAMING, SECS) -> CONN or false
 jsonrpc_wrap(DEVICE, FRAMING) -> CONN
     TCP, or any device you already have (one half of a
     sys_socket_pair, a pipe).  The listener is a plain device, not a
     connection; SO_REUSEADDR is set on it so a restart does not have
     to wait out TIME_WAIT.
+
+    Use jsonrpc_connect_wait when the peer may still be starting: it
+    polls for SECS seconds and returns false rather than mishapping.
+    do_connect in LIB * UNIX_SOCKETS is supposed to retry a refused
+    connection itself, but does not on Darwin -- see
+    docs/bugs/darwin-connect-retry.md.
 
 jsonrpc_close(CONN)
 jsonrpc_device(CONN) -> DEVICE          false for stdio

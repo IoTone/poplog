@@ -247,9 +247,14 @@ natively:
     (`l1`/`lmr`/`lcp`/`load`/`im`/`showlib`/`help`/`teach`/`ref`), a
     structural precheck before anything reaches the itemiser, and
     HELP/TEACH/REF lookup straight out of the tree.
+* The socket server it will eventually talk to now exists:
+  `pop/lib/lib/swank.p` (LIB * SWANK), serving eval with streamed
+  output, structured mishaps and interrupt-by-signal over the same
+  LIB * JSONRPC transport as the other two servers. Wiring
+  `inferior-pop11` to it — and adding an sldb buffer, an inspector and
+  `M-.` into the live image — is the next step.
 * Not yet wired: `eglot` registration for `tools/pop11-lsp` (documented
-  as a two-line manual recipe meanwhile), and the socket server that
-  would make evaluation asynchronous and mishaps interactive.
+  as a two-line manual recipe meanwhile).
 * Tests: `emacs -Q --batch -l tools/emacs/test-e2e.el` — 31 ERT tests
   including a live listener driven over a pty.
 

@@ -9,10 +9,12 @@ below).
 
 This is the interactive half of what SLIME gives Common Lisp: one
 persistent, natively-compiled session you develop *into*, rather than a
-compile-and-restart loop. The deeper half — asynchronous evaluation, an
+compile-and-restart loop. The deeper half — streamed output, an
 interactive mishap handler with a real frame list, a live-image
 inspector, `M-.` into procedures you defined at the prompt — needs a
-socket server inside the image and lands with a later phase.
+socket server inside the image. That server now exists
+(`pop/lib/lib/swank.p`, `HELP * SWANK`); this package does not talk to
+it yet, and will in the next phase.
 
 ## Install
 

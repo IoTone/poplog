@@ -90,14 +90,17 @@ check('parse error is false, not a mishap', jsonrpc_read(B), false);
 ;;; Retry on a fresh port: another test run, or anything else on this
 ;;; machine, may hold the one we picked.
 vars port, listener = false, tries = 0;
+
+define try_listen(p);
+    dlocal interrupt = procedure(); exitfrom(try_listen) endprocedure;
+    dlocal cucharerr = erase;
+    jsonrpc_listen(p) -> listener;
+enddefine;
+
 until listener or tries > 20 do
     18900 + ((sys_real_time() + tries * 37) rem 400) -> port;
     tries + 1 -> tries;
-    procedure();
-        dlocal interrupt = procedure(); exitfrom(0) endprocedure;
-        dlocal cucharerr = erase;
-        jsonrpc_listen(port) -> listener;
-    endprocedure();
+    try_listen(port);
 enduntil;
 check_true('bound a listening port', listener and true);
 vars client = jsonrpc_connect('localhost', port, "header");
