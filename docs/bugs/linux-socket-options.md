@@ -53,17 +53,21 @@ directly against that kernel's headers as well). The architectures whose
 values differ (mips, sparc, parisc) are not targets here and would need
 their own branch.
 
-`test_swank` was *not* run on riscv64: the engine on that host dates
-from 2026-08-09, before the `I_CHECK` fix, so SIGINT does not stop a hot
-loop there and the suite's interrupt test cannot pass for reasons that
-have nothing to do with sockets. That engine needs a rebuild before any
-riscv64 result involving interrupts or coroutines means anything.
+`test_swank` could not be run on riscv64 at the time: the engine on that
+host dated from 2026-08-09, before the `I_CHECK` fix, so SIGINT did not
+stop a hot loop there and the suite's interrupt test could not pass for
+reasons that had nothing to do with sockets.
 
-The `test_fileutils` misbehaviour on that host was put down to the same
-stale engine.  That was probably wrong: riscv64 shares the aarch64 stat
-declaration (its `sysdefs.p` sets `ARM64_LINUX`), and aarch64 turns out
-to return the wrong fields from `sys_file_stat` -- see
-`aarch64-stat-layout.md`.
+**Resolved 2026-08-19.** That host was rebuilt from current `dev` and
+`test_swank` now passes there, 56 checks, interrupt test included -- so
+the swank server is confirmed on riscv64 as well.
+
+The `test_fileutils` trouble on that host was two separate things. The
+24-minute spin really was the stale engine: on the rebuilt one the suite
+finishes in seconds. The *failure* is not -- riscv64 shares the aarch64
+stat declaration (its `sysdefs.p` sets `ARM64_LINUX`) and returns the
+wrong fields from `sys_file_stat`, confirmed against the fresh engine.
+See `aarch64-stat-layout.md`.
 
 `SO_USELOOPBACK` and `SO_PROTOTYPE` have no Linux equivalent. They are
 defined as `-1` rather than left undefined, so code mentioning them

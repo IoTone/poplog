@@ -61,9 +61,21 @@ eight bytes late.
 
 Both architectures share the declaration: `pop/src/syscomp/riscv64/sysdefs.p`
 sets `ARM64_LINUX = true` deliberately, so that the shared headers apply.
-So riscv64 has the same bug, and this may be the real reason
-`test_fileutils` behaved badly there (see `linux-socket-options.md`, where
-it was put down to a stale engine).
+
+riscv64 was confirmed on 2026-08-19 against a **freshly built** engine
+(current `dev`, StarFive VisionFive, Ubuntu 6.5), so this is not an
+artefact of the stale engine that host used to carry:
+
+| element | means | riscv64 | real value |
+| --- | --- | --- | --- |
+| 1 | size | `4096` (the blksize) | 12 |
+| 2 | mtime | `708869249` (nanoseconds) | 1787…  |
+| 5 | mode | `33188` | 33188 |
+| 6 | nlink | `43001212572599` | 1 |
+| 8 | inode | `369274` | 369274 |
+
+`test_fileutils` fails its `file_size` check and `test_zmachine` fails to
+load its story file, exactly as on aarch64.
 
 ## The fix that didn't take
 
