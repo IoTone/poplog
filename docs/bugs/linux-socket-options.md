@@ -59,6 +59,12 @@ loop there and the suite's interrupt test cannot pass for reasons that
 have nothing to do with sockets. That engine needs a rebuild before any
 riscv64 result involving interrupts or coroutines means anything.
 
+The `test_fileutils` misbehaviour on that host was put down to the same
+stale engine.  That was probably wrong: riscv64 shares the aarch64 stat
+declaration (its `sysdefs.p` sets `ARM64_LINUX`), and aarch64 turns out
+to return the wrong fields from `sys_file_stat` -- see
+`aarch64-stat-layout.md`.
+
 `SO_USELOOPBACK` and `SO_PROTOTYPE` have no Linux equivalent. They are
 defined as `-1` rather than left undefined, so code mentioning them
 still compiles and the kernel rejects the call loudly instead of a real
