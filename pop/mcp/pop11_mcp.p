@@ -8,8 +8,9 @@
    and pop11_checkpoint can freeze the whole working state (native code
    included) into a saved image.
 
-   Speaks MCP over stdio: newline-delimited JSON-RPC 2.0, parsed and
-   generated with lib json (itself pure Pop-11).  Launch via
+   Speaks MCP over stdio: newline-delimited JSON-RPC 2.0.  The framing,
+   dispatch and error handling are LIB * JSONRPC, shared with the LSP
+   server; this file is the tool set on top of it.  Launch via
    tools/pop11-mcp, which resolves the Poplog tree the same way the
    pop11 skill does.
 
@@ -28,7 +29,16 @@
 
 compile_mode :pop11 +strict;
 
+;;; The launcher hands us the library directory of the checkout this
+;;; script came from: the ENGINE root may be an older tarball install
+;;; whose pop/lib predates the libraries below.  `uses' searches
+;;; popuseslist, so extend that before the first one.
+lvars lib_extra = systranslate('POP11_LIB_EXTRA');
+if lib_extra then [^lib_extra ^^popuseslist] -> popuseslist endif;
+
 uses json;
+uses jsonrpc;
+uses incomplete_code;
 
 ;;; LIB ZMACHINE (the Z-machine interpreter, for the pop11_play tool) ships
 ;;; with Poplog, but this server may be running against an older installed
@@ -47,112 +57,28 @@ define lconstant load_zmachine();
 enddefine;
 load_zmachine();
 
-;;; JSON-RPC framing is one message per line: charout's automatic line
-;;; wrapping (poplinemax) would split messages, so kill it outright.
+;;; The framing is safe from charout's automatic wrapping (LIB * JSONRPC
+;;; writes straight at the device), but the wrapping would still break
+;;; up a value inside a captured tool result at 70 columns.  Kill it.
 false ->> poplinemax -> poplinewidth;
 
-;;; --- stdio ------------------------------------------------------------
+;;; --- the connection ---------------------------------------------------
 
-;;; Read one LF-terminated line from stdin -> string, or termin at EOF.
-define lconstant read_line() -> line;
-    lvars c, acc = [], n = 0;
-    repeat
-        charin() -> c;
-        if c == termin then
-            if n == 0 then termin -> line; return endif;
-            quitloop;
-        endif;
-        quitif(c == `\n`);
-        conspair(c, acc) -> acc;
-        n + 1 -> n;
-    endrepeat;
-    consstring(destlist(rev(acc))) -> line;
+;;; A stdio server has exactly one, so the reply helpers close over it
+;;; rather than threading it through every call site.
+lvars conn = jsonrpc_stdio("line");
+
+define lconstant respond(id, result);
+    jsonrpc_respond(conn, id, result);
 enddefine;
 
-define lconstant send_json(item);
-    lvars s = json_generate(item), i;
-    for i from 1 to length(s) do cucharout(s(i)) endfor;
-    cucharout(`\n`);
-    sysflush(popdevout);
-enddefine;
-
-;;; --- small json builders ------------------------------------------------
-
-;;; mkobj([% key1, val1, key2, val2, ... %]) -> property   (string keys)
-define lconstant mkobj(l) -> p;
-    lvars k, v;
-    newmapping([], 8, false, true) -> p;
-    until l == [] do
-        dest(l) -> (k, l);
-        dest(l) -> (v, l);
-        v -> p(k);
-    enduntil;
+define lconstant respond_error(id, code, msg);
+    jsonrpc_error(conn, id, code, msg);
 enddefine;
 
 ;;; --- evaluation with trap + output capture ------------------------------
 
 vars mcp_evals = 0, mcp_restored = false;
-
-;;; The compiler recovers cleanly from mishaps INSIDE a complete stream,
-;;; but a stream that ENDS mid-token or mid-bracket (unclosed string,
-;;; paren, comment) corrupts shared itemiser state beyond what the
-;;; interrupt trap can repair.  So structurally incomplete code is
-;;; refused before it reaches the compiler.  -> false, or a description
-;;; of what is unclosed.
-define lconstant incomplete_code(s) -> why;
-    lvars i = 1, len = length(s), c, depth = 0, cdepth, j;
-    false -> why;
-    while i <= len do
-        s(i) -> c;
-        if c == `;` and i + 2 <= len
-        and s(i+1) == `;` and s(i+2) == `;` then
-            ;;; line comment: to end of line
-            while i <= len and s(i) /== `\n` do i + 1 -> i endwhile;
-        elseif c == `/` and i < len and s(i+1) == `*` then
-            ;;; nesting block comment
-            1 -> cdepth; i + 2 -> i;
-            while i <= len and cdepth > 0 do
-                if s(i) == `/` and i < len and s(i+1) == `*` then
-                    cdepth + 1 -> cdepth; i + 2 -> i;
-                elseif s(i) == `*` and i < len and s(i+1) == `/` then
-                    cdepth - 1 -> cdepth; i + 2 -> i;
-                else
-                    i + 1 -> i;
-                endif;
-            endwhile;
-            if cdepth > 0 then 'unclosed /* comment' -> why; return endif;
-            nextloop;
-        elseif c == `'` then
-            i + 1 -> i;
-            while i <= len and s(i) /== `'` do
-                if s(i) == `\\` then i + 1 -> i endif;
-                i + 1 -> i;
-            endwhile;
-            if i > len then 'unterminated string' -> why; return endif;
-        elseif c == `"` then
-            i + 1 -> i;
-            while i <= len and s(i) /== `"` and s(i) /== `\n` do
-                i + 1 -> i
-            endwhile;
-            ;;; unclosed-at-delimiter word shorthand is legal; no check
-        elseif c == `\`` then
-            ;;; char constant: closed within the line, or legacy 1-unit form
-            false -> j;
-            lvars k = i + 1;
-            while k <= len and s(k) /== `\n` and k <= i + 8 do
-                if s(k) == `\`` then k -> j; quitloop endif;
-                k + 1 -> k;
-            endwhile;
-            if j then j -> i else i + 1 -> i endif;
-        elseif c == `(` or c == `[` or c == `{` then
-            depth + 1 -> depth;
-        elseif c == `)` or c == `]` or c == `}` then
-            depth - 1 -> depth;
-        endif;
-        i + 1 -> i;
-    endwhile;
-    if depth > 0 then 'unclosed bracket' -> why endif;
-enddefine;
 
 lvars eval_ok = true;   ;;; set false by the mishap trap
 
@@ -243,15 +169,15 @@ enddefine;
 ;;; --- the tool table ------------------------------------------------------
 
 define lconstant schema(props, req) -> s;
-    mkobj([% 'type', 'object', 'properties', props, 'required', req %]) -> s;
+    jsonrpc_obj([% 'type', 'object', 'properties', props, 'required', req %]) -> s;
 enddefine;
 
 define lconstant strprop(desc) -> p;
-    mkobj([% 'type', 'string', 'description', desc %]) -> p;
+    jsonrpc_obj([% 'type', 'string', 'description', desc %]) -> p;
 enddefine;
 
 lconstant tool_list =
-    {% mkobj([% 'name', 'pop11_eval',
+    {% jsonrpc_obj([% 'name', 'pop11_eval',
                 'description',
                 'Run Pop-11 code in the persistent live session. State and '
                 sys_>< 'procedure definitions survive between calls, and every '
@@ -260,19 +186,19 @@ lconstant tool_list =
                 sys_>< 'Mishaps (errors) are returned with their diagnostics; '
                 sys_>< 'the session survives them.',
                 'inputSchema',
-                schema(mkobj([% 'code', strprop('Pop-11 code to compile and run') %]),
+                schema(jsonrpc_obj([% 'code', strprop('Pop-11 code to compile and run') %]),
                        {'code'}) %]),
-       mkobj([% 'name', 'pop11_help',
+       jsonrpc_obj([% 'name', 'pop11_help',
                 'description',
                 'Fetch Poplog documentation: HELP (usage), REF (reference) or '
                 sys_>< 'TEACH (tutorials) file by name, e.g. name "json" or '
                 sys_>< '"sys_file_match".',
                 'inputSchema',
-                schema(mkobj([% 'name', strprop('documentation entry name'),
+                schema(jsonrpc_obj([% 'name', strprop('documentation entry name'),
                                'section',
                                strprop('optional: help, ref or teach') %]),
                        {'name'}) %]),
-       mkobj([% 'name', 'pop11_checkpoint',
+       jsonrpc_obj([% 'name', 'pop11_checkpoint',
                 'description',
                 'Save the whole session (state + compiled procedures) to a '
                 sys_>< 'Poplog image at PATH (~200 KB, restores in ~8 ms via '
@@ -280,15 +206,15 @@ lconstant tool_list =
                 sys_>< 'evaluated first: a mishap or false result aborts the '
                 sys_>< 'checkpoint, so you only persist validated state.',
                 'inputSchema',
-                schema(mkobj([% 'path', strprop('absolute path for the .psv image'),
+                schema(jsonrpc_obj([% 'path', strprop('absolute path for the .psv image'),
                                'verify',
                                strprop('optional gating expression') %]),
                        {'path'}) %]),
-       mkobj([% 'name', 'pop11_state',
+       jsonrpc_obj([% 'name', 'pop11_state',
                 'description', 'Session facts: eval count, heap use, whether '
                 sys_>< 'this session was restored from an image.',
-                'inputSchema', schema(mkobj([]), {}) %]),
-       mkobj([% 'name', 'pop11_play',
+                'inputSchema', schema(jsonrpc_obj([]), {}) %]),
+       jsonrpc_obj([% 'name', 'pop11_play',
                 'description',
                 'Play interactive fiction. Poplog ships a Z-machine written '
                 sys_>< 'in Pop-11 (LIB ZMACHINE), so Infocom-format story '
@@ -299,7 +225,7 @@ lconstant tool_list =
                 sys_>< 'printed. The game keeps its state between calls, so '
                 sys_>< 'play it as you would at a terminal.',
                 'inputSchema',
-                schema(mkobj([% 'story',
+                schema(jsonrpc_obj([% 'story',
                                strprop('path to a story file, to start a game'),
                                'command',
                                strprop('one command for the running game, '
@@ -391,43 +317,34 @@ enddefine;
 
 ;;; --- protocol loop -------------------------------------------------------
 
-define lconstant respond(id, result);
-    send_json(mkobj([% 'jsonrpc', '2.0', 'id', id, 'result', result %]));
-enddefine;
-
-define lconstant respond_error(id, code, msg);
-    send_json(mkobj([% 'jsonrpc', '2.0', 'id', id,
-                       'error', mkobj([% 'code', code, 'message', msg %]) %]));
-enddefine;
-
 define lconstant handle(msg);
     lvars method = msg('method'), id = msg('id'), params = msg('params');
     lvars text, iserror, do_respond;
 
     if method = 'initialize' then
-        respond(id, mkobj([%
+        respond(id, jsonrpc_obj([%
             'protocolVersion',
                 if params and params('protocolVersion') then
                     params('protocolVersion')
                 else '2024-11-05'
                 endif,
-            'capabilities', mkobj([% 'tools', mkobj([]) %]),
+            'capabilities', jsonrpc_obj([% 'tools', jsonrpc_obj([]) %]),
             'serverInfo',
-                mkobj([% 'name', 'pop11-mcp', 'version', '0.1.0' %]) %]));
+                jsonrpc_obj([% 'name', 'pop11-mcp', 'version', '0.1.0' %]) %]));
 
     elseif method = 'ping' then
-        respond(id, mkobj([]));
+        respond(id, jsonrpc_obj([]));
 
     elseif method = 'tools/list' then
-        respond(id, mkobj([% 'tools', tool_list %]));
+        respond(id, jsonrpc_obj([% 'tools', tool_list %]));
 
     elseif method = 'tools/call' then
         call_tool(params('name'),
                   params('arguments') or newmapping([], 4, false, true))
             -> (text, iserror, do_respond);
         if do_respond then
-            respond(id, mkobj([%
-                'content', {% mkobj([% 'type', 'text', 'text', text %]) %},
+            respond(id, jsonrpc_obj([%
+                'content', {% jsonrpc_obj([% 'type', 'text', 'text', text %]) %},
                 'isError', iserror %]));
         endif;
 
@@ -439,47 +356,12 @@ define lconstant handle(msg);
     endif;
 enddefine;
 
-lvars parse_msg = false;
-
-;;; flat + no output locals, same reason as compile_trapped
-define lconstant tryparse(line);
-    dlocal interrupt =
-        procedure(); false -> parse_msg; exitfrom(tryparse) endprocedure;
-    dlocal cucharerr = erase;    ;;; swallow the mishap print
-    json_parse(line) -> parse_msg;
-enddefine;
-
-;;; A bug in the SERVER itself must not kill the process: trap, answer
-;;; with a JSON-RPC internal error, keep serving.
-define lconstant safe_handle(msg);
-    dlocal interrupt =
-        procedure();
-            respond_error(msg('id') or json_null, -32603, 'internal error');
-            exitfrom(safe_handle);
-        endprocedure;
+;;; jsonrpc_serve traps a mishap in here, answers -32603 and carries on.
+define lconstant dispatch(c, msg);
     handle(msg);
 enddefine;
 
-define lconstant serve();
-    lvars line, msg;
-    repeat
-        read_line() -> line;
-        quitif(line == termin);
-        nextif(line = nullstring);
-
-        tryparse(line);
-        parse_msg -> msg;
-        if msg then
-            safe_handle(msg);
-        else
-            respond_error(json_null, -32700, 'parse error');
-        endif;
-    endrepeat;
-    ;;; trapped user mishaps must not surface as a non-zero exit
-    true -> pop_exit_ok;
-enddefine;
-
-serve();
+jsonrpc_serve(conn, dispatch);
 ;;; trapped eval mishaps set pop_exit_ok false; stdin EOF is an orderly
 ;;; shutdown and must exit 0
 true -> pop_exit_ok;

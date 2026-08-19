@@ -27,6 +27,14 @@ script="$here/pop/lsp/pop11_lsp.p"
 [ -f "$script" ] || script="$root/pop/lsp/pop11_lsp.p"
 [ -f "$script" ] || { echo "pop11-lsp: pop11_lsp.p not found" >&2; exit 2; }
 
+# The script comes from this checkout, so the libraries it `uses' must
+# too -- an engine root that is an older tarball install will not have
+# them.  `uses' searches popuseslist, which is a Pop-11 variable and not
+# reachable from the environment, so the server prepends this directory
+# to it itself.
+POP11_LIB_EXTRA="$here/pop/lib/lib/"
+export POP11_LIB_EXTRA
+
 # Documentation lives in the checkout even when the ENGINE root is a
 # tarball install (which ships pop/lib only).
 POP11_LSP_DOCROOT="$here"

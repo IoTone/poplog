@@ -96,7 +96,9 @@ for path in target/pop/basepop11 poplog pop/lib skill/SKILL.md \
             skill/lib/popcurl_shim.c skill/lib/popsqlite_shim.c \
             pop/mcp/pop11_mcp.p tools/pop11-mcp \
             pop/lsp/pop11_lsp.p tools/pop11-lsp \
-            pop/lib/lib/json.p; do
+            pop/lib/lib/json.p pop/lib/lib/jsonrpc.p \
+            pop/lib/lib/incomplete_code.p pop/lib/lib/swank.p \
+            tools/pop11-swank; do
     echo "$list" | grep -q "/$path" || {
         echo "ci: tarball missing $path" >&2; exit 1; }
 done
@@ -142,3 +144,9 @@ printf 'Content-Length: %s\r\n\r\n%s' "${#lspreq}" "$lspreq" \
 rm -rf "$sandbox"
 
 echo "ci: OK $out/$tarball"
+
+# Record the sizes.  Only appends for the platform just built; run it on
+# each host, or once at the end over a dist/ holding every tarball.
+if [ "${POP11_CI_SIZES:-1}" = 1 ]; then
+    DIST="$repo/$out" sh tools/release-sizes.sh --print
+fi

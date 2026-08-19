@@ -157,6 +157,7 @@ started here.  Resume a checkpointed session with
 format are documented in the
 [Claude Code MCP docs](https://docs.claude.com/en/docs/claude-code/mcp);
 other MCP clients configure the same stdio command their own way.
+End-to-end protocol tests: `python3 tools/mcp/test-e2e.py`.
 
 ## Editors: the LSP server
 
@@ -170,6 +171,59 @@ under the cursor, and completion draws from the live dictionary. The
 [Neovim plugin](editors/nvim/) starts it automatically for `pop11`
 buffers; any LSP client can run the same stdio command. End-to-end
 protocol tests: `python3 tools/lsp/test-e2e.py`.
+
+Both servers sit on one transport, `pop/lib/lib/jsonrpc.p` — line and
+Content-Length framing, stdio and TCP endpoints, and a serve loop that
+turns a handler mishap into a `-32603` and keeps going. Factoring it out
+took 342 lines out of the two servers, and it is what the swank server
+below is built on.
+
+## Editors: the live session
+
+`pop/lib/lib/swank.p` is the other half of the idea, named after SLIME's
+swank for the same reason: the interesting thing an editor can talk to
+is not a compiler but a **running session**. The LSP server answers
+questions about text; this answers questions about a live heap — what a
+name is bound to *now*, what a procedure printed *while it ran*, which
+frames were on the stack when it died.
+
+Output streams back as it is produced rather than arriving in one lump
+at the end, mishaps come back as data (`message`, `culprits`, `frames`)
+rather than as a block of text to scrape, and a runaway loop is stopped
+by signalling the pid the handshake hands you — which works because
+`I_CHECK` was implemented on arm64 and riscv64 earlier in this arc.
+
+Start one from a session you are already using, and the editor gets that
+session, with everything in it:
+
+```pop11
+uses swank;
+swank_serve(4005);          ;;; SLIME's port, since it is the same idea
+```
+
+or `tools/pop11-swank` to start a fresh one. Tests:
+`sh tools/test-libs.sh tools/tests/test_swank.p` — 56 checks against a
+real server in a second process, including the interrupt.
+
+The [Emacs package](editors/emacs/) is the client: `M-x pop11-swank`
+starts a session and connects, and from then on the editing commands go
+there. Output streams into the REPL as the code runs, a mishap opens a
+backtrace buffer with real frames, `C-c C-i` inspects a value and drills
+into its parts by handle, `M-.` asks the running heap where a name came
+from, completion reads the live dictionary, and `C-c C-a` stops a
+runaway loop.
+
+`TEACH SWANK` is the walkthrough: connecting by hand, watching output
+stream, taking a mishap apart, interrupting a runaway loop, inspecting a
+live value -- before any editor is involved.
+
+The [Emacs package](editors/emacs/) goes further and reaches for the
+other half of the idea: `M-x run-pop11` puts a real Poplog listener in a
+comint buffer, and the editing buffer gets VED's `ENTER` commands on
+Emacs keys — `C-x C-e` for `ENTER l1`, `C-c C-r` for `ENTER lmr`,
+`C-M-x` for `ENTER lcp` — so a procedure goes from buffer to running
+image without leaving the file. Tests:
+`emacs -Q --batch -l tools/emacs/test-e2e.el`.
 
 ## Packaging (Nix)
 

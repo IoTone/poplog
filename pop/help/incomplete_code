@@ -1,0 +1,41 @@
+HELP INCOMPLETE_CODE                    Refuse source that would wedge the itemiser
+
+    uses incomplete_code;
+
+incomplete_code(STRING) -> WHY
+    false when STRING is structurally complete, otherwise a short
+    description: 'unterminated string', 'unclosed bracket',
+    'unclosed /* comment'.
+
+The compiler recovers cleanly from a mishap INSIDE a complete stream:
+the interrupt trap fires, the stack is repaired, and the session
+carries on.  A stream that ENDS mid-token is different — an unclosed
+string, bracket or comment leaves shared itemiser state that no trap
+can repair, and every later chunk is read as part of the unfinished
+one.
+
+So any server that feeds a live session code from elsewhere — an agent
+over MCP, an editor over LSP, a REPL over a socket — has to refuse that
+case up front:
+
+    uses incomplete_code;
+    lvars why = incomplete_code(code);
+    if why then
+        'refused: ' <> why
+    else
+        pop11_compile(stringin(code))
+    endif;
+
+Note what is deliberately NOT checked.  An unfinished `define' is
+fine: it leaves the compiler waiting for the rest, which is exactly how
+one builds a procedure interactively.  The check is lexical only — it
+knows about `;;;' comments, nesting `/* */' comments, `'strings'`,
+`"words' (whose closing quote is optional), `c` character literals and
+the three bracket pairs.  It is not a parser and does not pretend to
+be one.
+
+See also: LIB * JSONRPC, pop/mcp/pop11_mcp.p, pop/lsp/pop11_lsp.p,
+tools/tests/test_jsonrpc.p.
+
+--- pop/help/incomplete_code
+--- Author: D.Kordsmeier (@truedat101) and Claude (@claude), Aug 2026

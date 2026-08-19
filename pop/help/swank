@@ -1,0 +1,123 @@
+HELP SWANK                              Serve a live Pop-11 session to an editor
+
+    uses swank;
+    swank_serve(4005);
+
+Named after SLIME's swank, and for the same reason: the interesting
+thing an editor can talk to is not a compiler but a RUNNING SESSION.
+LIB * JSONRPC carries the messages; this decides what they mean.
+
+The LSP server (pop/lsp/pop11_lsp.p) answers questions about text —
+does this buffer compile, what does HELP say about this word.  This
+answers questions about a live heap: what is this name bound to NOW,
+what did that procedure print WHILE it ran, which frames were on the
+stack when it died.  Over stdio none of that is possible; there is one
+channel and the compiler's reader owns it.
+
+swank_serve(PORT)
+swank_serve_n(PORT, COUNT)
+    Serve COUNT connections (false = forever), one at a time.  Both
+    block.  Called from a session you are already using, that is the
+    point: everything you have defined and loaded is what the editor
+    then talks to.
+
+    tools/pop11-swank starts a fresh session instead, for an editor
+    that wants to launch its own.
+
+REQUESTS
+
+All JSON-RPC 2.0 with Content-Length framing.
+
+swank/connect -> {name, version, pid, poplogVersion, features}
+    The pid is there to be signalled; see INTERRUPTING.
+
+swank/eval {code} -> {ok, values}
+                   | {ok: false, mishap: {message, culprits, frames}}
+                   | {ok: false, interrupted: true, frames}
+                   | {ok: false, refused: WHY}
+    Compiles code in this session.  `values' are whatever the code
+    left on the stack, printed; code using `=>' prints instead, and
+    that arrives as output.  WHY comes from LIB * INCOMPLETE_CODE:
+    source that ends mid-token is refused before it can wedge the
+    itemiser.
+
+swank/describe {name} -> {name, defined, identprops, isProcedure,
+                          pdprops, nargs, hasUpdater | value, datatype}
+    What the name is bound to in this session -- including procedures
+    defined at the prompt a moment ago, which no static tool can see.
+
+swank/inspect {expr} | {handle}
+        -> {ok, class, printed, parts: [{index, class, printed, handle}],
+            partCount, handle}
+    Handles let a client walk into a structure without re-evaluating
+    anything, which matters for a value no expression could name
+    twice.  They are reset whenever an inspection starts from an
+    expression, so the table stays one object graph.
+
+swank/complete {prefix} -> {items, truncated}
+    Dictionary words, from the live dictionary -- so a procedure
+    defined at the prompt a minute ago completes like any other.
+
+swank/trace {name} | {name, untrace: true} -> {ok, name, traced}
+
+swank/state -> {evals, heapBytes, pid}
+swank/stop  -> {stopping: true}
+
+NOTIFICATIONS
+
+swank/output {stream, text}
+    Sent WHILE an evaluation runs, not collected and returned with the
+    result: a procedure that prints as it works reaches the editor as
+    it works.  `stream' is 'out' or 'err'.  Characters are shipped on
+    a newline, at 400 of them, or when the stream changes.
+
+INTERRUPTING
+
+A request cannot arrive while an evaluation is running.  Pop-11 is
+single-threaded and the server is inside the user's loop, so nothing
+reads the socket until that loop finishes.
+
+The client signals the pid from swank/connect instead:
+
+    kill -INT <pid>
+
+The engine delivers it at the next check planted in the running code,
+and the trap here turns it into an ordinary `interrupted' result with
+the session intact.  That check is I_CHECK; it was an empty stub on
+arm64 and riscv64 until 2026-08-15, which is why runaway loops used to
+be unkillable on those ports and why this works now.
+
+MISHAPS AS DATA
+
+    {"message": "LIST NEEDED",
+     "culprits": ["3"],
+     "frames": ["Checkr_list", "hd", "anonymous"]}
+
+The frame walk trims the exception machinery above the user's code and
+the compiler below it, leaving the frames someone reading a backtrace
+would want.  Nothing is printed to the session's own output: the
+mishap is caught by a prmishap trap before it reaches the printer.
+
+LIMITS (v1, by design)
+
+One connection at a time, one evaluation at a time, no authentication
+(bind to localhost and treat the port as a shell -- anything that
+connects can evaluate anything).
+
+Inspector parts are indexed rather than labelled: Pop-11 class keys
+carry field types, not field names, so `class_spec' cannot tell you a
+record's slot is called `px'.
+
+swank/describe finds a source file only for an AUTOLOADABLE name, where
+the file is named after the identifier.  A procedure defined inside a
+larger library has no such trail; a client that compiled the definition
+itself should remember where it came from (editors/emacs/pop11-swank.el
+keeps exactly that map).
+
+See also: TEACH * SWANK (a walkthrough from first connection to
+interrupting a runaway loop, by hand before any editor is involved),
+LIB * JSONRPC, LIB * INCOMPLETE_CODE, tools/pop11-swank,
+tools/tests/test_swank.p, editors/emacs/.
+
+--- pop/help/swank
+--- Author: D.Kordsmeier (@truedat101) and Claude (@claude), Aug 2026

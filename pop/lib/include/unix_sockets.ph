@@ -77,7 +77,53 @@ iconstant macro (
 iconstant macro (
     INTBIT          = 2:1e23,   ;;; integer value (as opposed to boolean)
     TCPBIT          = 2:1e24,   ;;; TCP option
+);
 
+#_IF DEF LINUX
+
+;;; Linux does not use the 4.4BSD numbering below.  Its SO_* values come
+;;; from asm-generic/socket.h and are a different sequence entirely --
+;;; SO_REUSEADDR is 2, and 4 (which is SO_REUSEADDR on BSD) is the
+;;; read-only SO_ERROR, so setting it fails with ENOPROTOOPT rather than
+;;; doing something wrong quietly.  Without this branch every socket
+;;; option in Poplog addressed the wrong option on Linux.
+;;;
+;;; These values are shared by x86_64, aarch64 and riscv64; the
+;;; architectures that differ (mips, sparc, parisc) are not targets here.
+iconstant macro (
+    ;;; Socket-level options
+    SO_DEBUG        = 1,
+    SO_REUSEADDR    = 2,
+    SO_DONTROUTE    = 5,
+    SO_BROADCAST    = 6,
+    SO_KEEPALIVE    = 9,
+    SO_OOBINLINE    = 10,
+    SO_ACCEPTCONN   = 30,
+    SO_LINGER       = 13,       ;;; (SPECIAL: a pair, see sys_socket_option)
+
+    SO_TYPE         = 3 || INTBIT,
+    SO_ERROR        = 4 || INTBIT,
+    SO_SNDBUF       = 7 || INTBIT,
+    SO_RCVBUF       = 8 || INTBIT,
+    SO_RCVLOWAT     = 18 || INTBIT,
+    SO_SNDLOWAT     = 19 || INTBIT,
+    SO_RCVTIMEO     = 20 || INTBIT,
+    SO_SNDTIMEO     = 21 || INTBIT,
+
+    ;;; No Linux equivalent.  Defined so that code mentioning them still
+    ;;; compiles, with a value the kernel will reject loudly rather than
+    ;;; a real option's number that it would honour by mistake.
+    SO_USELOOPBACK  = -1,
+    SO_PROTOTYPE    = -1,
+
+    ;;; TCP Options
+    TCP_NODELAY     = 1 || TCPBIT,
+    TCP_MAXSEG      = 2 || TCPBIT || INTBIT,
+);
+
+#_ELSE
+
+iconstant macro (
     ;;; Socket-level options
     SO_DEBUG        = 2:1e0,    ;;; turn on debugging info recording
     SO_ACCEPTCONN   = 2:1e1,    ;;; socket has had listen()
@@ -103,6 +149,8 @@ iconstant macro (
     TCP_NODELAY     = 1 || TCPBIT,              ;;; don't delay send to coalesce packets
     TCP_MAXSEG      = 2 || TCPBIT || INTBIT,    ;;; set max segment size
 );
+
+#_ENDIF
 
     ;;; Send/Receive message flags
 iconstant macro (

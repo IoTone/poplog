@@ -182,15 +182,23 @@ define lconstant linkify(line) -> out;
     [% repeat
         issubstring(' * ', i, line) -> j;
         quitunless(j);
-        ;;; the word ending just before j
+        ;;; the word ending just before j.  Skip any padding first: the
+        ;;; house style for a Further reading block aligns the names
+        ;;; into a column (HELP  * JSON), and without this the extra
+        ;;; spaces stop the scan before it reaches the word -- which
+        ;;; silently unlinked the see-also list of every TEACH file.
         j - 1 -> e;
+        while e >= 1 and subscrs(e, line) == `\s` do e - 1 -> e endwhile;
         e -> b;
         while b >= 1 and subscrs(b, line) >= `A` and subscrs(b, line) <= `Z` do
             b - 1 -> b;
         endwhile;
         b + 1 -> b;
-        ;;; the name starting after ' * '
+        ;;; the name starting after ' * ', padding skipped likewise
         j + 3 -> ns;
+        while ns <= length(line) and subscrs(ns, line) == `\s` do
+            ns + 1 -> ns;
+        endwhile;
         ns -> ne;
         while ne <= length(line) and namechar(subscrs(ne, line)) do
             ne + 1 -> ne;

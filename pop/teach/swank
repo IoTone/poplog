@@ -1,0 +1,503 @@
+TEACH SWANK                             Developing against a live session
+
+Poplog has always been a system you live inside: you compile a
+procedure, call it, fix it, call it again, and the session remembers
+everything.  VED made that immediate by putting the compiler one
+keystroke away from the text.
+
+LIB * SWANK offers the same thing to an editor that is not VED.  It
+serves the running session over a socket, so an editor -- Emacs, or
+anything else that can open a TCP connection -- can compile into it,
+watch what it prints, take apart the values it is holding, and stop it
+when it will not stop by itself.
+
+This file walks through the whole idea from the outside in.  You will
+talk to the server by hand first, because the protocol is small enough
+to hold in your head and everything an editor does later is just this
+with a nicer face on it.
+
+CONTENTS - (Use ENTER g to access required sections)
+
+ -- Three ways to reach a Pop-11 session
+ -- Starting a server
+ -- Talking to it by hand
+ -- Output arrives while the code runs
+ -- Mishaps come back as data
+ -- Interrupting: why it is a signal, not a message
+ -- Taking a value apart
+ -- What a running session knows that a file cannot say
+ -- Handing over a session you are already using
+ -- Using it from Emacs
+ -- How it is built
+ -- Limits, and why they are where they are
+ -- Exercises
+ -- Further reading
+
+-- Three ways to reach a Pop-11 session -------------------------------
+
+There are now three, and the differences matter more than they look.
+
+A TERMINAL.  Run pop11 and type at it.  Everything a tool built this
+way knows, it learned by reading characters off a pipe.  It cannot tell
+a value from the text that value printed as.
+
+A LANGUAGE SERVER.  pop/lsp/pop11_lsp.p answers questions about TEXT: does
+this buffer compile, what does HELP say about this word, which
+dictionary words start with these letters.  It is a Poplog session, so
+its answers come from the real compiler -- but it is asking about a
+file, not about your session.
+
+A SESSION SERVER -- this one.  It answers questions about a live heap.
+What is this name bound to NOW.  What did that procedure print WHILE it
+was running.  Which frames were on the stack when it died.  None of
+those questions has an answer in a file.
+
+The distinction is worth dwelling on, because it explains every design
+decision below.
+
+-- Starting a server --------------------------------------------------
+
+The simplest way, from a shell:
+
+    tools/pop11-swank --port 4005
+
+Port 4005 is SLIME's; this is the same idea and it seemed rude to pick
+a different one.  You should see:
+
+    swank: listening on port 4005 (pid 12345)
+
+Remember that pid.  It is not decoration -- you will need it to
+interrupt a runaway loop, for reasons that section explains.
+
+The server is now waiting for one connection, and will keep serving it
+until the client disconnects.
+
+-- Talking to it by hand ----------------------------------------------
+
+Start a SECOND Pop-11 in another window.  We are going to be the
+editor.
+
+The wire protocol is JSON-RPC 2.0 with Content-Length framing -- the
+same framing LSP uses -- and LIB * JSONRPC speaks it, so we do not have
+to:
+
+    uses jsonrpc;
+    vars conn = jsonrpc_connect_wait('localhost', 4005, "header", 10);
+
+Every exchange is a request with an id and a reply carrying the same
+id, possibly with notifications in between.  That "possibly" is the
+whole point, so let us write a helper that collects them:
+
+    vars nextid = 0, notes = [];
+
+    define call(method, params) -> reply;
+        nextid + 1 -> nextid;
+        [] -> notes;
+        jsonrpc_write(conn, jsonrpc_obj([% 'jsonrpc', '2.0',
+            'id', nextid, 'method', method, 'params', params %]));
+        repeat
+            jsonrpc_read(conn) -> reply;
+            quitif(reply == termin);
+            quitunless(reply('method'));    ;;; a notification: keep it
+            notes <> [% reply('params') %] -> notes;
+        endrepeat;
+    enddefine;
+
+Now introduce yourself:
+
+    call('swank/connect', jsonrpc_obj([]))('result') =>
+
+    ** <property>
+
+Properties do not print their contents, so ask for what you want:
+
+    vars info = call('swank/connect', jsonrpc_obj([]))('result');
+    info('name') =>
+    info('pid') =>
+    info('poplogVersion') =>
+
+    ** pop11-swank
+    ** 12345
+    ** (Version 16.0 ...)
+
+-- Output arrives while the code runs ---------------------------------
+
+Evaluate something:
+
+    vars r = call('swank/eval',
+                  jsonrpc_obj([% 'code', 'npr(19 + 23);' %]))('result');
+    r('ok') =>
+    notes =>
+
+    ** <true>
+    ** [<property>]
+
+That one notification is a swank/output event.  Look inside it:
+
+    hd(notes)('text') =>
+
+    ** 42
+
+Here is the part that a terminal cannot give you.  Ask for three lines:
+
+    call('swank/eval', jsonrpc_obj([% 'code',
+        'lvars i; for i from 1 to 3 do npr(i) endfor;' %])) -> ;
+    length(notes) =>
+
+    ** 3
+
+THREE notifications, not one.  The output was shipped as it was
+produced, not collected up and handed over at the end.  For a loop that
+prints once a second, or a compile that reports as it goes, that is the
+difference between watching and waiting.
+
+The rule is: a notification goes out on a newline, at 400 characters,
+or whenever the stream changes between 'out' and 'err'.
+
+And a value is a value, not text that looks like one:
+
+    call('swank/eval',
+         jsonrpc_obj([% 'code', '1 + 1;' %]))('result')('values') =>
+
+    ** {2}
+
+Note the difference between that and `1 + 1 =>', which PRINTS and so
+arrives as output.  Both are useful; they are not the same thing.
+
+-- Mishaps come back as data ------------------------------------------
+
+Make it fail:
+
+    call('swank/eval', jsonrpc_obj([% 'code', 'hd(3);' %]))('result')
+        -> r;
+    r('ok') =>
+    r('mishap')('message') =>
+    r('mishap')('culprits') =>
+    r('mishap')('frames') =>
+
+    ** <false>
+    ** LIST NEEDED
+    ** {3}
+    ** {Checkr_list hd anonymous}
+
+Nothing was printed to the session's own output.  The mishap was caught
+by a prmishap trap before it reached the printer, and what came back is
+structured: the message, the culprits, and the frames that were live.
+
+Compare that with what a terminal-scraping tool has to work with -- the
+same information, wrapped at 70 columns, prefixed with `;;; ', with
+continuation lines marked by a tab.  You can parse it.  You should not
+have to.
+
+The frames deserve a note.  The raw call stack at the moment of the
+mishap looks like this:
+
+    anonymous  sys_pr_exception  sys_exception_final
+    sys_exception_handler  sys_raise_exception
+    Checkr_list  hd  anonymous
+    sysEXECUTE  pop11_exec_stmnt_seq_to  sysCOMPILE  pop11_compile
+
+The first five are the exception machinery on the way in; the last four
+are the compiler on the way out.  Neither is any use to someone reading
+a backtrace, so the server trims both and reports the middle.
+
+And the session is still there:
+
+    call('swank/eval', jsonrpc_obj([% 'code', '2 + 2;' %]))
+        ('result')('values') =>
+
+    ** {4}
+
+-- Interrupting: why it is a signal, not a message --------------------
+
+Now the honest part.
+
+Pop-11 is single-threaded.  When the server is running your code, it is
+INSIDE your code -- it is not reading the socket, and it will not read
+the socket again until your code finishes.  So there is no such thing
+as sending a "stop" message: nothing is listening for it.
+
+What does work is a signal.  That is why swank/connect hands over a
+pid.  From a shell:
+
+    kill -INT 12345
+
+The engine notices at the next interrupt check planted in the running
+code, the server's trap turns it into an ordinary result, and the
+session survives:
+
+    ** {'ok': false, 'interrupted': true, 'frames': {...}}
+
+Try it.  In your client window:
+
+    call('swank/eval', jsonrpc_obj([% 'code',
+        'vars spin = 0; until false do spin + 1 -> spin enduntil;' %]))
+        -> r;
+
+That will sit there.  In a third window, send the signal, and watch the
+call return.  Then check the session is unharmed:
+
+    call('swank/eval', jsonrpc_obj([% 'code', 'spin > 0;' %]))
+        ('result')('values') =>
+
+    ** {<true>}
+
+There is a piece of Poplog history in that.  The check the engine uses
+is called I_CHECK, and it is planted at every backward jump.  On the
+arm64 and riscv64 ports it was an unimplemented stub until August 2026:
+loops on those machines had no interrupt poll at all, and a runaway
+loop could not be stopped by anything short of kill -9.  Everything in
+this section works because that was fixed.  See
+docs/bugs/userstack-growth-aslr.md for how it was found, which was not
+by looking for it.
+
+-- Taking a value apart -----------------------------------------------
+
+    call('swank/inspect',
+         jsonrpc_obj([% 'expr', '{1 \'two\' [3 4]}' %]))('result') -> r;
+    r('class') =>
+    r('printed') =>
+    r('partCount') =>
+
+    ** vector
+    ** {1 two [3 4]}
+    ** 3
+
+Each part comes with a HANDLE:
+
+    r('parts')(3)('class') =>
+    r('parts')(3)('handle') =>
+
+    ** pair
+    ** 3
+
+and a handle can be inspected in its own right:
+
+    call('swank/inspect',
+         jsonrpc_obj([% 'handle', r('parts')(3)('handle') %]))
+        ('result')('printed') =>
+
+    ** [3 4]
+
+Handles matter more than they first appear.  Without them you would
+have to name the sub-value with an expression -- and plenty of
+interesting values cannot be named twice.  The third element of a list
+that a procedure built and did not keep, the closure a runtime action
+installed, a record reached through four fields: you can point at them,
+but you cannot write them down.  A handle is how you point.
+
+The parts are numbered, not named.  That is a limit of Pop-11 rather
+than of the server: a class key records its fields' TYPES, and
+class_spec will tell you a record has three full-word fields, but
+nothing anywhere remembers that the first one is called px.
+
+-- What a running session knows that a file cannot say ----------------
+
+Define something, then ask about it:
+
+    call('swank/eval', jsonrpc_obj([% 'code',
+        'define sq(n); lvars n; n * n enddefine;' %])) -> ;
+
+    call('swank/describe', jsonrpc_obj([% 'name', 'sq' %]))('result')
+        -> r;
+    r('defined') =>
+    r('isProcedure') =>
+    r('nargs') =>
+
+    ** <true>
+    ** <true>
+    ** 1
+
+No file on disk contains `sq'.  A static tool has nothing to say about
+it; the session answers immediately, because the session is where it
+lives.  The same goes for completion:
+
+    call('swank/complete', jsonrpc_obj([% 'prefix', 'sq' %]))
+        ('result')('items') =>
+
+    ** {sq sqrt ...}
+
+There is a limit here too, and it is worth understanding rather than
+working around.  Ask where `sq' came from:
+
+    r('sourceFile') =>
+
+    ** <false>
+
+Poplog records a procedure's pdprops -- its name -- but not where its
+text came from.  So the session can find an AUTOLOADABLE library, where
+the file is named after the identifier:
+
+    call('swank/describe', jsonrpc_obj([% 'name', 'appdic' %]))
+        ('result')('sourceFile') =>
+
+    ** /.../pop/lib/auto/appdic.p
+
+(That is exactly what VED's ENTER showlib relied on.)  For anything
+defined inside a larger file, the trail is gone -- unless whoever
+COMPILED it kept a note.  Which is what a good client does: see the
+Emacs section.
+
+-- Handing over a session you are already using -----------------------
+
+Everything so far started a fresh session.  The more interesting move
+is to hand over one you have been working in for an hour, with all its
+definitions and loaded libraries intact.  From inside that session:
+
+    uses swank;
+    swank_serve(<port>);
+
+Now the editor gets THAT heap.  Nothing had to be reloaded, and nothing
+you built interactively was lost.
+
+The catch is in the second line: swank_serve does not return.  Your
+session stops being a terminal you can type at and becomes a server.
+That is the trade, and it is usually the right one -- you were going to
+drive it from the editor anyway.
+
+If you would rather it came back, serve a bounded number of
+connections:
+
+    swank_serve_n(<port>, 1);
+
+-- Using it from Emacs ------------------------------------------------
+
+editors/emacs/ is a client for all of the above.
+
+    M-x pop11-swank
+
+starts a server and connects.  From then on the editing commands go to
+the session rather than to a terminal: C-M-x compiles the procedure
+around point INTO it, output streams into the REPL buffer as the code
+runs, a mishap opens a backtrace buffer built from those trimmed
+frames, C-c C-i opens the inspector (RET drills into a part, l goes
+back up), M-. asks the session where a name came from, TAB completes
+from the live dictionary, and C-c C-a interrupts -- by signalling the
+pid, as you now know it must.
+
+That last limitation from two sections ago is handled the only way it
+can be: the EDITOR remembers.  When you compile a procedure out of a
+buffer, Emacs records which file and which position it came from, so
+M-. can go back to it even though the session cannot say.  Nothing
+clever, just bookkeeping done by the one participant who had the
+information.
+
+-- How it is built ----------------------------------------------------
+
+pop/lib/lib/swank.p is about 500 lines and stands on two libraries
+worth knowing about in their own right.
+
+LIB * JSONRPC does the transport: framing (both the line-delimited
+flavour MCP uses and the Content-Length flavour LSP and this use),
+stdio and TCP endpoints, and a serve loop that turns a mishap in a
+handler into a -32603 reply and carries on.  The MCP and LSP servers
+were rewritten onto it, which took 342 lines out of the two of them.
+
+LIB * INCOMPLETE_CODE is the doorman.  The compiler recovers cleanly
+from a mishap INSIDE a complete stream, but a stream that ENDS
+mid-token -- an unclosed string, bracket or comment -- leaves shared
+itemiser state that no trap can repair, and every later chunk is read
+as part of the unfinished one.  So:
+
+    call('swank/eval', jsonrpc_obj([% 'code', 'npr(\'oops);' %]))
+        ('result')('refused') =>
+
+    ** unterminated string
+
+Nothing was compiled.  Note what is deliberately NOT refused: an
+unfinished `define' is fine, because waiting for the rest is how one
+builds a procedure interactively.
+
+Inside, the pattern that recurs everywhere is the trap:
+
+    define lconstant eval_trapped(code);
+        dlocal prmishap = procedure(msg, culprits);
+            ...record it...
+            exitfrom(eval_trapped);
+        endprocedure;
+        dlocal interrupt = procedure();
+            ...record that instead...
+            exitfrom(eval_trapped);
+        endprocedure;
+        dlocal cucharout = collect_out, cucharerr = collect_err;
+        pop11_compile(stringin(code));
+    enddefine;
+
+Two details in there are not obvious, and both were learned the hard
+way.
+
+Results travel through file-level lexicals rather than output locals,
+because exitfrom does not push a procedure's output locals.
+
+And every trap must repair the user stack afterwards.  exitfrom unwinds
+the call chain but not the stack, and a mishap has usually pushed the
+operands of the raise before it fires.  Leave that junk there and it
+surfaces as the ARGUMENTS of whatever is called next -- which presents
+as an absurd, unrelated mishap a long way from the cause.  The Pop-11
+user stack has no underflow guard either, so code that pops more than
+it pushes has to be made up for as well:
+
+    define lconstant restack(base);
+        until stacklength() == base do
+            if stacklength() fi_> base then erase() else false endif;
+        enduntil;
+    enddefine;
+
+-- Limits, and why they are where they are ----------------------------
+
+One connection at a time, and one evaluation at a time.  Both follow
+from Pop-11 being single-threaded; neither is an oversight.
+
+No authentication.  Anything that connects can evaluate anything, which
+makes an open swank port exactly as dangerous as an open shell.  Bind
+it to localhost and treat it accordingly.
+
+Inspector parts are indexed, not named -- see above; that is Pop-11's
+limit, not the server's.
+
+-- Exercises ----------------------------------------------------------
+
+1. Write a client procedure that evaluates a string and returns either
+   its values or its mishap message, so that a caller need not know
+   the protocol.  Then use it to run tools/tests/test_strutils.p in a
+   remote session and report the summary line.
+
+2. swank/output carries a 'stream' field, 'out' or 'err'.  Write a
+   client that colours them differently -- or, if you are in VED,
+   routes them to two different files.
+
+3. The frame list is trimmed with a fixed list of names to skip at each
+   end (frame_top and frame_bottom in pop/lib/lib/swank.p).  Find a
+   mishap whose backtrace the trimming gets wrong, and decide whether
+   the fix is a longer list or a better rule.
+
+4. Add swank/apropos: given a substring, return every dictionary word
+   containing it, with what each one is bound to.  do_complete is the
+   model; identprops and sys_current_val do the rest.  Then wire it to
+   a key in the Emacs client.
+
+5. Harder.  The server cannot answer a request while an evaluation is
+   running, which is why interrupt is a signal.  Poplog has processes
+   (REF * PROCESS) -- coroutines with their own stacks.  Sketch what it
+   would take to run the evaluation in one and keep the accept loop in
+   another, and work out what would have to poll what.  Then decide
+   whether the result would be simpler or merely cleverer than a
+   signal.
+
+-- Further reading ----------------------------------------------------
+
+    HELP  * SWANK             the server's reference documentation
+    LIB   * SWANK             the code this file walks through
+    HELP  * JSONRPC           the transport underneath it
+    HELP  * INCOMPLETE_CODE   the structural precheck
+    REF   * SOCKETS           sys_socket and friends
+    REF   * PROCEDURE         dlocal, exitfrom, the call stack
+    TEACH * JSON              how a Poplog library gets built, in full
+    editors/emacs/README.md   the client, and the keys it binds
+    docs/bugs/darwin-connect-retry.md
+                              a connect retry that does not retry, found
+                              while writing the test suite for this
+
+--- pop/teach/swank
+--- The learning module accompanying pop/lib/lib/swank.p
+--- Author: D.Kordsmeier (@truedat101) and Claude (@claude), Aug 2026

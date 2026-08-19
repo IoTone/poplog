@@ -1,0 +1,53 @@
+#!/bin/sh
+# pop11-swank — serve a live Pop-11 session to an editor over a socket.
+#
+#   tools/pop11-swank [--port N] [--once]
+#
+# Unlike pop11-lsp and pop11-mcp this starts a FRESH session and hands it
+# to the first client.  To hand over a session you are already using --
+# with everything you have defined and loaded still in it -- call the
+# library directly from that session instead:
+#
+#   uses swank;
+#   swank_serve(4005);
+#
+# Port 4005 by default, which is SLIME's, since this is the same idea.
+#
+# Poplog tree resolved like the pop11 skill: $POPLOG_ROOT, then the config
+# persisted by install.sh (~/.cache/pop11-skill/config.json), then $usepop.
+set -e
+
+here="$(cd "$(dirname "$0")/.." && pwd)"
+port=4005
+count=false
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --port) port="$2"; shift 2 ;;
+        --once) count=1; shift ;;
+        *) echo "pop11-swank: unknown argument $1" >&2; exit 2 ;;
+    esac
+done
+
+root="$POPLOG_ROOT"
+config="$HOME/.cache/pop11-skill/config.json"
+if [ -z "$root" ] && [ -f "$config" ]; then
+    root="$(sed -n 's/.*"root"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$config")"
+fi
+[ -n "$root" ] || root="$usepop"
+[ -n "$root" ] || root="$here"
+basepop="$root/target/pop/basepop11"
+[ -x "$basepop" ] || { echo "pop11-swank: $basepop not found" >&2; exit 2; }
+
+# Documentation lives in the checkout even when the ENGINE root is a
+# tarball install (which ships pop/lib only), as for the other servers.
+POP11_SWANK_DOCROOT="$here"
+POP11_LIB_EXTRA="$here/pop/lib/lib/"
+export POP11_SWANK_DOCROOT POP11_LIB_EXTRA
+
+# The engine root may be an older tarball install, so the libraries come
+# from this checkout.  `uses' searches popuseslist, which has no
+# environment hook, so extend it inline before the first `uses'.
+exec "$root/poplog" "$basepop" \
+  ":lvars d = '$here/pop/lib/lib/'; [^d ^^popuseslist] -> popuseslist;
+    uses swank; swank_serve_n($port, $count); sysexit();"
