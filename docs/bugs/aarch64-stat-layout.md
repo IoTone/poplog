@@ -86,30 +86,57 @@ The obvious patch is to split the arm64 case out of the branch at
         mode_t  ST_MODE;        /* u32  @16  */
         int     ST_NLINK;       /* u32  @20  */
 
-On paper that puts `ST_SIZE` back at offset 48.  It does not work, and the
-reason is not yet understood.  What was established:
+On paper that puts `ST_SIZE` back at offset 48, and the arithmetic checks
+out against the observed values.  It does not work, and the reason is not
+the struct.
 
-  * The branch is live.  Replacing its body with a deliberate syntax error
-    fails the build with "POPC: ERROR IN struct (unknown type specifier)",
-    so popc really is reading these lines for this target.
-  * The rebuild is real.  Deleting `target/src/*.w` and `*.o` and the stamp
-    files, then `make all`, regenerates both and relinks `basepop11`
-    (confirmed by its embedded build date).
-  * The output is identical either way.  `target/src/sys_file_stat.w` has
-    md5 `09e8691424ba31fbf60b7c4207b6e2f8` whether the field is declared
-    `nlink_t` or `int`, and the runtime behaviour is unchanged.
+**Edits to `pop/src/sys_file_stat.p` do not reach the built engine at
+all.**  That was established on 2026-08-19 with a marker: four
+`cucharout` calls at the top of the procedure, after `Check_vector`, so
+every call would print.  The marker compiles (the `.w` grows by exactly
+the right amount and the fresh member is present in `src.wlb`), the
+engine relinks, and at runtime the marker never prints -- zero
+occurrences in the full output, not merely the head of it.
 
-Identical object output means the declared width is not actually changing,
-which points at how popc resolves the named types rather than at the
-struct: `long` is `T_LONG`, which is `t_INT` when `LONG_BITS == INT_BITS`
-and `t_DOUBLE` otherwise (`pop/src/syscomp/syspop.p:248`), with the widths
-coming from `defcm` defaults in `mcdata.p` that a target's `sysdefs.p` may
-or may not have overridden by that point.  That interaction is where to
-look next.  Note also that a correct answer has to keep dev/ino/mode right,
-which the current declaration already gets right -- so whatever is going on
-is specific to how `nlink_t` resolves.
+The same is true of the struct: adding a deliberate `int ST_XPAD_PROBE;`
+after `ST_NLINK` shifts nothing at runtime.  Nothing about that file
+reaches the engine.
 
-Reproduce with:
+Ruled out along the way:
+
+  * **Saved images.**  Same results under `%nort %noinit`, and the `.psv`
+    files are rebuilt anyway.
+  * **A shadowing autoloadable.**  `sys_file_stat.p` exists exactly once
+    in the tree, and the running procedure reports `pdprops` of
+    `sys_file_stat`, 2 arguments, not a closure.
+  * **A second definition.**  Only `pop/src/sys_file_stat.p:27` defines it.
+  * **Stale intermediates.**  `target/src/*.[ow]` were deleted and
+    regenerated; `stamp_srclib` also removes them itself.
+  * **A missing header dependency.**  `Makefile.in:178` already lists
+    `$(wildcard pop/src/*.ph)` in `SRC_SRC`, and `all` does reach
+    `stamp_srclib` by way of `stamp_vedlib`.
+  * **A stale seed.**  A full bootstrap in the order `INSTALL` prescribes
+    -- `make stamp_new_corepop`, `mv new_corepop corepop`, then a clean
+    `make all` -- changes nothing.
+
+A caution for anyone continuing: **the build is not reproducible**, so
+comparing md5 sums of `.o`, `.w` or `basepop11` between two builds proves
+nothing.  Two consecutive batch compiles of the same unchanged source
+gave `146c1b12…` and `627973ea…` for `sys_file_stat.o`.  An earlier round
+of this investigation was misled by exactly that, comparing the
+443-byte `.w` symbol table (which happened to be stable) and concluding
+the declaration had no effect on codegen.  It does: a single-file
+recompile with the field narrowed changes 1429 bytes of the `.o`.  Only
+runtime behaviour is trustworthy evidence here.
+
+So the open question is no longer "what is the right declaration" -- it
+is **how base-system procedures actually get into `basepop11`**, given
+that recompiling one and relinking demonstrably does not replace it.
+`popc -c -nosys` and how `poplink` chooses between `vedsrc.wlb` and
+`src.wlb` (both name `sys_file_stat`; only `src.wlb` should define it)
+are the places to look.
+
+Reproduce the bug with:
 
     printf 'hello\nworld\n' > /tmp/sz12
     stat -c 'size=%s blksize=%o nlink=%h uid=%u' /tmp/sz12
