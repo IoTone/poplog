@@ -1,5 +1,7 @@
 # Pop-11 and the Robot Army
 
+**Edition 1.0, September 2026** — David J. Kordsmeier and Claude.
+
 An introduction to Poplog and Pop-11 built around one running example: a
 fleet of robots commanded from a live Poplog session by an AI agent. It
 covers the two-level virtual machine, a quickstart, the core language, the
@@ -7,6 +9,7 @@ fleet's programs (telemetry triage, the command post, signed orders), the
 five front-ends (Pop-11, Prolog, Common Lisp, Standard ML, Forth) as the five
 robots on the cover, how to host a language of your own, and the C interface.
 The programs are in `examples/robotarmy/`. Cover art by David J. Kordsmeier.
+Written by Kordsmeier and Claude (Anthropic) together in Claude Code.
 
     make            # -> poplog-book.pdf
 
@@ -29,6 +32,7 @@ common packages (`geometry`, `listings`, `tcolorbox`, `hyperref`, `titlesec`,
 | File | What it is |
 | --- | --- |
 | `poplog-book.tex` | Master file — document class, and the chapter includes |
+| `version.tex` | The edition number and date — bump here only |
 | `preamble.tex` | Page geometry, palette, headings, listing languages, callout box |
 | `ch00-title.tex` | Title page and colophon |
 | `ch01-why.tex` … `ch08-next.tex` | The eight chapters |
@@ -54,9 +58,19 @@ from the documentation-site index when the PDF is present, so a built book is
 published with the site at <https://iotone.github.io/poplog/>. The PDF is
 committed, so CI does not need a TeX toolchain.
 
+## Versions
+
+The edition is set once, in `version.tex`, and appears on the title page,
+in the page footer, in the PDF metadata and here. Bump it for a new edition
+and tag the commit `book-v<edition>`.
+
+| Edition | Date | Notes |
+| --- | --- | --- |
+| 1.0 | September 2026 | First edition: the Robot Army theme, six runnable examples, VM diagram, CC0. |
+
 ## Licence
 
-Written 2026 by David J. Kordsmeier and the Poplog contributors. To the
+Written 2026 by David J. Kordsmeier, Claude and the Poplog contributors. To the
 extent possible under law, the authors have waived all copyright and related
 rights to the book — text, listings, diagrams and cover art — under
 [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/); the

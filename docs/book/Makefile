@@ -14,7 +14,7 @@ export SOURCE_DATE_EPOCH := 1789041600
 
 TEX      := tectonic
 MAIN     := poplog-book
-CHAPTERS := $(wildcard ch*.tex) preamble.tex
+CHAPTERS := $(wildcard ch*.tex) preamble.tex version.tex
 FIGURES  := $(wildcard figures/*.png) $(wildcard figures/*.jpg)
 
 .PHONY: all clean distclean watch
