@@ -53,3 +53,13 @@ reproducible from the listings in §1.2 and §1.4.
 from the documentation-site index when the PDF is present, so a built book is
 published with the site at <https://iotone.github.io/poplog/>. The PDF is
 committed, so CI does not need a TeX toolchain.
+
+## Licence
+
+Written 2026 by David J. Kordsmeier and the Poplog contributors. To the
+extent possible under law, the authors have waived all copyright and related
+rights to the book — text, listings, diagrams and cover art — under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/); the
+full legal text is in `LICENSE` in this directory. The example programs in
+`examples/robotarmy/` are part of the Poplog source tree and carry its
+licence.
