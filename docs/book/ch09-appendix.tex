@@ -1,0 +1,131 @@
+\chapter{Cheat sheet}
+
+\section{Syntax}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lp{8.4cm}}
+\toprule
+\code{;;; text} & comment to end of line\\
+\code{value -> x} & assignment; the arrow points at the destination\\
+\code{expr =>} & print the result(s), prefixed \code{**}\\
+\code{expr ==>} & as \code{=>} but prints structure in full\\
+\code{npr(x)} & print \code{x} and a newline\\
+\code{a sys\_>< b} & concatenate anything into a string\\
+\code{a >< b} & concatenate two strings\\
+\code{'text'} & string (mutable, counted, \emph{not} NUL-terminated)\\
+\code{\dq word\dq} & word --- an interned symbol\\
+\code{[a b c]} & list; contents are \emph{quoted}\\
+\code{[\^{}x \^{}(e) \^{}\^{}xs]} & \ldots with \code{x}, \code{e} evaluated and \code{xs} spliced\\
+\code{\{1 2 3\}} & vector\\
+\code{[\% e \%]} \ \code{\{\% e \%\}} & list/vector of everything \code{e} leaves on the stack\\
+\code{p(\% a \%)} & closure: \code{p} partially applied to \code{a}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Blocks --- every opener has a closer}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{ll}
+\toprule
+\code{define f(a, b); \ldots enddefine;} & \code{if \ldots then \ldots elseif \ldots else \ldots endif}\\
+\code{define f(a) -> r; \ldots enddefine;} & \code{unless \ldots then \ldots endunless}\\
+\code{procedure(a); \ldots endprocedure} & \code{for i from 1 to n do \ldots endfor}\\
+\code{define :class C; slot s = v; enddefine;} & \code{for x in list do \ldots endfor}\\
+\code{define :method m(x:C); \ldots enddefine;} & \code{while c do \ldots endwhile}\\
+\code{section \$-name => exports; \ldots endsection;} & \code{repeat \ldots quitif(c); \ldots endrepeat}\\
+\code{exload tag [libs] \ldots endexload;} & \code{switchon e case < 0 then \ldots endswitchon}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Declarations}
+
+\code{vars} permanent (global) --- required for matcher pattern variables.
+\code{lvars} lexical local --- the default choice inside a procedure.
+\code{constant}, \code{lconstant} their immutable forms.
+\code{dlocal x = v} rebind for the dynamic extent of the call, restored on
+\emph{any} exit.
+
+\section{Mishap decoder}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lp{7.9cm}}
+\toprule
+\code{DECLARING VARIABLE x} & (a warning) you used an undefined name ---
+  usually a typo or a missing \code{define}\\
+\code{NUMBER(S) NEEDED} & arithmetic on a non-number, often the value of
+  that undefined name\\
+\code{STRING NEEDED} & a word \code{\dq x\dq} was passed where a string
+  \code{'x'} was wanted --- check the quotes\\
+\code{ILLEGAL DECLARATION OF WORD} & the name is already a protected
+  system identifier; rename\\
+\code{MISPLACED EXPRESSION ITEM} & syntax: usually a missing keyword or a
+  construct used with the wrong shape\\
+\code{EXECUTING NON-PROCEDURE} & calling something that is not a procedure
+  --- often an undefined name\\
+\code{CAN'T RESTORE - NOT SAME SYSTEM AND VERSION} & the \code{.psv} image
+  predates the current \code{basepop11}; rebuild the images\\
+\code{sysEXECUTE: NOT AT EXECUTE LEVEL} & VM planting attempted at
+  compile-time top level --- wrap it in a procedure\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Files, processes, tables}
+
+\begin{pop}
+;;; read a file line by line
+vars dev = sysopen('/path/file', 0, "line");
+vars rep = line_repeater(dev, inits(4096));   ;;; buffer size = max line length
+repeat
+    rep() -> line;
+    quitif(line == termin);
+    if issubstring('ERROR', 1, line) then ... endif;
+endrepeat;
+
+sysobey('ls /tmp > /tmp/out');                          ;;; run a command
+vars r = sys_obey_linerep('set +e; grep pat file');     ;;; ...and stream it
+
+newproperty([], 50, false, true) -> tbl;   ;;; hash table, keys matched by ==
+newmapping([],  50, false, true) -> m;     ;;; ...keys matched by =
+\end{pop}
+
+\code{line\_repeater} truncates lines longer than its buffer, so size
+\code{inits(n)} generously. \code{sys\_obey\_linerep} runs its command line
+under \code{errexit}: prefix \code{set +e;} whenever a failure is expected.
+
+\section{Regular expressions}
+
+The escape character is \code{@}; \code{.\ * [ ] \^{} \$} are literal unless
+escaped; there is no alternation and no lookaround.
+
+\begin{pop}
+vars err, p;
+regexp_compile('ERROR @[0-9@]@{1,@}') -> (err, p);   ;;; test err -- false = ok
+p(1, 'ERROR 42 happened', false, false) -> (i, n);   ;;; -> 1  8
+substring(i, n, 'ERROR 42 happened') =>              ;;; ** ERROR 42
+\end{pop}
+
+Case-insensitive: \code{regexp\_compile(s, 1, false)}, or \code{@i} in the
+pattern. \code{p} is a compiled procedure --- define it once, reuse it.
+
+\section{Running things}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{ll}
+\toprule
+\code{./poplog pop11} & Pop-11 REPL\\
+\code{./poplog basepop11 -target/psv/prolog.psv} & Prolog\\
+\code{./poplog basepop11 -target/psv/clisp.psv} & Common Lisp\\
+\code{./poplog basepop11 +target/psv/pml.psv} & Standard ML\\
+\code{tools/forth.sh} & Forth\\
+\code{./poplog basepop11 prog.p} & run a Pop-11 file\\
+\code{tools/pop11-lsp} \ \code{tools/pop11-swank} \ \code{tools/pop11-mcp} & editor and agent servers\\
+\bottomrule
+\end{tabular}
+\end{center}

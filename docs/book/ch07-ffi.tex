@@ -1,0 +1,226 @@
+\chapter{The C interface}
+
+Poplog has had a foreign-function interface since 1987, and it is unusually
+deep: external code is loaded into the \emph{running} image by Poplog's own
+dynamic linker, declared with a syntax form, and called with argument
+conversion that understands Poplog's data representation. This chapter shows
+the path this fork actually uses in production libraries, then names the
+alternatives and the traps.
+
+\section{The mechanisms, briefly}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lp{8.2cm}}
+\toprule
+\code{external\_do\_load} & The primitive: a mark item, a list of object
+  files or shared libraries, and a list of symbol specifications. Procedural.\\
+\code{exload} & The declarative syntax form over it --- name the library,
+  name the functions, give their types. \textbf{Start here.}\\
+\code{exacc} & The syntax form that \emph{calls} an external function or
+  accesses external data, converting arguments and results.\\
+\code{cons\_access} & Builds an accessor procedure for a field of an external
+  structure.\\
+\code{lib external}, \code{lib newexternal} & Older higher-level layers; see
+  \code{help external} and \code{help newexternal}.\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The reference material is \code{ref external} (mechanisms and data
+representation), \code{ref defstruct} (structures) and \code{ref
+external\_data}.
+
+\section{The shim discipline}
+
+The libraries in this fork --- \code{lib crypto} over OpenSSL, \code{popcurl}
+over libcurl, \code{poppcre} over PCRE --- all go through a small C shim
+rather than binding the library's own API directly. That is a
+deliberate rule, and it is worth stating plainly:
+
+\begin{callout}{Bind a shim, not the library}
+Keep the \code{exload} surface to a handful of \textbf{non-variadic}
+functions with \textbf{explicit lengths} and \textbf{caller-allocated
+buffers}, and keep object lifecycle entirely on the C side. Variadic calls
+through the FFI are hazardous --- notably on Apple \code{arm64}, where the
+variadic calling convention differs from the regular one --- and library
+handle lifetimes are exactly what a garbage collector should not be guessing
+about.
+\end{callout}
+
+A shim is usually fifty lines. Here are two of the seven functions behind
+\code{lib crypto}:
+
+\begin{lstlisting}[language=C]
+/* pop/extern/popcrypto/popcrypto_shim.c */
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
+
+/* digest of data[0..len) with a named algorithm; writes raw bytes to
+   out, returns the digest length, or -1 */
+int pcr_digest(const char *alg, const void *data, long len,
+               unsigned char *out)
+{
+    const EVP_MD *md = EVP_get_digestbyname(alg);
+    unsigned int n = 0;
+    if (!md) return -1;
+    if (!EVP_Digest(data, (size_t)len, out, &n, md, NULL)) return -1;
+    return (int)n;
+}
+
+int pcr_random(unsigned char *buf, long n)
+{
+    return RAND_bytes(buf, (int)n) == 1 ? 0 : -1;
+}
+\end{lstlisting}
+
+Note the shape: no allocation crosses the boundary, every buffer has an
+explicit length, and every failure is a negative return rather than an
+exception or an \code{errno} the caller must remember to read.
+
+\section{Declaring it: \code{exload}}
+
+\begin{pop}
+uses crypto;   ;;; ...is, inside, this:
+
+exload popcrypto
+    #_IF sys_file_exists(sysfileok('$usepop/pop/extern/popcrypto/popcrypto.dylib'))
+    ['$usepop/pop/extern/popcrypto/popcrypto.dylib']
+    #_ELSE
+    ['$usepop/pop/extern/popcrypto/popcrypto.so']
+    #_ENDIF
+(language C)
+    lconstant
+        pcr_digest(alg, data, len, out)             :int,
+        pcr_hmac(alg, key, keylen, data, len, out)  :int,
+        pcr_random(buf, n)                          :int,
+        pcr_pbkdf2(alg, pass, passlen, salt, saltlen, iters, out, outlen) :int,
+        pcr_version()                               :exptr,
+        ;;; ...and pcr_gcm_encrypt / pcr_gcm_decrypt
+    ;
+endexload;
+\end{pop}
+
+Three things are happening. \code{popcrypto} is the \emph{mark item} --- the
+tag under which this set of symbols is loaded and can be unloaded.
+\code{\#\_IF} is a compile-time conditional, so one source file picks the
+right shared-library extension on macOS and Linux. And each declaration gives
+the argument names and the \emph{result} type: \code{:int} for a C \code{int},
+\code{:exptr} for a pointer (Poplog wraps it in an external-pointer record;
+\code{exacc\_ntstring} pulls a C string out of one). The full type vocabulary
+--- \code{:byte}, \code{:short}, \code{:int}, \code{:long}, \code{:sfloat},
+\code{:dfloat}, pointers, arrays and structures --- is in \code{ref external}.
+
+\section{Calling it: \code{exacc}}
+
+\begin{pop}
+lconstant OUTMAX = 64;              ;;; SHA-512 is the widest digest
+
+define crypto_digest(alg, data) -> raw;
+    lvars n, out = inits(OUTMAX);   ;;; caller allocates the buffer
+    unless isstring(alg) and isstring(data) then
+        mishap(alg, data, 2, 'crypto_digest: two strings needed')
+    endunless;
+    exacc pcr_digest(cstr(alg), data, length(data), out) -> n;
+    if n < 0 then
+        mishap(alg, 1, 'crypto_digest: unknown algorithm')
+    endif;
+    substring(1, n, out) -> raw;
+enddefine;
+\end{pop}
+
+\begin{repl}
+: uses crypto;
+: crypto_digest_hex('sha256', 'hello poplog') =>
+** 8b05ad6e876a9ce82062d33918c82d6b9bfac5b0f1cb575bb4dc8cd70762c6ae
+: crypto_hmac_hex('sha256', 'key', 'message') =>
+** 6e9ef29b75fffc5b7abae527d58fdadb2fe42e7219011976917343065f58ed4a
+: length(crypto_random(16)) =>
+** 16
+: crypto_version() =>
+** OpenSSL 3.6.3 9 Jun 2026
+\end{repl}
+
+\subsection{Two traps that bite immediately}
+
+\textbf{Pop-11 strings are not null-terminated.} They are counted byte
+vectors, so a string passed where C expects \code{char~*} must be terminated
+explicitly. \code{lib crypto} does it in one line:
+
+\begin{pop}
+define lconstant cstr(s);
+    s <> consstring(0, 1)       ;;; append a NUL
+enddefine;
+\end{pop}
+
+Data arguments do not need this --- they are passed with an explicit length,
+which is the better interface anyway.
+
+\textbf{Packed fields versus full fields.} Poplog integers and floats are
+tagged in ordinary records and vectors. Passed as direct arguments they are
+converted for you; passed \emph{inside} a structure they are not, and the C
+side sees encoded nonsense. An integer array destined for C must therefore be
+built with a packed representation (\code{intvec} and friends), not
+\code{newarray}. Strings made with \code{inits(n)} are packed byte vectors,
+which is exactly why they serve as C buffers above.
+
+\section{Building and shipping the shim}
+
+The shim is built by a small script, not by the main \code{make}, so a Poplog
+without OpenSSL still builds:
+
+\begin{sh}
+tools/build-popcrypto.sh      # -> pop/extern/popcrypto/popcrypto.{so,dylib}
+\end{sh}
+\begin{lstlisting}[language=bash]
+if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists libcrypto; then
+    flags="$(pkg-config --cflags --libs libcrypto)"
+else
+    flags="-lcrypto"
+fi
+cc -O2 -shared -fPIC -o "$lib" "$src" $flags
+\end{lstlisting}
+
+And the library fails loudly at load time if the shim is missing, rather than
+mysteriously at the first call:
+
+\begin{pop}
+unless sys_file_exists(sysfileok('$usepop/pop/extern/popcrypto/popcrypto.so'))
+or    sys_file_exists(sysfileok('$usepop/pop/extern/popcrypto/popcrypto.dylib'))
+then
+    mishap(0, 'lib crypto: shim not built -- run tools/build-popcrypto.sh first')
+endunless;
+\end{pop}
+
+Both \code{lib json} and its FFI-based sibling \code{lib crypto} are validated
+on x86-64, AArch64 (Raspberry Pi 5) and RISC-V; \code{tools/test-crypto.sh}
+is the acceptance suite and \code{tools/test-remote.sh \emph{host}} reruns it
+anywhere with a built tree. That matters more than usual for FFI code,
+because calling conventions are exactly what differs between ports --- the
+RISC-V float ABI, for instance, was found and fixed by running these suites.
+
+\section{Images, handles, and when not to bother}
+
+External state does not survive \code{syssave}. Library handles, open
+connections and \code{exptr} values are stale after a restore --- the right
+shape for a binding is to \emph{mishap cleanly} on a stale handle rather than
+crash, and the fix is always to reopen. Procedures, by contrast, survive
+fine, so a restored image is ready to work as soon as you reconnect its
+resources.
+
+Finally: the FFI is not always the answer. Poplog can stream the output of a
+shell command as a line repeater, and for a one-off that is often enough:
+
+\begin{pop}
+vars r = sys_obey_linerep('set +e; curl -s https://example.com/api | jq -r ".id"');
+\end{pop}
+
+Note \code{set~+e}: the command line runs under \code{errexit}, so without it
+the first failing command aborts the whole pipeline \emph{silently} --- empty
+output and no error.
+
+The trade-off against the FFI is a process per call, and it is not subtle: on
+the machine this chapter was written on, 100 round trips through
+\code{sys\_obey\_linerep('echo hi')} took 284\,ms of wall time --- about
+2.8\,ms each --- against an unmeasurable zero for 100 in-image calls. Use a
+shim when the call sits in a loop; use the pipe when it does not.

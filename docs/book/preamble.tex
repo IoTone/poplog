@@ -1,0 +1,143 @@
+%% preamble.tex --- shared setup for the Poplog book
+\usepackage[a4paper,left=24mm,right=24mm,top=22mm,bottom=24mm,headsep=8mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{inconsolata}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{multicol}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+\usepackage[most]{tcolorbox}
+
+%% ---------------------------------------------------------------- palette
+\definecolor{popink}{HTML}{16323C}   % near-black teal, body rules
+\definecolor{popaccent}{HTML}{0E7C7B} % teal accent
+\definecolor{popwarm}{HTML}{B85C38}  % rust, for warnings/keywords
+\definecolor{popgrey}{HTML}{5A6B72}
+\definecolor{popbg}{HTML}{F4F6F5}    % code background
+\definecolor{poprule}{HTML}{D3DAD8}
+
+\hypersetup{
+  colorlinks=false,
+  pdftitle={Poplog and Pop-11: A Working Introduction},
+  pdfauthor={IoTone Poplog project},
+  pdfsubject={Pop-11, Poplog, incremental compilation, hosted languages, FFI},
+}
+
+%% ---------------------------------------------------------------- headings
+\titleformat{\chapter}[display]
+  {\normalfont\sffamily\bfseries\color{popink}}
+  {\color{popaccent}\normalsize\sffamily \MakeUppercase{\chaptername}\ \thechapter}
+  {6pt}{\Large}
+  [\vspace{2pt}{\color{poprule}\titlerule[1pt]}]
+\titlespacing*{\chapter}{0pt}{-10pt}{18pt}
+
+\titleformat{\section}{\normalfont\sffamily\bfseries\color{popink}}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\normalfont\sffamily\bfseries\color{popaccent}}{\thesubsection}{0.7em}{}
+\titlespacing*{\section}{0pt}{14pt}{5pt}
+\titlespacing*{\subsection}{0pt}{10pt}{3pt}
+
+\setlength{\headheight}{14pt}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{poprule}\leaders\hrule height \headrulewidth\hfill}}
+\fancyhead[L]{\footnotesize\sffamily\color{popgrey}\leftmark}
+\fancyhead[R]{\footnotesize\sffamily\color{popgrey}\thepage}
+\renewcommand{\chaptermark}[1]{\markboth{\chaptername\ \thechapter.\ #1}{}}
+\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}%
+  \fancyfoot[C]{\footnotesize\sffamily\color{popgrey}\thepage}}
+
+\setlist{noitemsep,topsep=3pt,leftmargin=1.4em}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{3em}
+\hyphenpenalty=1000
+\renewcommand{\arraystretch}{1.12}
+
+%% ---------------------------------------------------------------- listings
+\lstdefinelanguage{Pop11}{
+  morekeywords={define,enddefine,vars,lvars,dlvars,lconstant,constant,if,then,
+    elseif,else,endif,unless,endunless,for,from,to,by,in,on,do,endfor,
+    while,endwhile,repeat,endrepeat,quitif,quitloop,returnif,return,
+    procedure,endprocedure,matches,section,endsection,uses,load,compile,
+    switchon,case,endswitchon,and,or,not,false,true,exload,endexload,
+    slot,method,class,is,with_nargs,dlocal,global,macro,syntax,nonop,
+    recursive_valof,chain,defclass,until},
+  sensitive=true,
+  morecomment=[l]{;;;},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]',
+  morestring=[b]",
+}
+\lstdefinelanguage{Forth}{
+  morekeywords={if,else,then,begin,until,while,repeat,do,loop,variable,
+    constant,recurse,exit,dup,drop,swap,over,rot,emit,cr,words,bye},
+  sensitive=false,
+  morecomment=[l]{\\},
+  morecomment=[s]{(\ }{)},
+  morestring=[b]",
+}
+\lstdefinelanguage{PrologX}{
+  morekeywords={is,not},
+  sensitive=true,
+  morecomment=[l]{\%},
+  morestring=[b]',
+}
+\lstdefinelanguage{SML}{
+  morekeywords={fun,val,let,in,end,if,then,else,datatype,type,case,of,fn,
+    structure,signature,sig,struct,and,orelse,andalso,raise,handle,rec},
+  sensitive=true,
+  morecomment=[n]{(*}{*)},
+  morestring=[b]",
+}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{popaccent}\bfseries,
+  commentstyle=\color{popgrey}\itshape,
+  stringstyle=\color{popwarm},
+  backgroundcolor=\color{popbg},
+  frame=leftline,
+  framerule=1.6pt,
+  rulecolor=\color{poprule},
+  framexleftmargin=5pt,
+  xleftmargin=7pt,
+  aboveskip=8pt, belowskip=8pt,
+  showstringspaces=false,
+  columns=fullflexible,
+  keepspaces=true,
+  breaklines=true,
+  breakatwhitespace=true,
+  upquote=true,
+  literate={`}{{\textasciigrave}}1,
+}
+\lstnewenvironment{pop}{\lstset{language=Pop11}}{}
+\lstnewenvironment{sh}{\lstset{language=bash,keywordstyle=\color{popink}}}{}
+\lstnewenvironment{repl}{\lstset{language={},keywordstyle=\color{popink}}}{}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\dq}{\textquotedbl}
+
+%% ---------------------------------------------------------------- callout
+\newtcolorbox{callout}[1]{
+  enhanced, breakable, sharp corners,
+  colback=popbg, colframe=popaccent,
+  boxrule=0pt, leftrule=2pt,
+  left=9pt, right=9pt, top=7pt, bottom=7pt,
+  fontupper=\small,
+  title={\sffamily\bfseries\color{popaccent}#1},
+  coltitle=popaccent, colbacktitle=popbg,
+  titlerule=0pt, toptitle=1pt, bottomtitle=1pt,
+  attach title to upper=\par\vspace{2pt},
+}

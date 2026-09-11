@@ -1,0 +1,134 @@
+\chapter{Hosting a language of your own}
+
+Chapter~5's front-ends are not privileged. The API they target is public, and
+a new language is an ordinary Pop-11 program. This chapter is the recipe;
+\code{HOSTING-LANGUAGES.md} in the tree is the longer version, and
+\code{ref vmcode} is the specification.
+
+\section{Plant VM code, don't emit machine code}
+
+You write a \textbf{reader}, a \textbf{parser}, and then calls to about forty
+\textbf{VM-builder} procedures that plant abstract instructions. The
+back-end turns those into native code for whatever CPU you are on.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{ll}
+\toprule
+\textbf{To plant\ldots} & \textbf{call}\\
+\midrule
+a literal constant & \code{sysPUSHQ(item)}\\
+the value of a variable & \code{sysPUSH(word)}\\
+a store into a variable & \code{sysPOP(word)}\\
+a call of a named procedure & \code{sysCALL(word)}\\
+a call of a literal procedure & \code{sysCALLQ(item)}\\
+start / end of a procedure & \code{sysPROCEDURE(props, nargs)} \ldots \code{sysENDPROCEDURE()}\\
+locals, dynamic locals & \code{sysLVARS}, \code{sysLOCAL}, \code{sysNEW\_LVAR}\\
+control flow & \code{sysLABEL}, \code{sysGOTO}, \code{sysIFSO}, \code{sysIFNOT}, \code{sysGO\_ON}\\
+a permanent assignment & \code{sysPASSIGN(item, token)}\\
+a syntax word / macro & \code{sysSYNTAX}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The whole model fits in six lines. Here we build, at run time, the equivalent
+of \code{define add1(x); x fi\_+ 1 enddefine}:
+
+\begin{pop}
+define build_add1() -> p;
+    sysPROCEDURE(false, 1);      ;;; open a 1-argument procedure
+        sysPUSHQ(1);             ;;;   push literal 1    -> stack: x 1
+        sysCALL("fi_+");         ;;;   fast integer add  -> stack: x+1
+    sysENDPROCEDURE() -> p;      ;;; p is now a real compiled procedure
+enddefine;
+
+vars add1 = build_add1();
+isprocedure(add1) =>          ;;; ** <true>
+pdnargs(add1)     =>          ;;; ** 1
+add1(41)          =>          ;;; ** 42
+\end{pop}
+
+\begin{callout}{Execute level}
+Planting must happen \emph{while something is running}, not at the top level
+of a file being compiled --- at the top level you get
+\code{sysEXECUTE: NOT AT EXECUTE LEVEL}. Wrap the plant sequence in a
+procedure and call it, as above.
+\end{callout}
+
+That is the entire trick. A compiler for your language is a tree walk that
+emits the right \code{sys\ldots} calls. What you get for free, without writing
+a line of assembly: native code generation on every port, the garbage
+collector, the open stack, closures, recursion, the incremental compiler, the
+external interface, the REPL, and saved images.
+
+For the reader, you can reuse Pop-11's itemiser (\code{incharitem} over
+\code{proglist}, documented in \code{ref popcompile}) with your own character
+table --- for a whitespace-delimited language like Forth it needs almost no
+configuration --- or write your own, as Prolog does with its
+operator-precedence reader.
+
+\section{Three tiers of effort}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{p{3.1cm}p{7.4cm}l}
+\toprule
+\textbf{Tier} & \textbf{What you get} & \textbf{Effort}\\
+\midrule
+1. Embedded interpreter & A plain Pop-11 program: a dictionary and an eval loop. No VM compilation. & days\\
+2. VM-compiling front-end & Parse, then plant --- genuinely native definitions, closures, recursion, full interop. \emph{The Poplog way.} & 1--3 weeks\\
+3. Full subsystem & Tier 2 plus registration: its own REPL, prompt, banner, file extension and saved image. & +1--3 days\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The tiers stack. Build tier 1 as a throwaway to pin the semantics with no
+compiler in the way, replace its core with planting, then wrap the subsystem
+around it.
+
+\section{Tier 3: registering a subsystem}
+
+A subsystem is a record in \code{sys\_subsystem\_table} with a name, a file
+extension, a prompt, a title, search lists, and an eight-slot procedure
+vector in a fixed order (\code{ref subsystem}):
+
+\begin{pop}
+constant myforth_subsystem_procedures =
+    {% forth_compile,    ;;; SS_COMPILER   <- the only substantial one
+       identfn,          ;;; SS_RESET      (between top-level reads)
+       identfn,          ;;; SS_SETUP      (on startup)
+       Forth_banner,     ;;; SS_BANNER
+       identfn,          ;;; SS_INITCOMP   (compile a standard prelude)
+       erase,            ;;; SS_POPARG1    (handle a command-line argument)
+       identfn,          ;;; SS_VEDSETUP   (editor; no-op if you skip Ved)
+       identfn,          ;;; SS_XSETUP     (X; no-op if you skip graphics)
+    %};
+\end{pop}
+
+Only \code{SS\_COMPILER} is real work --- it is your tier-2 compiler. The
+rest can start as \code{identfn}/\code{erase} stubs. One macro then makes the
+language reachable by name from a Pop-11 prompt:
+
+\begin{pop}
+define global macro forth;
+    "forth" -> sys_compiler_subsystem(`c`);
+enddefine;
+\end{pop}
+
+Finally, build an image the way the shipped languages are built --- a
+\code{mkimage} invocation that loads your sources and installs
+\code{mylang.psv} --- and you have \code{poplog mylang}, live subsystem
+switching, and your language on every platform Poplog runs on. The four
+existing subsystems under \code{pop/lisp/}, \code{pop/pml/}, \code{pop/plog/}
+and \code{pop/forth/} are the templates; each is a
+\code{*\_subsystem\_procedures} file, a compiler, and a Makefile rule.
+
+\section{The other starting point: extend what is there}
+
+Not every new language needs to be new. The shipped Prolog is 51 files of
+ordinary Pop-11, so a specialised variant has an enormous head start: reuse
+the term reader, unification and clause store, and replace only the
+\emph{control} --- a different search order, tabling, constraint propagation,
+a custom resolution rule. Adding built-ins and operators to the existing
+engine is hours; swapping the control regime is days to weeks, scaling with
+how much of the engine you replace.

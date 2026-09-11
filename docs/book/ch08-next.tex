@@ -1,0 +1,90 @@
+\chapter{Where to go next}
+
+\section{The documentation you already have}
+
+The in-tree corpus is over 900 files and it is the primary source for
+everything in this book. From any prompt:
+
+\begin{repl}
+: help matches          ;;; practical, task-shaped
+: ref  vmcode           ;;; the exhaustive reference -- and the VM spec
+: teach json            ;;; tutorials, including how lib json was built
+\end{repl}
+
+The same material is published at
+\code{https://iotone.github.io/poplog/}, regenerated on every push by a
+Pop-11 program; \code{llms.txt} there is for AI assistants. The handful of
+entries worth reading early: \code{help external} and \code{ref external}
+(Chapter~7), \code{ref vmcode} and \code{ref subsystem} (Chapter~6),
+\code{ref regexp}, \code{help json}, \code{help crypto}, and
+\code{teach swank}.
+
+\section{Four decades of teaching material}
+
+Poplog was the vehicle for a great deal of university AI teaching, and most
+of it survives. The tree does not vendor any of it; one script fetches it
+from public archives and wires it into \code{help}/\code{teach} inside the
+system:
+
+\begin{sh}
+tools/fetch-learning.sh list        # what's available
+tools/fetch-learning.sh --all       # about 30 MB into learn/
+\end{sh}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lp{8.1cm}}
+\toprule
+\code{hidden-gems} & Small idiomatic demos of what makes Pop-11 distinctive:
+  the open stack, updaters, dynamic lists, coroutines, \code{dlocal}, the GC,
+  extensible syntax.\\
+\code{bhamteach} & The Birmingham introductory-AI course --- pattern-matching
+  chatbots, grammars and parsing, story generation, recursion exercises.\\
+\code{packages} & The classic package tree: SimAgent and Poprulebase,
+  popvision, rclib, neural nets, Braitenberg vehicles.\\
+\code{paradigms} & A UMASS programming-language-paradigms course taught in
+  Pop-11 (1997--2000).\\
+\code{primer} & The Pop-11 Primer --- the standard text for experienced
+  programmers.\\
+\code{examples} & Curated teaching examples: Othello, Life, robolang.\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Upstream licences apply per pack; each records its origin in
+\code{learn/\emph{pack}/.source}.
+
+\section{Reading the source}
+
+Poplog is written mostly in itself, which makes it unusually approachable.
+
+\begin{itemize}
+\item \code{pop/src/} --- the core: \code{vm\_plant.p} and \code{vm\_control.p}
+  are the VM builder from Chapter~6; \code{syscomp/} holds one directory per
+  CPU back-end.
+\item \code{pop/lib/lib/} --- the library, and the best source of idiomatic
+  Pop-11 at length. \code{json.p}, \code{crypto.p}, \code{http\_server.p},
+  \code{jsonrpc.p}, \code{swank.p} and \code{forth.p} are all readable in an
+  afternoon each.
+\item \code{pop/plog/}, \code{pop/lisp/}, \code{pop/pml/}, \code{pop/forth/}
+  --- the four front-ends, i.e.\ four worked answers to Chapter~6.
+\item \code{examples/} --- runnable programs: the HTTP service, ELIZA, a
+  Z-machine interpreter, graphics demos.
+\end{itemize}
+
+\section{Benchmarks, ports, and the state of the project}
+
+\code{BENCHMARKS.md} carries the full cross-platform, cross-language matrix
+with its methodology; the numbers quoted in Chapter~1 are drawn from it. The
+\code{PORTING-*.md} files are the working notes from the AArch64, Apple
+Silicon and RISC-V ports --- including the bugs, which is the part usually
+missing from porting documentation and the part most useful to the next
+porter. Windows is the one platform still marked TODO.
+
+\begin{callout}{If you take one idea away}
+It is that a compiler cheap enough to call in a loop changes what a
+programming environment can be. Everything distinctive here --- live
+redefinition, saved images, five languages in one heap, an editor that talks
+to a running process, an agent that keeps a session warm across tool calls
+--- falls out of fifteen microseconds per definition.
+\end{callout}

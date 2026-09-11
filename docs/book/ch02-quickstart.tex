@@ -1,0 +1,140 @@
+\chapter{Quickstart}
+
+\section{Getting a Poplog}
+
+Three ways in, fastest first.
+
+\textbf{1. A relocatable binary} (about a 2\,MB download). This unpacks a
+ready-built \code{basepop11} plus libraries under
+\code{\textasciitilde/.local/share/pop11-skill}, and finishes with a live
+smoke test:
+
+\begin{sh}
+curl -fsSL https://raw.githubusercontent.com/IoTone/poplog/master/tools/install-skill.sh | sh
+\end{sh}
+
+\textbf{2. From source.} Poplog bootstraps from a small seed binary,
+\code{corepop}, which is vendored for the ported platforms:
+
+\begin{sh}
+git clone https://github.com/IoTone/poplog && cd poplog
+./configure && make all
+\end{sh}
+
+\code{make all} builds the core system, then compiles the Prolog, Common Lisp
+and Standard ML front-ends and saves each as an image under
+\code{target/psv/}. See \code{INSTALL} for the details.
+
+\textbf{3. Nix.} A flake builds and bootstraps everything from source with no
+manual seed or toolchain setup:
+
+\begin{sh}
+nix run .#pop11          # or .#prolog / .#clisp / .#pml
+nix shell .#poplog       # put all five front-ends on $PATH
+\end{sh}
+
+\section{The first session}
+
+\begin{repl}
+$ ./poplog pop11
+Sussex Poplog (Version 16.019997 ...)
+Copyright (c) 1982-1999 University of Sussex.  All rights reserved.
+
+Setpop
+: 6 * 7 =>
+** 42
+\end{repl}
+
+The prompt is \code{:} and the workhorse is \code{=>}, which prints whatever
+the preceding expression left, prefixed with \code{**}. Two more you will use
+constantly: \code{npr(x)} prints \code{x} and a newline, and \code{==>} is
+\code{=>} with fuller structure printing.
+
+Statements end with a semicolon. An expression followed by \code{=>} does not
+need one --- \code{=>} terminates it.
+
+When something goes wrong you get a \emph{mishap}: a diagnostic naming the
+error, the culprits, and the chain of procedures that was running.
+
+\begin{repl}
+: 'three' + 4 =>
+;;; MISHAP - NUMBER(S) NEEDED
+;;; INVOLVING:  'three' 4
+;;; PRINT DOING
+;;; DOING    :  + pop_setpop_compiler
+\end{repl}
+
+The session survives. Fix the expression and carry on --- this is the normal
+working rhythm, not an exceptional one.
+
+\section{Running files}
+
+A Pop-11 source file is just a sequence of statements, so there is no
+\code{main}:
+
+\begin{sh}
+./poplog basepop11 myprog.p        # compile and run, then enter the REPL
+./poplog basepop11 myprog.p </dev/null   # ...or run and exit
+\end{sh}
+
+Inside a session, \code{load 'myprog.p';} does the same thing, and
+\code{uses foo;} loads library \code{foo} from the library search list if it
+is not already loaded --- this is how you reach \code{lib json}, \code{lib
+crypto}, \code{objectclass}, and the rest.
+
+\section{Documentation, in the system}
+
+Poplog ships its own manual --- over 900 files --- and it is queryable from
+the prompt. The three kinds matter:
+
+\begin{itemize}
+\item \code{help \emph{name}} --- practical, task-shaped. Start here.
+\item \code{ref \emph{name}} --- the exhaustive reference for a primitive or
+  a subsystem.
+\item \code{teach \emph{name}} --- tutorials, many of them the original
+  Birmingham AI course material.
+\end{itemize}
+
+\begin{repl}
+: help matches
+: ref regexp
+: teach json
+\end{repl}
+
+The same corpus is published as a website by a Pop-11 program in the tree
+(\code{tools/gen-docs.sh}) at \code{https://iotone.github.io/poplog/}, with an
+\code{llms.txt} for AI assistants.
+
+\section{Editing and long-lived sessions}
+
+Because the interesting object is a \emph{running heap}, the tooling in this
+fork is built to talk to one rather than to a file.
+
+\begin{itemize}
+\item \textbf{VED}, the built-in editor: \code{ved myfile.p}. \code{ENTER l1}
+  compiles the current line into the live system, \code{ENTER lmr} the marked
+  range, \code{ENTER lcp} the current procedure.
+\item \textbf{LSP} (\code{tools/pop11-lsp}): diagnostics come from the real
+  compiler with \code{pop\_syntax\_only} set, so your file is type-checked by
+  the thing that would compile it, and nothing in it runs. A Neovim plugin
+  ships in \code{editors/nvim/}.
+\item \textbf{Swank} (\code{tools/pop11-swank}): the other half --- a live
+  session an editor can attach to. Output streams as it is produced, mishaps
+  arrive as data with real frames, and a runaway loop can be interrupted. The
+  Emacs package in \code{editors/emacs/} is the client;
+  \code{teach swank} is the walkthrough.
+\item \textbf{MCP} (\code{tools/pop11-mcp}): the same idea for agents. A
+  persistent, natively compiled session exposed as four tools ---
+  \code{pop11\_eval}, \code{pop11\_help}, \code{pop11\_checkpoint},
+  \code{pop11\_state}.
+\end{itemize}
+
+All three servers sit on one transport, \code{pop/lib/lib/jsonrpc.p}, itself
+written in Pop-11.
+
+\begin{callout}{The working pattern}
+Start one session and keep it. Define helpers once; call them thereafter.
+Redefinition is instant and applies to every later call, so a procedure is
+something you \emph{sculpt} in a live image rather than edit-compile-run.
+Checkpoint the image when the session has earned something worth keeping.
+\end{callout}
