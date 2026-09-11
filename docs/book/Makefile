@@ -8,9 +8,9 @@
 #   brew install tectonic      /      cargo install tectonic
 # Any other LaTeX engine works too; see README.md.
 
-# a fixed timestamp keeps the PDF byte-identical across rebuilds, so a
-# no-change build does not show up as a diff
-export SOURCE_DATE_EPOCH := 1600000000
+# a fixed timestamp (2026-09-10, the book's date) keeps the PDF byte-identical
+# across rebuilds, so a no-change build does not show up as a diff
+export SOURCE_DATE_EPOCH := 1789041600
 
 TEX      := tectonic
 MAIN     := poplog-book
