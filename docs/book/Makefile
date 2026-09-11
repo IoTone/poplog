@@ -8,6 +8,10 @@
 #   brew install tectonic      /      cargo install tectonic
 # Any other LaTeX engine works too; see README.md.
 
+# a fixed timestamp keeps the PDF byte-identical across rebuilds, so a
+# no-change build does not show up as a diff
+export SOURCE_DATE_EPOCH := 1600000000
+
 TEX      := tectonic
 MAIN     := poplog-book
 CHAPTERS := $(wildcard ch*.tex) preamble.tex
@@ -18,7 +22,7 @@ FIGURES  := $(wildcard figures/*.png)
 all: $(MAIN).pdf
 
 $(MAIN).pdf: $(MAIN).tex $(CHAPTERS) $(FIGURES)
-	$(TEX) -X compile $(MAIN).tex
+	$(TEX) -X compile --untrusted $(MAIN).tex
 
 watch:
 	$(TEX) -X watch
