@@ -1,7 +1,10 @@
-\chapter{The C interface}
+\chapter{The C interface: orders a robot can trust}
 
-Poplog has had a foreign-function interface since 1987, and it is unusually
-deep: external code is loaded into the \emph{running} image by Poplog's own
+A unit in the field must not obey an order just because it arrived. The
+command post signs every order under a key the unit was given at enlistment,
+and the unit refuses anything that does not verify. The cryptography comes
+from OpenSSL, and reaching it is the job of Poplog's foreign-function
+interface --- which has existed since 1987 and is unusually deep: external code is loaded into the \emph{running} image by Poplog's own
 dynamic linker, declared with a syntax form, and called with argument
 conversion that understands Poplog's data representation. This chapter shows
 the path this fork actually uses in production libraries, then names the
@@ -133,12 +136,35 @@ enddefine;
 : uses crypto;
 : crypto_digest_hex('sha256', 'hello poplog') =>
 ** 8b05ad6e876a9ce82062d33918c82d6b9bfac5b0f1cb575bb4dc8cd70762c6ae
-: crypto_hmac_hex('sha256', 'key', 'message') =>
-** 6e9ef29b75fffc5b7abae527d58fdadb2fe42e7219011976917343065f58ed4a
-: length(crypto_random(16)) =>
-** 16
 : crypto_version() =>
 ** OpenSSL 3.6.3 9 Jun 2026
+\end{repl}
+
+On top of that, the signed order is a dozen lines --- \ghfile{signed\_orders.p}:
+
+\begin{pop}
+vars fleet_key = 'a shared secret, provisioned at enlistment';
+
+;;; wire format:  <hex mac> <space> <order text>
+define sign_order(text) -> wire;
+    crypto_hmac_hex('sha256', fleet_key, text) <> ' ' <> text -> wire
+enddefine;
+
+define verify_order(wire) -> text;
+    lvars sp = locchar(` `, 1, wire), mac, body;
+    false -> text;
+    if sp then
+        substring(1, sp - 1, wire) -> mac;
+        allbutfirst(sp, wire) -> body;
+        if mac = crypto_hmac_hex('sha256', fleet_key, body) then body -> text endif
+    endif
+enddefine;
+\end{pop}
+\begin{repl}
+on the wire: 81bdc45a...581146c3 unit r1 advance to ridge
+genuine:     unit r1 advance to ridge
+tampered:    <false>          <- one character of the order changed
+replayed:    <false>          <- a real signature on a different order
 \end{repl}
 
 \subsection{Two traps that bite immediately}

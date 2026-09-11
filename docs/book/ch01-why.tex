@@ -1,15 +1,35 @@
-\chapter{What Poplog is, and why it is unusual}
+\chapter{The premise, and why Poplog}
 
-Poplog is not a language. It is a \emph{language toolkit} that happens to
-ship with five languages already built on it: Pop-11, Prolog, Common Lisp,
-Standard ML, and --- new in this fork --- Forth. All five share one virtual
-machine, one garbage collector, one heap, and one process. You can start in
-Prolog, drop into Pop-11 to write a predicate, and hand the result back,
-without leaving the image or crossing a foreign-function boundary.
+You have a fleet. Scouts, sappers, medics, haulers --- a few today, a few
+hundred later --- each one reporting telemetry, each one waiting for orders.
+Above them sits an AI agent that reads the reports, decides, and issues the
+orders; and that agent needs a tool that can hold the whole picture of the
+fleet in one place, change its own behaviour while running, and never make
+the fleet wait on a build.
 
-That design is forty years old and still rare. Most systems that host several
-languages do it by compiling them all to a bytecode interpreter. Poplog does
-it by compiling them all, incrementally, to \textbf{native machine code}.
+That tool, in this book, is Poplog. Not because it is the newest thing to hand
+but because three properties it has had since the 1980s turn out to be
+exactly what an agent-driven command post wants.
+
+\begin{itemize}
+\item \textbf{The compiler is a procedure in the running system.} Defining a
+  new behaviour --- a new order, a new triage rule --- costs about fifteen
+  microseconds and produces native machine code. An agent can extend its own
+  tooling mid-mission.
+\item \textbf{The whole session is a value.} The heap --- the fleet registry,
+  every compiled procedure, every rule learned so far --- can be written to
+  a file in milliseconds and restored in a new process. A command post that
+  survives a restart, or forks, is a file copy.
+\item \textbf{Five languages share it.} Pop-11 is the core; Prolog, Common
+  Lisp, Standard ML and Forth are compiled onto the same virtual machine and
+  live in the same heap. The chain of command is a Prolog relation; the
+  robots' control words are Forth; the typed sensor model is ML; and one
+  \code{?-} at the Pop-11 prompt reaches any of them.
+\end{itemize}
+
+Poplog is not a language. It is a language toolkit that ships with five
+languages already built on it, and this chapter is about the machinery that
+makes the three properties above true.
 
 \section{The two-level virtual machine}
 
@@ -29,10 +49,10 @@ machine porting proceed independently.
 \end{itemize}
 
 The two halves never meet. A language hosted on the VM inherits every port
-for free --- the Forth subsystem described in Chapter~5 was written once, in
-Pop-11, and runs natively on Apple Silicon, on a Raspberry Pi 5 and on a
-StarFive RISC-V board with no per-platform work at all. Conversely, a new
-port makes every hosted language native on that machine the day it lands.
+for free --- the Forth on the cover was written once, in Pop-11, and runs
+natively on Apple Silicon, on a Raspberry Pi 5 and on a StarFive RISC-V board
+with no per-platform work. That matters for a fleet, because the robots and
+the command post will not be the same kind of machine.
 
 \section{Incremental compilation, measured}
 
@@ -54,15 +74,14 @@ gen_9999(1) =>
 ** 10000
 \end{repl}
 
-Fifteen microseconds per definition, each one becoming a real, callable,
-garbage-collected, \emph{natively compiled} procedure. This is the number
-that explains most of what follows: when compilation is that cheap, you stop
-treating it as an event. Redefining a procedure in a live session is not a
-restart, it is a keystroke.
+Fifteen microseconds per definition, each one a real, callable,
+garbage-collected, natively compiled procedure. When compilation is that
+cheap you stop treating it as an event: an agent that has just learned a
+better triage rule from the last hour's telemetry defines it and moves on.
 
 For calibration, the project's benchmark suite compares the same workloads
-against CPython on identical hardware (see \code{BENCHMARKS.md} in the source
-tree for methodology and the full matrix):
+against CPython on identical hardware (\code{BENCHMARKS.md} in the tree has
+the methodology and the full matrix):
 
 \begin{center}
 \footnotesize
@@ -79,11 +98,10 @@ tree for methodology and the full matrix):
 \end{tabular}
 \end{center}
 
-The last row is the honest one, and it is worth reading carefully: Python
-wins it, because \code{compile()} produces bytecode while Poplog produces
-machine code. Poplog is doing strictly more work and still lands within an
-order of magnitude. On the other rows --- calls, loops, allocation, closures
---- the native code shows.
+The last row is the honest one: Python wins it, because \code{compile()}
+produces bytecode while Poplog produces machine code. Poplog is doing
+strictly more work and still lands within an order of magnitude. On the
+other rows --- calls, loops, allocation, closures --- the native code shows.
 
 \section{The saved image}
 
@@ -92,22 +110,22 @@ and read back. \code{syssave} does exactly that; the resulting
 \code{.psv} image contains your data \emph{and} your compiled procedures.
 
 \begin{repl}
-$ popsession checkpoint session.psv          # 10,000 procedures live in the heap
-  2.9M session.psv
-$ popsession restore  session.psv            # a fresh process, 64 ms including spawn
+$ popsession checkpoint post.psv          # 10,000 procedures live in the heap
+  2.9M post.psv
+$ popsession restore  post.psv            # a fresh process, 64 ms including spawn
 $ gen_9999(1) =>
 ** 10000
 \end{repl}
 
 This is how the shipped languages arrive: \code{clisp.psv},
 \code{prolog.psv} and \code{pml.psv} are each an image of a Pop-11 system
-that has already compiled a language on top of itself. It is also how a long-running
-agent or editor session survives a restart, and why Poplog starts fast --- no
-front-end is ever re-read from source at startup.
+that has already compiled a language on top of itself. It is also what makes
+a command post durable: the fleet registry and every order-handling
+procedure survive a restart together, as one file.
 
 \begin{callout}{What is \emph{not} in the image}
-Heap state restores; operating-system state does not. Open files, sockets,
-and pointers into dynamically loaded C libraries are stale after a restore.
+Heap state restores; operating-system state does not. Open sockets to the
+robots, open files, and pointers into C libraries are stale after a restore.
 The discipline is simply to reopen them --- Chapter~7 returns to this.
 \end{callout}
 
@@ -131,4 +149,5 @@ Windows & x86-64          & Not yet ported (WSL2 runs the Linux build)\\
 \end{center}
 
 ``Supported'' means it builds, self-hosts, and runs all the languages. The
-first four rows are benchmarked in this fork.
+first four rows are benchmarked in this fork --- and the Pi and the RISC-V
+board are the kind of hardware a robot actually carries.

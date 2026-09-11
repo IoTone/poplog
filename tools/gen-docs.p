@@ -306,10 +306,11 @@ define lconstant gen_index();
              <> '<a href="teach/json.html">TEACH JSON</a>, '
              <> '<a href="ref/regexp.html">REF REGEXP</a>.'
              <> (if book_present then
-                     '\n\nThe book: <a href="' <> book_out <> '">Poplog and '
-                     <> 'Pop-11 &mdash; A Working Introduction</a> (PDF), a '
-                     <> '27-page tour of the\nVM, the core language, the '
-                     <> 'hosted front-ends and the C interface.'
+                     '\n\nThe book: <a href="' <> book_out <> '">Pop-11 and '
+                     <> 'the Robot Army</a> (PDF) &mdash; the VM, the core '
+                     <> 'language, the five front-ends\nand the C interface, '
+                     <> 'built around a fleet of robots run from a live '
+                     <> 'session.  Programs: examples/robotarmy/.'
                  else '' endif)
              <> '</pre>' <> body),
         outdir <> '/index.html');

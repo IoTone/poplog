@@ -123,10 +123,12 @@ fork is built to talk to one rather than to a file.
   arrive as data with real frames, and a runaway loop can be interrupted. The
   Emacs package in \code{editors/emacs/} is the client;
   \code{teach swank} is the walkthrough.
-\item \textbf{MCP} (\code{tools/pop11-mcp}): the same idea for agents. A
-  persistent, natively compiled session exposed as four tools ---
-  \code{pop11\_eval}, \code{pop11\_help}, \code{pop11\_checkpoint},
-  \code{pop11\_state}.
+\item \textbf{MCP} (\code{tools/pop11-mcp}): the same idea for agents, and
+  the way the general of the Robot Army actually gives orders. A persistent,
+  natively compiled session exposed as four tools --- \code{pop11\_eval},
+  \code{pop11\_help}, \code{pop11\_checkpoint}, \code{pop11\_state}.
+  Register it with \code{claude mcp add --scope project pop11 --
+  tools/pop11-mcp} and the agent has the command post in its hands.
 \end{itemize}
 
 All three servers sit on one transport, \code{pop/lib/lib/jsonrpc.p}, itself

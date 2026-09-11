@@ -1,4 +1,4 @@
-# docs/book — "Poplog and Pop-11: A Working Introduction"
+# docs/book — "Pop-11 and the Robot Army"
 #
 #   make          build poplog-book.pdf
 #   make clean    remove build artefacts (keeps the PDF)
@@ -15,7 +15,7 @@ export SOURCE_DATE_EPOCH := 1600000000
 TEX      := tectonic
 MAIN     := poplog-book
 CHAPTERS := $(wildcard ch*.tex) preamble.tex
-FIGURES  := $(wildcard figures/*.png)
+FIGURES  := $(wildcard figures/*.png) $(wildcard figures/*.jpg)
 
 .PHONY: all clean distclean watch
 

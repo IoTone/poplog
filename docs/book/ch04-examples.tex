@@ -1,9 +1,17 @@
-\chapter{Worked examples}
+\chapter{Running the fleet}
 
-Four programs that do real work. Each was run against the tree while this
-chapter was written; the transcripts are the actual output.
+Four programs that do the fleet's real work. Each was run against the tree
+while this chapter was written; the transcripts are the actual output. The
+listings here are excerpts --- the full programs are at
+\href{\ghbase}{\code{examples/robotarmy/}} on GitHub, and each runs from the
+repository root.
 
-\section{Log triage: regular expressions, done Poplog's way}
+\section{Telemetry triage: regexps, done Poplog's way}
+
+Every robot streams telemetry, and the first job of the command post is to
+read it faster than it arrives. \ghfile{telemetry.p} makes one pass over a
+fleet log and answers three questions: how much of each level, which units
+are in trouble, and what was slowest.
 
 Poplog ships a full regexp engine (\code{ref regexp}) --- but with inverted
 syntax, and this catches everyone exactly once. \textbf{The escape character
@@ -30,150 +38,142 @@ branch. In exchange, \code{regexp\_compile} hands back a \emph{compiled
 procedure} you define once and then call at native speed.
 
 \begin{pop}
-;;; triage.p -- count log levels and find the slowest reported query
 uses regexp;
+vars err, match_ms, err2, match_unit;
+regexp_compile('@[0-9@]@{1,@} ms') -> (err, match_ms);     ;;; "1420 ms"
+regexp_compile('r@[0-9@]@{1,@}')   -> (err2, match_unit);  ;;; "r7"
 
-vars err, match_ms;
-regexp_compile('@[0-9@]@{1,@} ms') -> (err, match_ms);
-if err then mishap(err, 0, 'bad pattern') endif;
-
-define triage(path) -> (counts, slowest);
-    lvars dev, rep, line, lev, i, n, ms;
-    newproperty([], 8, 0, true) -> counts;     ;;; default 0, so += just works
-    0 -> slowest;
+define triage(path) -> (levels, trouble, slowest, slow_unit);
+    lvars dev, rep, line, lev, i, n, ms, unit;
+    newproperty([], 8,  0, true) -> levels;    ;;; default 0: += needs no branch
+    newproperty([], 32, 0, true) -> trouble;
+    0 -> slowest;  false -> slow_unit;
     sysopen(path, 0, "line") -> dev;
     line_repeater(dev, inits(4096)) -> rep;    ;;; size the buffer generously
     repeat
         rep() -> line;
         quitif(line == termin);
+        match_unit(1, line, false, false) -> (i, n);
+        if i then consword(substring(i, n, line)) -> unit else false -> unit endif;
         for lev in [INFO WARN ERROR] do
             if issubstring(lev sys_>< '', 1, line) then
-                counts(lev) + 1 -> counts(lev)
+                levels(lev) + 1 -> levels(lev);
+                if unit and lev /== "INFO" then trouble(unit) + 1 -> trouble(unit) endif
             endif
         endfor;
         match_ms(1, line, false, false) -> (i, n);
         if i then
             strnumber(substring(i, n - 3, line)) -> ms;
-            if ms and ms > slowest then ms -> slowest endif
+            if ms and ms > slowest then ms -> slowest; unit -> slow_unit endif
         endif;
     endrepeat;
 enddefine;
 \end{pop}
 
-Against a seven-line sample log:
-
 \begin{repl}
-INFO: 2
+$ ./poplog basepop11 examples/robotarmy/telemetry.p </dev/null
+INFO: 5
 WARN: 2
 ERROR: 3
-slowest query: 1420 ms
+
+units by fault count:
+  r7  2
+  r5  1
+  r3  1
+  r4  1
+
+slowest operation: 2750 ms (r5)
 \end{repl}
 
-Two idioms are doing quiet work here. \code{newproperty([], 8, 0, true)}
-gives a table whose \emph{default is 0}, so incrementing an unseen key needs
-no initialisation branch. And \code{line\_repeater} returns a procedure that
+Two idioms are doing quiet work. \code{newproperty([], 8, 0, true)} gives a
+table whose \emph{default is 0}, so incrementing an unseen unit needs no
+initialisation branch. And \code{line\_repeater} returns a procedure that
 yields one line per call and \code{termin} at end of file --- the standard
 Poplog shape for a stream, and the same shape \code{sys\_obey\_linerep} uses
-for the output of a shell command.
+for the output of a shell command. Note \code{consword}: the unit id is
+interned so it can key a property.
 
-\section{A web service in pure Pop-11}
+\section{The command post: a web service in pure Pop-11}
 
-\code{lib http\_server} and \code{lib json} compose into a service with
-routing, query and body access, and the usual safety nets --- an unknown
-route answers 404, and a mishap inside a handler answers 500 without taking
-the server down. The whole program is the handler.
+The agent does not type at the Pop-11 prompt; it talks HTTP. \ghfile{c2.p}
+composes \code{lib http\_server}, \code{lib json} and \code{fleet.p} into the
+command post: the roster as JSON, one unit's status, and orders as plain
+text. Unknown routes answer 404 and a mishap inside a handler answers 500
+without taking the post down. The whole program is the handler.
 
 \begin{pop}
-uses http_server;
-uses json;
-
 define handler(req) -> resp;
-    lvars path = req('path'), obj;
-    if path = '/hello' then
-        http_text('hello from Pop-11\n') -> resp;
-    elseif path = '/greet' then
+    lvars path = req('path'), obj, r, u;
+    if path = '/fleet' then
+        http_json({% applist(muster(), unit_json) %}) -> resp;
+    elseif path = '/status' then
+        allbutfirst(5, req('query')) -> u;          ;;; "unit=r1"
+        fleet(consword(u)) -> r;
+        if r then http_json(unit_json(r)) -> resp else false -> resp endif;
+    elseif path = '/order' then
         newmapping([], 4, false, true) -> obj;
-        req('query')  -> obj('query');
-        req('method') -> obj('method');
-        http_json(obj) -> resp;
-    elseif path = '/info' then
-        newmapping([], 4, false, true) -> obj;
-        'poplog' -> obj('server');
-        pop_internal_version -> obj('version');
+        obey(words_of(req('body'))) -> obj('reply');
         http_json(obj) -> resp;
     elseif path = '/boom' then
-        mishap(0, 'deliberate handler failure');   ;;; server answers 500
+        mishap(0, 'deliberate handler failure');    ;;; server answers 500
     else
-        false -> resp;                             ;;; server answers 404
+        false -> resp;                              ;;; server answers 404
     endif;
 enddefine;
 
-http_serve_n(8099, handler, false);
+http_serve_n(port, handler, count);
 \end{pop}
 
 \begin{repl}
-$ curl -s localhost:8099/hello
-hello from Pop-11
-$ curl -s 'localhost:8099/greet?name=poplog'
-{"method":"GET","query":"name=poplog"}
-$ curl -s localhost:8099/info
-{"version":160200,"server":"poplog"}
-$ curl -s -o /dev/null -w '%{http_code}\n' localhost:8099/nope
-404
+$ ./poplog basepop11 examples/robotarmy/c2.p 8099
+$ curl -s localhost:8099/fleet
+[{"charge":100,"kind":"scout","place":"base","id":"r1"},
+ {"charge":100,"kind":"sapper","place":"base","id":"r2"}, ...]
+$ curl -s -d 'unit r1 advance to ridge' localhost:8099/order
+{"reply":"unit r1 advancing to ridge"}
+$ curl -s 'localhost:8099/status?unit=r1'
+{"charge":90,"kind":"scout","place":"ridge","id":"r1"}
+$ curl -s -o /dev/null -w '%{http_code}\n' localhost:8099/boom
+500
 \end{repl}
 
 \code{lib json} maps JSON onto Pop-11 directly: an object becomes a
 \code{newmapping} property, an array a vector, a string a string of UTF-8
-bytes, and \code{null} the distinguished word \code{json\_null} (kept apart
-from \code{false}, which is JSON \code{false}).
+bytes, and \code{null} the distinguished word \code{json\_null}, kept apart
+from \code{false}. Member order is not preserved --- properties are hash
+tables --- which is why the keys above come out in the order they do.
+\code{teach json} walks through how the library itself was built, bug
+included.
+
+\section{Orders in plain words}
+
+An order arrives at \code{/order} as text and \code{obey} wants a list of
+words, so \code{c2.p} has a five-line bridge, and it is worth seeing because
+it is the whole of what ``parsing'' costs here:
 
 \begin{pop}
-uses json;
-vars v = json_parse('{"name": "poplog", "ports": [64, 32]}');
-v('name')      =>        ;;; ** poplog
-v('ports')(1)  =>        ;;; ** 64
-json_generate(v) =>      ;;; ** {"ports":[64,32],"name":"poplog"}
+define words_of(s) -> l;
+    lvars w;
+    [% for w in str_split(str_trim(s), ` `) do
+           if w /= '' then
+               if strnumber(w) then strnumber(w) else consword(w) endif
+           endif
+       endfor %] -> l;
+enddefine;
 \end{pop}
 
-Object member order is not preserved --- properties are hash tables, and
-RFC~8259 promises nothing about ordering. The file is
-\code{examples/http\_hello.p}; \code{teach json} walks through how
-\code{lib json} itself was built, bug included.
+After that the matcher in \S3.8 does the rest. Adding an order is adding an
+\code{elseif \ldots matches} clause --- and because redefinition is instant,
+the agent can add one to the running post and issue it in the same breath.
 
-\section{ELIZA, with the real machinery}
-
-\code{examples/eliza.p} implements Weizenbaum's 1966 DOCTOR properly ---
-keyword ranking, decomposition rules with wildcards and synonym classes,
-reassembly templates cycled round-robin, pronoun reflection, \code{goto}
-equivalence, and the \textsc{memory} mechanism that stows what you said about
-``my \ldots'' and brings it back later. The script lives in a separate data
-file, \code{doctor.txt}, exactly as Weizenbaum separated script from engine.
-
-The reason it fits in a couple of dozen lines of matching logic is
-\S3.8's matcher: a decomposition rule \emph{is} a Pop-11 list pattern.
-
-\begin{repl}
-How do you do.  Please tell me your problem.
-    Well, my boyfriend made me come here.
-Your boyfriend made you come here?
-    He says I am depressed much of the time.
-I am sorry to hear that you are depressed.
-    My mother takes care of me.
-Tell me more about your family.
-    It is raining today.            <- no keyword: a stored memory returns
-Lets discuss further why your mother takes care of you.
-\end{repl}
-
-
-\section{Graphics, briefly}
+\section{The map, briefly}
 
 Poplog's graphics were historically tied to X. This fork adds an optional
 native backend built on Dear ImGui, chosen at build time with
 \code{./configure --experimental-graphics}: Metal + Cocoa on macOS, or SDL3 +
-OpenGL3 on macOS or Linux --- and SDL3 picks its display transport at run
-time, so Wayland, X11, KMS/DRM and headless software rendering all work from
-one build. The classic \code{rc\_graphic} turtle library and \code{rc\_mouse}
-are ported onto it, so existing Pop-11 graphics code runs unchanged.
+OpenGL3 on macOS or Linux, which picks Wayland, X11, KMS/DRM or headless
+software rendering at run time. The classic \code{rc\_graphic} turtle library
+runs on it unchanged, which is enough to draw a fleet on a map.
 
 \begin{figure}[h]
 \centering
@@ -190,33 +190,33 @@ are ported onto it, so existing Pop-11 graphics code runs unchanged.
 Graphics are strictly opt-in: the default build, and \code{nix build
 .\#poplog}, are console-only.
 
-\section{Working against a live image}
+\section{The commander's image}
 
 The last example is not a program but a habit. Because compiling is
 microseconds and saving the heap is milliseconds, the natural unit of work is
-a \emph{session} that accumulates state, with snapshots at the points worth
-returning to.
+a \emph{session} that accumulates the state of the fleet, with snapshots at
+the points worth returning to.
 
 \begin{repl}
-$ popsession start --name triage            # boot a session (~50 ms)
-$ popsession send  --name triage -f triage.p       # define the helpers once
-$ popsession send  --name triage -c "triage('app.log') =>"     # ~1 ms per call
-$ popsession checkpoint --name triage scan-v1.psv  # freeze heap + procedures
-$ popsession restore    --name triage scan-v1.psv  # a new process, fully loaded
+$ popsession start --name post                       # boot (~50 ms)
+$ popsession send  --name post -f examples/robotarmy/fleet.p   # define once
+$ popsession send  --name post -c "obey([report]) =>"          # ~1 ms per call
+$ popsession checkpoint --name post post-0800.psv   # freeze heap + procedures
+$ popsession restore    --name post post-0800.psv   # a new process, fully loaded
 \end{repl}
 
 The image contains the compiled procedures, so restoring is not re-loading:
 
 \begin{repl}
-$ ls -lh session.psv
-2.9M session.psv              # a heap holding 10,000 compiled procedures
-$ time popsession restore session.psv
+$ ls -lh post.psv
+2.9M post.psv                 # a heap holding 10,000 compiled procedures
+$ time popsession restore post.psv
 0.064 total                   # including process spawn
 $ gen_9999(1) =>
 ** 10000
 \end{repl}
 
-Two cautions, both from \S1.4. A restore rolls the \emph{whole} session back
+Two cautions, both from \S1.3. A restore rolls the \emph{whole} session back
 --- anything defined after the snapshot is gone, so re-checkpoint after adding
 to a restored session. And handles into the operating system or into C
 libraries go stale across a restore; reopen them rather than trusting them.

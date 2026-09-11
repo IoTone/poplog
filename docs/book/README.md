@@ -1,9 +1,12 @@
-# Poplog and Pop-11 — A Working Introduction
+# Pop-11 and the Robot Army
 
-An introduction to Poplog and Pop-11 — 27 pages of content, 29 with the title
-page and contents. It covers the two-level virtual machine, a quickstart, the
-core language, worked examples, the hosted front-ends (Prolog, Common Lisp,
-Standard ML, Forth), how to host a language of your own, and the C interface.
+An introduction to Poplog and Pop-11 built around one running example: a
+fleet of robots commanded from a live Poplog session by an AI agent. It
+covers the two-level virtual machine, a quickstart, the core language, the
+fleet's programs (telemetry triage, the command post, signed orders), the
+five front-ends (Pop-11, Prolog, Common Lisp, Standard ML, Forth) as the five
+robots on the cover, how to host a language of your own, and the C interface.
+The programs are in `examples/robotarmy/`. Cover art by David J. Kordsmeier.
 
     make            # -> poplog-book.pdf
 
@@ -30,7 +33,7 @@ common packages (`geometry`, `listings`, `tcolorbox`, `hyperref`, `titlesec`,
 | `ch00-title.tex` | Title page and colophon |
 | `ch01-why.tex` … `ch08-next.tex` | The eight chapters |
 | `ch09-appendix.tex` | Appendix A — cheat sheet, mishap decoder |
-| `figures/` | Screenshots, cropped from `docs/images/` |
+| `figures/` | Cover art and screenshots (screenshots cropped from `docs/images/`) |
 
 ## On the examples
 

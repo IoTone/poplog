@@ -113,6 +113,27 @@ substring(i, n, 'ERROR 42 happened') =>              ;;; ** ERROR 42
 Case-insensitive: \code{regexp\_compile(s, 1, false)}, or \code{@i} in the
 pattern. \code{p} is a compiled procedure --- define it once, reuse it.
 
+\section{The Robot Army examples}
+
+All at \href{\ghbase}{\code{examples/robotarmy/}}; each runs from the
+repository root.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{llp{7.2cm}}
+\toprule
+\textbf{File} & \textbf{Ch.} & \textbf{What it shows}\\
+\midrule
+\code{fleet.p} & 3, 4 & \code{Robot} class, word-keyed registry, \code{muster()} on the open stack, \code{obey()} on the matcher\\
+\code{telemetry.p}, \code{fleet.log} & 4 & One-pass log triage: \code{line\_repeater}, default-valued properties, \code{@}-regexps\\
+\code{c2.p} & 4 & The command post: \code{http\_server} + \code{json} over \code{fleet.p}\\
+\code{chain.pl} & 5 & The chain of command in Prolog\\
+\code{patrol.fth} & 5 & Robot control words in Forth, with an early \code{leave}\\
+\code{signed\_orders.p} & 7 & HMAC-signed orders through \code{lib crypto}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \section{Running things}
 
 \begin{center}
