@@ -1,0 +1,256 @@
+\chapter{The five robots}
+
+The robots on the cover are the five front-ends of Poplog, and they are not
+bindings, bridges or embeddings. Each is a compiler written in Pop-11 that
+plants code for the same VM, and the result lives in the same heap as
+everything else. Switching language switches the \emph{reader}; it does not
+switch worlds. In the Robot Army each language does the job it is best at:
+Prolog holds the chain of command, ML types the sensor model, Lisp plans,
+Forth runs on the robot.
+
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.485\linewidth}\centering
+  \includegraphics[width=\linewidth]{figures/repl-pop11}\\[3pt]
+  {\footnotesize\sffamily\color{popgrey}Pop-11 --- the core language}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.485\linewidth}\centering
+  \includegraphics[width=\linewidth]{figures/repl-prolog}\\[3pt]
+  {\footnotesize\sffamily\color{popgrey}Prolog --- Edinburgh syntax}
+\end{minipage}
+
+\vspace{10pt}
+\begin{minipage}[t]{0.485\linewidth}\centering
+  \includegraphics[width=\linewidth]{figures/repl-clisp}\\[3pt]
+  {\footnotesize\sffamily\color{popgrey}Common Lisp --- CLTL2}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.485\linewidth}\centering
+  \includegraphics[width=\linewidth]{figures/repl-pml}\\[3pt]
+  {\footnotesize\sffamily\color{popgrey}Standard ML --- type inference}
+\end{minipage}
+\caption*{\small Four front-ends, one engine, one banner --- captured on the
+Apple Silicon build. Each image is the same \code{basepop11} with a different
+language compiled into it.}
+\end{figure}
+
+\section{Prolog}
+
+Edinburgh-syntax Prolog, implemented as 51 Pop-11 files under
+\code{pop/plog/src/} --- reader, term representation, unification, clause
+store and control. Because it is open Pop-11 rather than a sealed engine,
+extending it with new built-ins is an afternoon's work, not a fork.
+
+\begin{lstlisting}[language=PrologX]
+commands(commander, sq1).      commands(sq1, r1).   commands(sq2, r3).
+commands(commander, sq2).      commands(sq1, r2).   commands(sq2, r4).
+
+% X may order Y if X commands Y directly, or commands someone who may
+can_order(X, Y) :- commands(X, Y).
+can_order(X, Z) :- commands(X, Y), can_order(Y, Z).
+reports_to(Unit, Boss) :- commands(Boss, Unit).
+obeys(Unit, From) :- can_order(From, Unit).
+\end{lstlisting}
+
+\begin{repl}
+$ ./poplog basepop11 -target/psv/prolog.psv
+?- ['examples/robotarmy/chain.pl'].
+examples/robotarmy/chain.pl consulted
+yes
+?- can_order(commander, r4).
+yes
+?- reports_to(r4, Who).
+Who = sq2
+?- obeys(r1, sq2).
+no
+?- can_order(sq1, U).
+U = r1   U = r2
+\end{repl}
+
+The full file is \ghfile{chain.pl}. A relation, two clauses of recursion, and
+the question every unit must ask of every order --- \emph{is this from up my
+own chain?} --- is answered by the engine rather than by code.
+
+\begin{callout}{A small surprise}
+Poplog's Prolog is deliberately lean: list predicates such as
+\code{member/2} and \code{append/3} are \emph{not} built in. Several library
+files under \code{pop/plog/lib/} define them, or you write the two clauses
+yourself --- which, for a system whose point is that you can see and change
+the engine, is in keeping.
+\end{callout}
+
+\section{Common Lisp}
+
+Compatible with most of CLTL2. It is a genuine Common Lisp --- packages,
+macros, \code{format}, the condition system --- compiled to native code by
+the same back-end as everything else.
+
+\begin{lstlisting}[language=Lisp]
+(defparameter *fleet* '((r1 scout 90) (r2 sapper 100) (r4 scout 20)))
+(defun charge (u) (third u))
+(defun fit-for-duty (fleet)
+  (remove-if (lambda (u) (< (charge u) 25)) fleet))
+(print (mapcar #'first (fit-for-duty *fleet*)))
+(print (reduce #'+ (mapcar #'charge *fleet*)))
+\end{lstlisting}
+\begin{repl}
+(R1 R2)
+210
+\end{repl}
+
+Remember that the reader upcases: \code{sq} and \code{SQ} are the same
+symbol, and \code{\#}, \code{.}, \code{,}, \code{@} and \code{:} are reader
+macros. \code{help poptolisp} is a translation table for Pop-11 programmers
+arriving in Lisp, and \code{help poplisp} documents the mixed-language
+interface.
+
+\section{Standard ML}
+
+A full Standard ML with Hindley--Milner type inference, and the strongest
+demonstration that the VM is language-agnostic: static typing, pattern-matching
+function clauses and polymorphism all sit on the same dynamically typed heap.
+
+\begin{lstlisting}[language=SML]
+datatype unit = Scout of int | Sapper of int | Medic of int;
+fun charge (Scout c) = c | charge (Sapper c) = c | charge (Medic c) = c;
+fun fit u = charge u >= 25;
+val fleet = [Scout 90, Sapper 100, Scout 20, Medic 55];
+List.filter fit fleet;
+List.length (List.filter fit fleet);
+\end{lstlisting}
+\begin{repl}
+  val charge = fn : unit -> int
+  val fit = fn : unit -> bool
+  val fleet = [Scout(90), Sapper(100), Scout(20), Medic(55)] : unit list
+  val it = [Scout(90), Sapper(100), Medic(55)] : unit list
+  val it = 3 : int
+\end{repl}
+
+A unit that is not one of the three constructors cannot be built, and a
+\code{charge} that forgets a case is a compile error --- the type-checker is
+where ML's surprises live, not the runtime. (Its other habit: an unannotated
+\code{fun sq x = x * x} is rejected, because \code{*} is overloaded and
+there is nothing to resolve it against.)
+
+\section{Forth}
+
+Those three, with Pop-11 itself, are classic Poplog. This fork adds a fifth, and it
+is the shortest route to understanding why hosting on the VM is cheap:
+\textbf{Forth's data stack is the Poplog user stack.} A Forth primitive is an
+ordinary open-stack Pop-11 procedure --- \code{+} is
+\code{define f\_plus(x,y); x+y enddefine} --- and no data structure is
+interposed at all.
+
+Colon definitions are not threaded code. \code{: name \ldots ;} is
+transpiled to a Pop-11 procedure and run through the incremental compiler, so
+a Forth word is a real native procedure; \code{if/else/then},
+\code{begin/until}, \code{begin/while/repeat}, \code{do/loop},
+\code{recurse} and \code{exit} map onto Pop-11 constructs at compile time.
+
+\begin{lstlisting}[language=Forth]
+variable charge   100 charge !
+variable steps      0 steps !
+
+: drain    charge @ swap - charge ! ;          \ ( n -- )  spend n% of charge
+: step     steps @ 1+ steps !   2 drain ;
+: low?     charge @ 25 < ;
+: status   charge @ . steps @ . cr ;           \ prints: charge steps
+
+\ walk n steps, stopping early if the battery gets low
+: patrol   0 do  low? if leave then  step  loop  status ;
+
+10 patrol
+30 patrol
+\end{lstlisting}
+\begin{repl}
+$ tools/forth.sh < examples/robotarmy/patrol.fth
+80 10           <- ten steps, 80% left
+24 38           <- asked for thirty more; stopped at 24% after 28
+forth> testbench
+21 passed, 0 failed   ALL OK   (0.273 ms)
+\end{repl}
+
+That is \ghfile{patrol.fth}: a robot's control vocabulary in nine lines,
+each word a native procedure the moment it is defined.
+
+The core covers arithmetic, about forty stack, comparison, bitwise and I/O
+words, native colon definitions, the control words above, counted loops with
+\code{i}/\code{j}/\code{leave}, \code{variable}/\code{constant}/\code{@}/\code{!},
+a return stack (\code{>r r@ r>}), and string literals. It is younger and
+leaner than the mature four --- no \code{+loop}, \code{create does>} or
+\code{value} yet, and it is case-sensitive. Because it is pure Pop-11 it runs
+on every platform Poplog does; the built-in \code{testbench} is 21/21 on both
+macOS \code{arm64} and RISC-V. Implementation:
+\code{pop/forth/src/forth.p}, 523 lines.
+
+\section{Crossing between them}
+
+All five share one image, so crossing is a change of reader, not a marshalling
+boundary.
+
+\textbf{From any language back to Pop-11}, type \code{pop11}:
+
+\begin{repl}
+$ ./poplog basepop11 -target/psv/clisp.psv
+(print (* 6 7))
+42
+pop11
+: [a b c] <> [d] =>
+** [a b c d]
+\end{repl}
+
+\begin{repl}
+$ ./poplog basepop11 +target/psv/pml.psv
+val x = 6 * 7;
+  val x = 42 : int
+pop11
+: [a b c] <> [d] =>
+** [a b c d]
+\end{repl}
+
+\textbf{From Pop-11 into Prolog}, the syntax word \code{?-} runs a goal
+inline, against the same clause store:
+
+\begin{repl}
+: vars order = [unit r4 advance to ridge];
+: ?- ['examples/robotarmy/chain.pl'].
+: ?- can_order(sq2, r4), write(yes_sq2_may_order_r4), nl.
+yes_sq2_may_order_r4
+yes
+: ?- can_order(sq1, r4).
+no
+: rev(order) =>
+** [ridge to advance r4 unit]
+\end{repl}
+
+So the Pop-11 command post can ask the Prolog chain of command whether an
+order is legitimate before \code{obey} ever sees it.
+
+\textbf{Defining Prolog predicates in Pop-11} is a documented form
+(\code{help define\_prolog}) --- useful when a predicate wants a data
+structure or an I/O facility that is easier to reach from Pop-11:
+
+\begin{pop}
+define :prolog hello/0(contn);
+    lvars contn;
+    printf('Hello world\n');
+    chain(contn);            ;;; call the continuation = succeed
+enddefine;
+\end{pop}
+\begin{repl}
+?- hello.
+Hello world
+yes
+\end{repl}
+
+The continuation-passing shape is not incidental: it is how Poplog's Prolog
+represents ``and then carry on solving'', so a Pop-11 predicate that calls
+\code{chain(contn)} succeeds once, and one that calls it in a loop is a
+generator with backtracking.
+
+\begin{callout}{Which image has which language}
+Each shipped image contains the languages compiled into it. \code{prolog.psv}
+has Pop-11 and Prolog; \code{clisp.psv} has Pop-11 and Common Lisp;
+\code{pml.psv} has Pop-11 and ML. Forth is pure library code --- \code{uses
+forth} works anywhere. To get several at once, build an image that loads
+them, exactly as \code{make} builds these.
+\end{callout}

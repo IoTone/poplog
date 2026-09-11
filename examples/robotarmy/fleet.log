@@ -1,0 +1,10 @@
+2026-09-10 08:00:01 INFO  r1 boot: scout online, charge 100%
+2026-09-10 08:00:04 INFO  r2 nav: route accepted, 1420 ms
+2026-09-10 08:01:11 WARN  r4 power: charge 22%, returning to base
+2026-09-10 08:01:12 ERROR r7 link: telemetry timeout after 3 retries
+2026-09-10 08:01:30 INFO  r7 link: reacquired after 19 s
+2026-09-10 08:03:55 INFO  r1 nav: waypoint ridge reached, 640 ms
+2026-09-10 08:07:02 WARN  r3 medic: stretcher jam, manual clear needed
+2026-09-10 08:09:44 ERROR r7 link: telemetry timeout after 3 retries
+2026-09-10 08:11:02 ERROR r5 nav: path blocked, 275 ms to replan
+2026-09-10 08:12:17 INFO  r5 nav: replanned, 2750 ms

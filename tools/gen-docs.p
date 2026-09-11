@@ -17,6 +17,12 @@ uses shell;
 vars outdir = 'dist/docs';
 vars site_base = 'https://iotone.github.io/poplog';
 
+;;; the book (docs/book/poplog-book.pdf) is published alongside the corpus
+;;; when it has been built; the index links it only if it is there
+vars book_src = 'docs/book/poplog-book.pdf';
+vars book_out = 'poplog-book.pdf';
+vars book_present = false;
+
 ;;; --- collect the corpus -------------------------------------------------
 
 ;;; sections: {srcdir outsubdir LABEL}
@@ -298,7 +304,15 @@ define lconstant gen_index();
              <> 'program).  Start points: '
              <> '<a href="help/json.html">HELP JSON</a>, '
              <> '<a href="teach/json.html">TEACH JSON</a>, '
-             <> '<a href="ref/regexp.html">REF REGEXP</a>.</pre>' <> body),
+             <> '<a href="ref/regexp.html">REF REGEXP</a>.'
+             <> (if book_present then
+                     '\n\nThe book: <a href="' <> book_out <> '">Pop-11 and '
+                     <> 'the Robot Army</a> (PDF) &mdash; the VM, the core '
+                     <> 'language, the five front-ends\nand the C interface, '
+                     <> 'built around a fleet of robots run from a live '
+                     <> 'session.  Programs: examples/robotarmy/.'
+                 else '' endif)
+             <> '</pre>' <> body),
         outdir <> '/index.html');
 enddefine;
 
@@ -360,6 +374,10 @@ for entry in corpus do
     render_doc(entry);
     npages + 1 -> npages;
 endfor;
+if sys_file_exists(book_src) then
+    shell_run('cp ' <> book_src <> ' ' <> outdir <> '/' <> book_out) -> (out, st);
+    st == 0 -> book_present;
+endif;
 gen_index();
 gen_llms();
 gen_sitemap();

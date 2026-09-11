@@ -1,0 +1,261 @@
+\chapter{Pop-11 fundamentals}
+
+Pop-11 reads like an Algol-descended imperative language and behaves like a
+Lisp with a stack machine underneath: infix syntax, block keywords that
+always close, dynamic typing, garbage collection, first-class procedures, an
+extensible reader. What makes it distinctive is the \emph{open stack}, and
+almost everything idiomatic follows from it. The examples in this chapter
+are the pieces of \ghfile{fleet.p}, the core of the Robot Army.
+
+\section{Syntax at a glance}
+
+\begin{pop}
+;;; comments run from three semicolons to end of line
+vars charge = 100;            ;;; a global (permanent) variable
+charge - 10 -> charge;        ;;; ASSIGNMENT POINTS RIGHT: value -> destination
+npr('charge ' sys_>< charge); ;;; print a line; sys_>< concatenates anything
+charge =>                     ;;; the REPL's printer: "** 90"
+\end{pop}
+
+The assignment arrow is the first thing to internalise: \code{-> x} reads
+``into \code{x}''. It points that way because assignment is a stack
+operation --- the value is already there, and the arrow says where to put it.
+
+\section{Words and strings}
+
+\begin{pop}
+'advance to ridge'   ;;; single quotes: a mutable vector of characters
+"r1"                 ;;; double quotes: a WORD -- an interned symbol, not a string
+\end{pop}
+
+This is the single most common beginner error, and it has a silent cousin.
+Words are interned: every \code{\dq r1\dq} is the same object. Strings are
+not: two \code{'r1'}s are two objects that merely print alike. Poplog's
+default hash table, \code{newproperty}, matches keys by \emph{identity}, so a
+registry keyed by unit id must use words:
+
+\begin{pop}
+vars fleet = newproperty([], 64, false, true);
+90 -> fleet("r1");
+fleet("r1") =>            ;;; ** 90
+fleet('r1') =>            ;;; ** <false>  -- a different object, silently
+\end{pop}
+
+Use words as keys, or use \code{newmapping}, which compares with \code{=}.
+Both are right; silently missing is not.
+
+\section{Lists, and the quoting trap}
+
+An order in the Robot Army is a list of words, and list brackets
+\emph{quote} their contents, like Lisp's \code{'(...)}:
+
+\begin{pop}
+vars order = [unit r1 advance to ridge];
+order(2) =>               ;;; ** r1
+\end{pop}
+
+So \code{[unit u advance to target]} is a list of the literal words
+\code{unit u advance to target}. To build an order from values, escape with
+\code{\textasciicircum} (one item) or \code{\textasciicircum\textasciicircum}
+(splice a list):
+
+\begin{pop}
+vars u = "r4", target = "ridge", squad = [r1 r2];
+[unit ^u advance to ^target] =>     ;;; ** [unit r4 advance to ridge]
+[all ^^squad hold] =>               ;;; ** [all r1 r2 hold]
+\end{pop}
+
+Vectors, \code{\{1 2 3\}}, are the constant-time-subscript counterpart.
+
+\section{Procedures}
+
+A procedure's result is whatever it leaves behind; there is no \code{return}
+statement, and the last expression is the value. A procedure may leave
+\emph{several} results, which the caller collects in reverse order:
+
+\begin{pop}
+define split_order(o); hd(o), tl(o) enddefine;
+vars verb, rest;
+split_order([advance to ridge]) -> rest -> verb;   ;;; verb = advance, rest = [to ridge]
+\end{pop}
+
+Closures are made by partial application with \code{\%\ldots\%}:
+
+\begin{pop}
+define drain(charge, n); charge - n enddefine;
+vars step_cost = drain(% 2 %);      ;;; every step costs 2%
+step_cost(100) =>                   ;;; ** 98
+\end{pop}
+
+And every accessor has an \emph{updater} --- the procedure that runs when it
+appears on the left of an arrow. That is why \code{roster(2)} both reads and
+writes:
+
+\begin{pop}
+vars roster = [r1 r2 r3];
+"r9" -> roster(2);
+roster =>                           ;;; ** [r1 r9 r3]
+\end{pop}
+
+\section{The open stack}
+
+There is one user-visible stack, and the calling convention does not hide
+it. A procedure can leave zero, one, or a hundred results, and the number
+need not be known until it runs. \code{fleet.p} uses this for the roster:
+\code{units()} walks the registry and leaves every robot on the stack, and
+the \emph{caller} chooses the container.
+
+\begin{pop}
+define units();
+    appproperty(fleet, procedure(k, v); v endprocedure);
+enddefine;
+
+define muster();  [% units() %]  enddefine;       ;;; a list of every unit
+
+define fit_for_duty();
+    lvars r;
+    [% for r in muster() do
+           if rb_charge(r) >= 25 then r endif       ;;; leave it, or don't
+       endfor %]
+enddefine;
+\end{pop}
+
+\code{[\%\ \ldots\ \%]} means ``run this, and make a list of everything it
+left''. That one construct replaces most of what other languages need
+generators, varargs, spread operators and comprehensions for. It also makes
+Forth nearly free to host (\S5.4): Forth's data stack \emph{is} this stack.
+
+\begin{callout}{Why this matters for performance}
+Because results are passed on the stack rather than boxed into tuples,
+multiple return values cost nothing, and neither does a procedure that
+sometimes returns nothing. The \code{nfib} and \code{closures1M} benchmark
+rows in Chapter~1 are measuring this calling convention.
+\end{callout}
+
+\section{Control structures}
+
+Every opener has a matching closer.
+
+\begin{pop}
+if charge < 25 then recall() elseif charge < 60 then light_duty() else deploy() endif;
+unless linked then hail() endunless;
+for r in muster() do ... endfor;    for i from 1 to n do ... endfor;
+while cond do ... endwhile;         repeat ... quitif(done); ... endrepeat;
+
+define readiness(charge);
+    switchon charge
+        case < 25 then 'return to base'
+        case < 60 then 'light duty only'
+        else 'fit for duty'
+    endswitchon
+enddefine;
+readiness(20) =>                    ;;; ** return to base
+\end{pop}
+
+\section{Scope, and \code{dlocal}}
+
+\code{vars} declares a permanent (global) identifier; \code{lvars} declares a
+lexical local inside a procedure --- prefer \code{lvars}. \code{constant} and
+\code{lconstant} are their immutable counterparts.
+
+\code{dlocal} has no close equivalent elsewhere: it gives a variable a new
+value for the \emph{dynamic extent} of a call and restores the old value on
+exit --- whether the procedure returns, jumps out, or is unwound by a mishap.
+Here an order is relayed down three echelons, and the indent follows it:
+
+\begin{pop}
+vars echelon = '';
+define relay(order, depth);
+    dlocal echelon = echelon >< '> ';
+    npr(echelon sys_>< order);
+    if depth > 1 then relay(order, depth - 1) endif;
+enddefine;
+relay('advance', 3);
+\end{pop}
+\begin{repl}
+> advance
+> > advance
+> > > advance
+\end{repl}
+
+After \code{relay} returns, \code{echelon} is empty again. The same mechanism
+is how Poplog rebinds output streams and the compiler's own state safely ---
+it is Pop-11's answer to \code{try\ldots finally}, and it is declarative.
+
+\section{The list matcher}
+
+Pop-11's pattern matcher works on lists and is built into the language with
+the \code{matches} operator: \code{?x} binds one item, \code{??x} binds a
+segment, \code{=} matches one item without binding. It is what turns an
+order into an action in \code{fleet.p}:
+
+\begin{pop}
+vars id, place, n;            ;;; pattern variables must be permanent (vars)
+
+define obey(order) -> reply;
+    lvars r;
+    'unintelligible' -> reply;
+    if order matches [unit ?id advance to ?place] then
+        fleet(id) -> r;
+        if r then
+            place -> rb_place(r);
+            rb_charge(r) - 10 -> rb_charge(r);
+            'unit ' sys_>< id sys_>< ' advancing to ' sys_>< place -> reply
+        else 'no such unit: ' sys_>< id -> reply endif
+    elseif order matches [unit ?id recharge ?n] then
+        ...
+    elseif order matches [report] then
+        '' sys_>< length(fit_for_duty()) sys_>< ' of ' sys_><
+        length(muster()) sys_>< ' units fit for duty' -> reply
+    endif;
+enddefine;
+\end{pop}
+\begin{repl}
+[report]  ->  3 of 4 units fit for duty
+[unit r1 advance to ridge]  ->  unit r1 advancing to ridge
+[unit r9 advance to ridge]  ->  no such unit: r9
+\end{repl}
+
+\begin{callout}{A trap worth naming}
+The matcher assigns through the \emph{permanent} identifier, so pattern
+variables declared with \code{lvars} are silently not filled in --- you get
+\code{<undef>}. Declare them \code{vars}.
+\end{callout}
+
+The same matcher, plus a dozen lines of ranking and reassembly, is the whole
+of ELIZA; \code{examples/eliza.p} in the tree is a faithful implementation of
+Weizenbaum's original.
+
+\section{Objects: Objectclass}
+
+Objectclass is Pop-11's CLOS-like object system: classes with slots, and
+generic procedures with methods dispatched on argument class. A robot is one:
+
+\begin{pop}
+uses objectclass;
+
+define :class Robot;
+    slot rb_id     = "unknown";
+    slot rb_kind   = "scout";      ;;; scout | sapper | medic | hauler
+    slot rb_charge = 100;
+    slot rb_place  = "base";
+enddefine;
+
+define :method print_instance(r:Robot);
+    printf('<%p %p  %p%%  at %p>\n',
+           [% rb_kind(r), rb_id(r), rb_charge(r), rb_place(r) %]);
+enddefine;
+
+define enlist(id, kind) -> r;
+    newRobot() -> r;
+    id -> rb_id(r);  kind -> rb_kind(r);
+    r  -> fleet(id);
+enddefine;
+\end{pop}
+\begin{repl}
+<scout r1  90%  at base>
+<sapper r2  100%  at base>
+\end{repl}
+
+Slots come with accessors \emph{and} updaters for free, which is why
+\code{rb\_charge(r)} works on both sides of the arrow in \code{obey}.

@@ -1,0 +1,33 @@
+%% ======================================================================
+%%  Poplog and Pop-11: A Working Introduction
+%%  Build:  tectonic poplog-book.tex      (or: make)
+%% ======================================================================
+\documentclass[11pt,openany,oneside]{book}
+\input{preamble}
+
+\begin{document}
+
+\frontmatter
+\input{ch00-title}
+\setcounter{tocdepth}{1}
+{\footnotesize\renewcommand{\baselinestretch}{0.92}\selectfont
+\begin{multicols}{2}
+\tableofcontents
+\end{multicols}\par}
+
+\mainmatter
+\input{ch01-why}
+\input{ch02-quickstart}
+\input{ch03-fundamentals}
+\input{ch04-examples}
+\input{ch05-hosted}
+\input{ch06-hosting}
+\input{ch07-ffi}
+\input{ch08-next}
+
+\appendix
+\renewcommand{\chaptername}{Appendix}
+\renewcommand{\robotpick}{9}
+\input{ch09-appendix}
+
+\end{document}

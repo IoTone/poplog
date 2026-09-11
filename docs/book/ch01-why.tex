@@ -1,0 +1,219 @@
+\chapter{The premise, and why Poplog}
+
+You have a fleet. Scouts, sappers, medics, haulers --- a few today, a few
+hundred later --- each one reporting telemetry, each one waiting for orders.
+Above them sits an AI agent that reads the reports, decides, and issues the
+orders; and that agent needs a tool that can hold the whole picture of the
+fleet in one place, change its own behaviour while running, and never make
+the fleet wait on a build.
+
+That tool, in this book, is Poplog. Not because it is the newest thing to hand
+but because three properties it has had since the 1980s turn out to be
+exactly what an agent-driven command post wants.
+
+\begin{itemize}
+\item \textbf{The compiler is a procedure in the running system.} Defining a
+  new behaviour --- a new order, a new triage rule --- costs about fifteen
+  microseconds and produces native machine code. An agent can extend its own
+  tooling mid-mission.
+\item \textbf{The whole session is a value.} The heap --- the fleet registry,
+  every compiled procedure, every rule learned so far --- can be written to
+  a file in milliseconds and restored in a new process. A command post that
+  survives a restart, or forks, is a file copy.
+\item \textbf{Five languages share it.} Pop-11 is the core; Prolog, Common
+  Lisp, Standard ML and Forth are compiled onto the same virtual machine and
+  live in the same heap. The chain of command is a Prolog relation; the
+  robots' control words are Forth; the typed sensor model is ML; and one
+  \code{?-} at the Pop-11 prompt reaches any of them.
+\end{itemize}
+
+Poplog is not a language. It is a language toolkit that ships with five
+languages already built on it, and this chapter is about the machinery that
+makes the three properties above true.
+
+\section{The two-level virtual machine}
+
+Poplog's central idea is a split that lets language implementation and
+machine porting proceed independently.
+
+\begin{itemize}
+\item \textbf{Above the line}, a language front-end reads source and
+  \emph{plants} instructions for an abstract stack machine --- the Poplog
+  VM. It does this by calling about forty ordinary Pop-11 procedures
+  (\code{sysPUSHQ}, \code{sysCALL}, \code{sysPROCEDURE}, \ldots). A front-end
+  is a Pop-11 program. It contains no assembly and no knowledge of any CPU.
+\item \textbf{Below the line}, a back-end translates planted VM code into
+  real instructions for the host architecture. This is where a port lives:
+  the x86-64, AArch64, RISC-V and ARM32 code generators are each one
+  directory under \code{pop/src/syscomp/}.
+\end{itemize}
+
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[x=1mm,y=1mm,
+  box/.style={draw=popink, line width=0.6pt, rounded corners=1.2pt, fill=white,
+              font=\sffamily\footnotesize, inner sep=3pt, minimum height=6.5mm, align=center},
+  lang/.style={box, fill=popbg, minimum width=21mm},
+  back/.style={box, fill=popbg, minimum width=21mm},
+  wide/.style={box, minimum width=128mm},
+  arr/.style={-{Stealth[length=2mm]}, draw=popgrey, line width=0.6pt},
+  lab/.style={font=\sffamily\scriptsize, text=popaccent}]
+  % front-ends
+  \foreach \i/\n in {0/Pop-11, 1/Prolog, 2/Common Lisp, 3/Standard ML, 4/Forth}
+    \node[lang] (L\i) at (\i*26-52, 34) {\n};
+  \node[lab, anchor=east] at (-66,34) {front-ends};
+  \node[wide] (B) at (0,20) {VM builder --- about forty Pop-11 procedures:\\
+    \code{sysPROCEDURE} \ \code{sysPUSHQ} \ \code{sysPUSH} \ \code{sysCALL} \ \code{sysIFNOT} \ \code{sysENDPROCEDURE} \ldots};
+  \node[wide, minimum height=9mm] (V) at (0,6) {\textbf{The Poplog VM} --- abstract stack machine\\
+    open stack \ $\cdot$ \ heap and garbage collector \ $\cdot$ \ closures \ $\cdot$ \ saved images \ $\cdot$ \ external interface};
+  \foreach \i in {0,...,4} \draw[arr] (L\i.south) -- (L\i.south |- B.north);
+  \draw[arr] (B.south) -- (V.north);
+  % the line
+  \draw[dashed, draw=popwarm, line width=0.7pt] (-70,-2.5) -- (70,-2.5);
+  \node[font=\sffamily\scriptsize\itshape, text=popwarm, anchor=north east, inner sep=1.5pt] at (70,-2.8) {the line: Pop-11 programs above, a port below};
+  % back-ends
+  \node[wide] (G) at (0,-12) {native code generator, one directory per CPU under \code{pop/src/syscomp/}};
+  \draw[arr] (V.south) -- (G.north);
+  \foreach \i/\n in {0/x86-64, 1/AArch64, 2/RISC-V, 3/ARM32}
+    { \node[back] (M\i) at (\i*32-48, -26) {\n};
+      \draw[arr] (M\i.north |- G.south) -- (M\i.north); }
+  \node[lab, anchor=east] at (-66,-26) {back-ends};
+\end{tikzpicture}
+\caption*{\small The two-level VM (\S1.1). A front-end plants abstract instructions through the VM builder; a back-end turns them into machine code. Add a language and every port gets it; add a port and every language gets it.}
+\end{figure}
+
+The two halves never meet. A language hosted on the VM inherits every port
+for free --- the Forth on the cover was written once, in Pop-11, and runs
+natively on Apple Silicon, on a Raspberry Pi 5 and on a StarFive RISC-V board
+with no per-platform work. That matters for a fleet, because the robots and
+the command post will not be the same kind of machine.
+
+\section{Incremental compilation, measured}
+
+``Incremental'' here means what it says: the compiler is a procedure in the
+running system, and compiling a definition is an ordinary call. There is no
+build step, no link step, and no separate compile-time world.
+
+\begin{pop}
+vars t0 = systime(), k;
+for k from 1 to 10000 do
+    pop11_compile(stringin('define gen_' sys_>< k sys_><
+                           '(x); x + ' sys_>< k sys_>< ' enddefine;'));
+endfor;
+npr('10000 definitions compiled in ' sys_>< ((systime() - t0) * 10) sys_>< ' ms CPU');
+gen_9999(1) =>
+\end{pop}
+\begin{repl}
+10000 definitions compiled in 150 ms CPU
+** 10000
+\end{repl}
+
+Fifteen microseconds per definition, each one a real, callable,
+garbage-collected, natively compiled procedure. When compilation is that
+cheap you stop treating it as an event: an agent that has just learned a
+better triage rule from the last hour's telemetry defines it and moves on.
+
+For calibration, the project's benchmark suite compares the same workloads
+against CPython on identical hardware (\code{BENCHMARKS.md} in the tree has
+the methodology and the full matrix):
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Workload} & \textbf{Poplog (x86-64)} & \textbf{Python 3.13} & \textbf{Python 3.10}\\
+\midrule
+\code{nfib29} --- 1.35M recursive calls & 14.5\,ms & 3.67$\times$ slower & 8.56$\times$\\
+\code{intloop10M} --- tight integer loop & 61.5\,ms & 5.60$\times$ & 6.26$\times$\\
+\code{lists} --- 1M cons cells, allocate + walk & 11.4\,ms & 7.20$\times$ & 7.76$\times$\\
+\code{closures1M} --- 100k closures, 1M calls & 22.0\,ms & 2.13$\times$ & 3.00$\times$\\
+\code{compile500} --- runtime-compile $\times$500 & 66.7\,ms & 0.12$\times$ & 0.08$\times$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The last row is the honest one: Python wins it, because \code{compile()}
+produces bytecode while Poplog produces machine code. Poplog is doing
+strictly more work and still lands within an order of magnitude. On the
+other rows --- calls, loops, allocation, closures --- the native code shows.
+
+\section{The saved image}
+
+Because the VM owns the whole heap, the whole heap can be written to a file
+and read back. \code{syssave} does exactly that; the resulting
+\code{.psv} image contains your data \emph{and} your compiled procedures.
+
+\begin{repl}
+$ popsession checkpoint post.psv          # 10,000 procedures live in the heap
+  2.9M post.psv
+$ popsession restore  post.psv            # a fresh process, 64 ms including spawn
+$ gen_9999(1) =>
+** 10000
+\end{repl}
+
+This is how the shipped languages arrive: \code{clisp.psv},
+\code{prolog.psv} and \code{pml.psv} are each an image of a Pop-11 system
+that has already compiled a language on top of itself. It is also what makes
+a command post durable: the fleet registry and every order-handling
+procedure survive a restart together, as one file.
+
+\begin{callout}{What is \emph{not} in the image}
+Heap state restores; operating-system state does not. Open sockets to the
+robots, open files, and pointers into C libraries are stale after a restore.
+The discipline is simply to reopen them --- Chapter~7 returns to this.
+\end{callout}
+
+\section{Where it runs}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{llp{6.6cm}}
+\toprule
+\textbf{OS} & \textbf{Architecture} & \textbf{Status}\\
+\midrule
+Linux   & x86-64          & Supported --- reference platform\\
+Linux   & AArch64         & Supported --- Raspberry Pi 5, MediaTek Genio 720\\
+macOS   & Apple Silicon   & Supported --- native Mach-O, C\,$\leftrightarrow$\,Pop callbacks\\
+Linux   & RISC-V RV64GC   & Supported --- self-hosting on StarFive VisionFive\\
+Linux   & ARM32 (v6/v7)   & Supported --- long-standing port, Raspberry Pi 1--3\\
+Solaris / FreeBSD & x86 / x86-64 & Supported --- upstream ports\\
+Windows & x86-64          & Not yet ported (WSL2 runs the Linux build)\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+``Supported'' means it builds, self-hosts, and runs all the languages. The
+first four rows are benchmarked in this fork --- and the Pi and the RISC-V
+board are the kind of hardware a robot actually carries.
+
+\section{Further reading}
+
+Poplog has a long paper trail, and much of it is still the best explanation
+of why the system is shaped the way it is.
+
+\begin{itemize}
+\item \textbf{Where it came from.} Aaron Sloman, \emph{The Evolution of
+  Poplog and Pop-11 at Sussex University} (1989), in \emph{POP-11 Comes of
+  Age}, ed.\ J.\,A.\,D.\,W.\ Anderson --- the first-hand account, from
+  POP-2 on an Elliott 4130 in Edinburgh in 1972 to the Sussex system:
+  \href{https://cogaffarchive.org/sloman.pop11.pdf}{\code{cogaffarchive.org/sloman.pop11.pdf}}.
+  Wikipedia's \href{https://en.wikipedia.org/wiki/POP-2}{\code{POP-2}},
+  \href{https://en.wikipedia.org/wiki/POP-11}{\code{POP-11}} and
+  \href{https://en.wikipedia.org/wiki/Poplog}{\code{Poplog}} entries are
+  the short versions, with the Burstall and Popplestone lineage.
+\item \textbf{Learning the language.} The Pop-11 Primer, the standard text
+  for experienced programmers, and the Birmingham teaching corpus (the
+  TEACH files that \code{teach} serves in-system) are preserved at the Poplog
+  Archive, \href{https://poplogarchive.getpoplog.org/}{\code{poplogarchive.getpoplog.org}};
+  \code{tools/fetch-learning.sh} in this tree pulls them in (\S8.2).
+  Stephen Leach's \href{https://github.com/sfkleach/hidden-gems-of-pop11}{\emph{Hidden
+  Gems of Pop-11}} is a short tour of what the language does that others do
+  not, and a good next read after Chapter~3.
+\item \textbf{The system itself.} \code{ref vmcode} and \code{ref subsystem}
+  are the VM and subsystem specifications behind the diagram in \S1.1.
+  \href{https://github.com/hebisch/poplog}{\code{hebisch/poplog}} is the
+  cleaned-up upstream source this fork descends from;
+  \href{https://github.com/GetPoplog}{\code{GetPoplog}} maintains the archive
+  and packaged distributions.
+\end{itemize}
