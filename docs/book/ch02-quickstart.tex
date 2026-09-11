@@ -118,6 +118,14 @@ fork is built to talk to one rather than to a file.
   compiler with \code{pop\_syntax\_only} set, so your file is type-checked by
   the thing that would compile it, and nothing in it runs. A Neovim plugin
   ships in \code{editors/nvim/}.
+\item \textbf{VS Code} and \textbf{Zed} (\code{editors/vscode/},
+  \code{editors/zed/}): syntax highlighting, outline and bracket support for
+  \code{.p}, \code{.pop11} and \code{.ph}, both built on the
+  \code{tree-sitter-pop11} grammar. VS Code installs from the
+  \code{pop11-vscode-\emph{v}.vsix} on the releases page; Zed as a dev
+  extension pointed at \code{editors/zed}. Either client can run the LSP
+  server above for real-compiler diagnostics. An Emacs mode with a live
+  listener is in \code{editors/emacs/}.
 \item \textbf{Swank} (\code{tools/pop11-swank}): the other half --- a live
   session an editor can attach to. Output streams as it is produced, mishaps
   arrive as data with real frames, and a runaway loop can be interrupted. The

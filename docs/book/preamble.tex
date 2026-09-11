@@ -16,6 +16,8 @@
 \usepackage{caption}
 \usepackage{multicol}
 \usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{decorations.pathmorphing,positioning,fit,calc,arrows.meta}
 \usepackage[hidelinks]{hyperref}
 \usepackage[most]{tcolorbox}
 
@@ -26,6 +28,7 @@
 \definecolor{popgrey}{HTML}{5A6B72}
 \definecolor{popbg}{HTML}{F4F6F5}    % code background
 \definecolor{poprule}{HTML}{D3DAD8}
+\definecolor{popink2}{HTML}{6B3A1E}  % pen brown, like the cover
 
 \hypersetup{
   colorlinks=false,
@@ -34,10 +37,112 @@
   pdfsubject={Pop-11, Poplog, incremental compilation, hosted languages, FFI},
 }
 
+
+%% ---------------------------------------------------------------- robots
+%% One sketchy robot per chapter heading, drawn in TikZ with a wobbly pen.
+%% \robotpick selects the variant; the main file bumps it for the appendix.
+\newcommand{\robotpick}{\arabic{chapter}}
+\tikzset{sketch/.style={draw=popink2, line width=0.75pt, line cap=round, line join=round,
+  decorate, decoration={random steps, segment length=2.2pt, amplitude=0.45pt}},
+  pen/.style={draw=popink2, line width=0.75pt}}   % undecorated: small circles overflow the decoration
+\newcommand{\robotsketch}{%
+  \pgfmathsetseed{1000+\robotpick}%
+  \begin{tikzpicture}[x=1mm,y=1mm,baseline=(body.south)]
+  \ifcase\robotpick
+  \or % 1 -- boxy scout, antenna, waving
+    \node[sketch,minimum width=7mm,minimum height=6mm,inner sep=0] (body) at (0,0) {};
+    \draw[sketch] (-2.5,3) -- (2.5,3) -- (2.5,7.5) -- (-2.5,7.5) -- cycle;
+    \draw[pen] (-1.2,5.6) circle (0.7); \draw[pen] (1.2,5.6) circle (0.7);
+    \draw[sketch] (-1,4.2) -- (1,4.2);
+    \draw[sketch] (0,7.5) -- (0,9.2); \draw[pen] (0,9.2) circle (0.7);
+    \draw[sketch] (-3.5,1.5) -- (-6,4.5) (3.5,1) -- (5.5,1);
+    \draw[sketch] (-1.5,-3) -- (-1.5,-5.5) (1.5,-3) -- (1.5,-5.5);
+    \draw[sketch] (-2.5,-5.5) -- (-0.5,-5.5) (0.5,-5.5) -- (2.5,-5.5);
+  \or % 2 -- round head, running (quickstart)
+    \node[sketch,minimum width=6mm,minimum height=6.5mm,inner sep=0] (body) at (0,0) {};
+    \draw[pen] (0,5.8) circle (2.4);
+    \draw[pen] (-0.9,6.2) circle (0.7); \draw[pen] (0.9,6.2) circle (0.7);
+    \draw[pen] (-0.8,4.8) .. controls (0,4.2) .. (0.8,4.8);
+    \draw[sketch] (-3,1) -- (-6.5,3) (3,1) -- (6,-1.5);
+    \draw[sketch] (-1.2,-3.2) -- (-4,-6) (1.2,-3.2) -- (2.5,-6.5);
+    \draw[sketch] (-8,-4) -- (-6.5,-4) (-8.5,-2.5) -- (-7,-2.5);
+  \or % 3 -- reading a manual (fundamentals)
+    \node[sketch,minimum width=7mm,minimum height=6mm,inner sep=0] (body) at (0,0) {};
+    \draw[sketch] (-2.8,3) -- (2.8,3) -- (2.8,7.8) -- (-2.8,7.8) -- cycle;
+    \draw[pen] (-1.4,5.9) circle (0.8); \draw[pen] (1.4,5.9) circle (0.8);
+    \draw[pen] (-1.4,5.9) circle (0.7); \draw[pen] (1.4,5.9) circle (0.7);
+    \draw[sketch] (-3.5,1.5) -- (-6,-1) (3.5,1.5) -- (6,-1);
+    \draw[sketch] (-6.5,-3.5) -- (6.5,-3.5) -- (6.5,0) -- (-6.5,0) -- cycle (0,-3.5) -- (0,0);
+    \draw[sketch] (-5,-1) -- (-1.5,-1) (-5,-2) -- (-1.5,-2) (1.5,-1) -- (5,-1) (1.5,-2) -- (5,-2);
+    \draw[sketch] (-1.5,-3) -- (-1.5,-5.5) (1.5,-3) -- (1.5,-5.5);
+  \or % 4 -- tracked hauler, carrying a crate (running the fleet)
+    \node[sketch,minimum width=9mm,minimum height=5mm,inner sep=0] (body) at (0,0) {};
+    \draw[sketch] (-2,2.5) -- (2,2.5) -- (2,6.5) -- (-2,6.5) -- cycle;
+    \draw[sketch] (-0.8,4.8) -- (0.8,4.8) (-0.8,3.8) -- (0.8,3.8);
+    \draw[sketch] (-0.5,5.5) -- (0.5,5.5) -- (0.5,6) -- (-0.5,6) -- cycle;
+    \draw[sketch] (-4.5,1) -- (-7,3) -- (-7,7) -- (-3,7) -- (-3,3.5);
+    \draw[sketch] (-7,5) -- (-3,5);
+    \draw[sketch] (4.5,1) -- (6.5,-1);
+    \draw[sketch] (-5.5,-2.5) -- (5.5,-2.5) -- (5.5,-5) -- (-5.5,-5) -- cycle;
+    \draw[pen] (-4,-3.75) circle (0.9); \draw[pen] (0,-3.75) circle (0.9); \draw[pen] (4,-3.75) circle (0.9);
+  \or % 5 -- five little heads in a row (the five robots)
+    \node[sketch,minimum width=2mm,minimum height=2mm,inner sep=0] (body) at (0,-4) {};
+    \foreach \x/\s in {-10/0,-5/1,0/2,5/3,10/4} {
+      \pgfmathsetseed{1100+\s}
+      \ifnum\s=0 \draw[sketch] (\x-2,-1) -- (\x+2,-1) -- (\x+2,3) -- (\x-2,3) -- cycle; \fi
+      \ifnum\s=1 \draw[pen] (\x,1) circle (2.2); \fi
+      \ifnum\s=2 \draw[sketch] (\x-2,-1) -- (\x-2,3) -- (\x+2,3) -- (\x+2,-1) -- cycle; \fi
+      \ifnum\s=3 \draw[sketch] (\x-2.2,-1) .. controls (\x-2.2,3.5) and (\x+2.2,3.5) .. (\x+2.2,-1) -- cycle; \fi
+      \ifnum\s=4 \draw[sketch] (\x-1.5,-1) -- (\x-2.5,3) -- (\x+2.5,3) -- (\x+1.5,-1) -- cycle; \fi
+      \draw[pen] (\x-0.8,1.2) circle (0.7); \draw[pen] (\x+0.8,1.2) circle (0.7);
+      \draw[sketch] (\x-1.5,-1) -- (\x-1.5,-4) (\x+1.5,-1) -- (\x+1.5,-4);
+    }
+  \or % 6 -- robot at a workbench, building another robot (hosting)
+    \node[sketch,minimum width=6mm,minimum height=6mm,inner sep=0] (body) at (-6,0) {};
+    \draw[sketch] (-8.2,3) -- (-3.8,3) -- (-3.8,7) -- (-8.2,7) -- cycle;
+    \draw[pen] (-7.1,5.3) circle (0.7); \draw[pen] (-4.9,5.3) circle (0.7);
+    \draw[sketch] (-6,7) -- (-6,8.5); \draw[pen] (-6,8.5) circle (0.7);
+    \draw[sketch] (-3,0.5) -- (0.5,-1.5);
+    \draw[sketch] (-9.5,-3) -- (9.5,-3);
+    \draw[sketch] (-7.5,-3) -- (-7.5,-5.5) (7.5,-3) -- (7.5,-5.5);
+    \draw[sketch] (3,-3) -- (7,-3) -- (7,0.5) -- (3,0.5) -- cycle;
+    \draw[pen] (3.8,-1.3) circle (0.7); \draw[pen] (6.2,-1.3) circle (0.7);
+    \draw[sketch] (5,0.5) -- (5,1.8);
+    \draw[sketch] (0.5,-1.5) -- (1.5,-0.5) (0.5,-1.5) -- (1.5,-2.5);
+    \draw[sketch] (8,1) -- (8.6,1.6) (8.3,2) -- (9,2) (8.8,0.6) -- (9.5,0.4);
+  \or % 7 -- padlock robot (signed orders)
+    \node[sketch,minimum width=8mm,minimum height=7mm,inner sep=0] (body) at (0,-1) {};
+    \draw[sketch] (-2.5,2.5) .. controls (-2.5,7) and (2.5,7) .. (2.5,2.5);
+    \draw[sketch] (-1.4,2.5) .. controls (-1.4,5.5) and (1.4,5.5) .. (1.4,2.5);
+    \draw[pen] (-1.5,0) circle (0.7); \draw[pen] (1.5,0) circle (0.7);
+    \draw[sketch] (0,-1.5) -- (0,-3.2); \draw[pen] (0,-1.5) circle (0.7);
+    \draw[sketch] (-4,-1) -- (-6.5,1) (4,-1) -- (6.5,1);
+    \draw[sketch] (-7.5,1) -- (-5.5,1) (-6.5,0) -- (-6.5,2) (5.5,1) -- (7.5,1) (6.5,0) -- (6.5,2);
+    \draw[sketch] (-1.5,-4.5) -- (-1.5,-6.5) (1.5,-4.5) -- (1.5,-6.5);
+  \or % 8 -- walking off into the distance, satchel (where to go next)
+    \node[sketch,minimum width=6mm,minimum height=6mm,inner sep=0] (body) at (0,0) {};
+    \draw[pen] (-2.5,3) -- (2.5,3) -- (2.5,7.5) -- (-2.5,7.5) -- cycle (-1.2,5.5) circle (0.7); \draw[pen] (1.2,5.5) circle (0.7);
+    \draw[sketch] (0,7.5) -- (0.8,9.3);
+    \draw[sketch] (-3,1.5) -- (-3,-2.5) (3,1.5) -- (5.5,0);
+    \draw[sketch] (-5.5,-1.5) -- (-2,-1.5) -- (-2,1) -- (-5.5,1) -- cycle (-5.5,1) .. controls (-4,2.5) .. (-2,1);
+    \draw[sketch] (-1.2,-3) -- (-3,-6.5) (1.2,-3) -- (3,-6.5);
+    \draw[sketch] (-9,-6.5) -- (9,-6.5) (10.5,-6.5) -- (12,-6.5);
+  \else % 9 -- appendix: clipboard robot
+    \node[sketch,minimum width=6mm,minimum height=6mm,inner sep=0] (body) at (0,0) {};
+    \draw[pen] (-2.5,3) -- (2.5,3) -- (2.5,7) -- (-2.5,7) -- cycle (-1.1,5.2) circle (0.7); \draw[pen] (1.1,5.2) circle (0.7);
+    \draw[sketch] (-1,4) -- (1,4);
+    \draw[sketch] (3,1.5) -- (5,0) (-3,1.5) -- (-5,0);
+    \draw[sketch] (4,-4) -- (9,-4) -- (9,2.5) -- (4,2.5) -- cycle (5.5,2.5) -- (7.5,2.5) -- (7.5,3.3) -- (5.5,3.3) -- cycle;
+    \draw[sketch] (5,0.5) -- (8,0.5) (5,-1) -- (8,-1) (5,-2.5) -- (8,-2.5);
+    \draw[sketch] (-1.5,-3) -- (-1.5,-5.5) (1.5,-3) -- (1.5,-5.5);
+  \fi
+  \end{tikzpicture}}
+
 %% ---------------------------------------------------------------- headings
 \titleformat{\chapter}[display]
   {\normalfont\sffamily\bfseries\color{popink}}
-  {\color{popaccent}\normalsize\sffamily \MakeUppercase{\chaptername}\ \thechapter}
+  {\color{popaccent}\normalsize\sffamily \MakeUppercase{\chaptername}\ \thechapter%
+   \hfill\raisebox{-9mm}[0pt][0pt]{\robotsketch}}
   {6pt}{\Large}
   [\vspace{2pt}{\color{poprule}\titlerule[1pt]}]
 \titlespacing*{\chapter}{0pt}{-10pt}{18pt}

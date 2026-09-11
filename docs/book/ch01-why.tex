@@ -48,6 +48,41 @@ machine porting proceed independently.
   directory under \code{pop/src/syscomp/}.
 \end{itemize}
 
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[x=1mm,y=1mm,
+  box/.style={draw=popink, line width=0.6pt, rounded corners=1.2pt, fill=white,
+              font=\sffamily\footnotesize, inner sep=3pt, minimum height=6.5mm, align=center},
+  lang/.style={box, fill=popbg, minimum width=21mm},
+  back/.style={box, fill=popbg, minimum width=21mm},
+  wide/.style={box, minimum width=128mm},
+  arr/.style={-{Stealth[length=2mm]}, draw=popgrey, line width=0.6pt},
+  lab/.style={font=\sffamily\scriptsize, text=popaccent}]
+  % front-ends
+  \foreach \i/\n in {0/Pop-11, 1/Prolog, 2/Common Lisp, 3/Standard ML, 4/Forth}
+    \node[lang] (L\i) at (\i*26-52, 34) {\n};
+  \node[lab, anchor=east] at (-66,34) {front-ends};
+  \node[wide] (B) at (0,20) {VM builder --- about forty Pop-11 procedures:\\
+    \code{sysPROCEDURE} \ \code{sysPUSHQ} \ \code{sysPUSH} \ \code{sysCALL} \ \code{sysIFNOT} \ \code{sysENDPROCEDURE} \ldots};
+  \node[wide, minimum height=9mm] (V) at (0,6) {\textbf{The Poplog VM} --- abstract stack machine\\
+    open stack \ $\cdot$ \ heap and garbage collector \ $\cdot$ \ closures \ $\cdot$ \ saved images \ $\cdot$ \ external interface};
+  \foreach \i in {0,...,4} \draw[arr] (L\i.south) -- (L\i.south |- B.north);
+  \draw[arr] (B.south) -- (V.north);
+  % the line
+  \draw[dashed, draw=popwarm, line width=0.7pt] (-70,-2.5) -- (70,-2.5);
+  \node[font=\sffamily\scriptsize\itshape, text=popwarm, anchor=north east, inner sep=1.5pt] at (70,-2.8) {the line: Pop-11 programs above, a port below};
+  % back-ends
+  \node[wide] (G) at (0,-12) {native code generator, one directory per CPU under \code{pop/src/syscomp/}};
+  \draw[arr] (V.south) -- (G.north);
+  \foreach \i/\n in {0/x86-64, 1/AArch64, 2/RISC-V, 3/ARM32}
+    { \node[back] (M\i) at (\i*32-48, -26) {\n};
+      \draw[arr] (M\i.north |- G.south) -- (M\i.north); }
+  \node[lab, anchor=east] at (-66,-26) {back-ends};
+\end{tikzpicture}
+\caption*{\small The two-level VM (\S1.1). A front-end plants abstract instructions through the VM builder; a back-end turns them into machine code. Add a language and every port gets it; add a port and every language gets it.}
+\end{figure}
+
 The two halves never meet. A language hosted on the VM inherits every port
 for free --- the Forth on the cover was written once, in Pop-11, and runs
 natively on Apple Silicon, on a Raspberry Pi 5 and on a StarFive RISC-V board
@@ -151,3 +186,34 @@ Windows & x86-64          & Not yet ported (WSL2 runs the Linux build)\\
 ``Supported'' means it builds, self-hosts, and runs all the languages. The
 first four rows are benchmarked in this fork --- and the Pi and the RISC-V
 board are the kind of hardware a robot actually carries.
+
+\section{Further reading}
+
+Poplog has a long paper trail, and much of it is still the best explanation
+of why the system is shaped the way it is.
+
+\begin{itemize}
+\item \textbf{Where it came from.} Aaron Sloman, \emph{The Evolution of
+  Poplog and Pop-11 at Sussex University} (1989), in \emph{POP-11 Comes of
+  Age}, ed.\ J.\,A.\,D.\,W.\ Anderson --- the first-hand account, from
+  POP-2 on an Elliott 4130 in Edinburgh in 1972 to the Sussex system:
+  \href{https://cogaffarchive.org/sloman.pop11.pdf}{\code{cogaffarchive.org/sloman.pop11.pdf}}.
+  Wikipedia's \href{https://en.wikipedia.org/wiki/POP-2}{\code{POP-2}},
+  \href{https://en.wikipedia.org/wiki/POP-11}{\code{POP-11}} and
+  \href{https://en.wikipedia.org/wiki/Poplog}{\code{Poplog}} entries are
+  the short versions, with the Burstall and Popplestone lineage.
+\item \textbf{Learning the language.} The Pop-11 Primer, the standard text
+  for experienced programmers, and the Birmingham teaching corpus (the
+  TEACH files that \code{teach} serves in-system) are preserved at the Poplog
+  Archive, \href{https://poplogarchive.getpoplog.org/}{\code{poplogarchive.getpoplog.org}};
+  \code{tools/fetch-learning.sh} in this tree pulls them in (\S8.2).
+  Stephen Leach's \href{https://github.com/sfkleach/hidden-gems-of-pop11}{\emph{Hidden
+  Gems of Pop-11}} is a short tour of what the language does that others do
+  not, and a good next read after Chapter~3.
+\item \textbf{The system itself.} \code{ref vmcode} and \code{ref subsystem}
+  are the VM and subsystem specifications behind the diagram in \S1.1.
+  \href{https://github.com/hebisch/poplog}{\code{hebisch/poplog}} is the
+  cleaned-up upstream source this fork descends from;
+  \href{https://github.com/GetPoplog}{\code{GetPoplog}} maintains the archive
+  and packaged distributions.
+\end{itemize}
