@@ -84,12 +84,13 @@ All five are silent: the program runs and produces plausible nonsense.
    define print_value(v); printf('<V %p>', [% v_data(v) %]) enddefine;
    print_value -> class_print(Value_key);
    ```
-5. **`random(n)` is broken for integers** on 64-bit builds — it returns `n`
-   every single time, so the Fisher-Yates shuffle here silently did nothing
-   and the model trained on the first 1000 lines of a sorted corpus. This one
-   is a real engine bug, not a misuse:
+5. **`random(n)` returned `n` every single time** on aarch64 and riscv64, so
+   the Fisher-Yates shuffle here silently did nothing and the model trained on
+   the first 1000 lines of a sorted corpus. This one was a real engine bug,
+   not a misuse — a mis-ported `_posword_mul_high`, now **fixed in this tree**:
    [`docs/bugs/random-int-64bit.md`](../../docs/bugs/random-int-64bit.md).
-   Draw integers through the float path instead:
+   This file still draws integers through the float path, so it behaves the
+   same on an engine that predates the fix:
 
    ```pop11
    define rand_int(n) -> k; intof(random0(1.0) * n) + 1 -> k enddefine;

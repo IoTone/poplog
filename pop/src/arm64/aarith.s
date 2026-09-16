@@ -235,13 +235,21 @@ DEF_C_LAB (_pshift_testovf)
     str x0, [USP, #8]!
     ret
 
-;;; Helper for random number generator
-;;; Multiply two positive words, return high word
+;;; Helper for random number generator.
+;;; This is really 32-bit code -- see x86_64/aarith.s, which says the same.
+;;; The contract is NOT "high word of a word-wide product": RANSEED_BITS is
+;;; the width of a C int less one (31), so Random_genseed hands us at most a
+;;; 31-bit seed and random.p wants the overflow from bit 31, i.e. the high
+;;; half of a 32x32 product.  Taking the high half of a 64-bit product here
+;;; (umulh) returns 0 for every n below _SIMPLE_LIM = 2**24, which is every
+;;; n the small-integer path handles -- so random0(n) was always 0 and
+;;; random(n) always n.  See docs/bugs/random-int-64bit.md.
 DEF_C_LAB (_posword_mul_high)
-    ldr x0, [USP, #8]       /* first arg */
-    ldr x2, [USP], #8       /* second arg, pop */
-    lsl x3, x0, #1
-    umulh x1, x3, x2        /* high 64 bits of unsigned multiply */
+    ldr x0, [USP, #8]       /* first arg (seed, < 2**31) */
+    ldr x2, [USP], #8       /* second arg (n, < 2**24), pop */
+    lsl x3, x0, #1          /* seed*2 -- still fits in 32 bits */
+    umull x1, w3, w2        /* 32x32 -> 64 unsigned, the full product */
+    lsr x1, x1, #32         /* high half of the 32-bit product */
     str x1, [USP]
     ret
 

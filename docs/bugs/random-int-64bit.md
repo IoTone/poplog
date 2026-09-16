@@ -4,8 +4,9 @@ Found 2026-09-16 while porting @karpathy's `microgpt.py` to Pop-11
 (`examples/microgpt/`): a textbook Fisher-Yates shuffle written with
 `random(i)` left the vector in its original order, and the model trained
 on the first 1000 lines of a sorted corpus instead of a random sample.
-**Not fixed.**  Pre-existing; nothing in the book or examples work touches
-this code.
+**Fixed** 2026-09-16 (see "Fix" below); verified on all three affected
+platforms.  Pre-existing; nothing in the book or examples work touches this
+code.
 
 ## Symptom
 
@@ -158,14 +159,50 @@ enddefine;
 
 `examples/microgpt/microgpt.p` uses exactly this, and notes why.
 
-## Fix, not attempted here
+## Fix
 
-Two `aarith.s` routines, and nothing else.  `_posword_mul_high` on aarch64
-and riscv64 must take the high half of a **32-bit** product, as x86-64,
-i386 and ARM32 all do — on aarch64 a 32-bit multiply into a 64-bit result
-and a shift right by 32 (`umull x1, w3, w2` / `lsr x1, x1, #32`), on
-riscv64 the equivalent via `mul` on sign-extended 32-bit halves.  Both
-untested; the x86-64 routine is the reference for what the result must be.
+Two `aarith.s` routines, and nothing else.  `_posword_mul_high` must take
+the high half of a **32-bit** product, as x86-64, i386 and ARM32 all do.
+
+`pop/src/arm64/aarith.s`:
+
+```asm
+    lsl   x3, x0, #1        /* seed*2 -- still fits in 32 bits */
+    umull x1, w3, w2        /* 32x32 -> 64 unsigned, the full product */
+    lsr   x1, x1, #32       /* high half of the 32-bit product */
+```
+
+`pop/src/riscv64/aarith.s` (both operands are below 2**32, so a plain
+64-bit `mul` holds the product exactly):
+
+```asm
+    slli a3, a0, 1
+    mul  a1, a3, a2
+    srli a1, a1, 32
+```
+
+Verified after rebuilding, on every platform the bug touched:
+
+| platform | `random0(1000)` x6 | `oneof` x8 | `random(5)` x10 |
+| --- | --- | --- | --- |
+| macOS arm64 | `{890 673 115 814 704 607}` | `{d c e d c c d c}` | varied |
+| Linux aarch64 (`raspi5`) | `{974 153 540 36 626 534}` | `{d e b e c b e d}` | `{2 3 5 3 5 3 1 1 3 4}` |
+| Linux riscv64 (`machine1`) | `{773 245 56 841 243 904}` | `{e c d b a b a b}` | `{2 4 2 2 1 3 3 4 5 5}` |
+| Linux x86-64 (`red5buntu`) | untouched — was already correct | — | — |
+
+`shuffle` now returns a different permutation on every call on all three.
+Regression: all 14 library suites green on macOS arm64, plus 12/12
+`validate-msilicon.sh` gates.  On `raspi5` the four suites that fail
+(`test_zmachine` and friends) fail identically before and after — they are
+the separate, documented `sys_file_stat` bug
+([`aarch64-stat-layout.md`](aarch64-stat-layout.md), which names
+`zm_load_story` failing with exactly "10380 4096").
+
+**Getting the fix into a built tree took longer than writing it**, because
+a stale `target/obj/src.olb` shadows any rebuilt `pop/src` object — the
+engine relinks, reports success, and keeps the old machine code.  That is
+its own bug, now fixed in `Makefile.in`:
+[`stale-olb-shadows-rebuild.md`](stale-olb-shadows-rebuild.md).
 
 Worth considering separately, and *not* as part of this fix: a 31-bit
 linear congruential seed is short for anything statistical, and
@@ -173,10 +210,14 @@ linear congruential seed is short for anything statistical, and
 the generator is a real improvement but a behaviour change on every
 platform, so it should not ride along with a port correction.
 
-The acceptance test is cheap and belongs in the tree either way:
-`random0(n)` over a few thousand draws for a handful of small `n` should be
-flat, and `oneof`/`shuffle` should stop being constant.  See
-"What got this past the tests" below.
+Left deliberately alone: a 31-bit linear congruential seed is short for
+anything statistical, and `Random_genseed`'s truncation to a C `int` is
+what makes it so.  Widening the generator is a real improvement but a
+behaviour change on every platform, so it should not ride along with a port
+correction.
+
+The acceptance test now exists: `tools/tests/test_primitives.p`, 31 checks,
+run by `tools/test-libs.sh`.  See "What got this past the tests" below.
 
 ## What got this past the tests
 
