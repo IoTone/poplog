@@ -52,16 +52,18 @@ milliseconds with no serialisation format to define.
 ## Speed
 
 Against the original on the same machine (Apple M-series, 1000 steps,
-identical hyperparameters), building the same 61 million autograd nodes:
+identical hyperparameters), building the same 61,104,992 autograd nodes.
+Median of three runs each; both were stable to within 0.5%:
 
-| | wall | relative |
-| --- | --- | --- |
-| `microgpt.py` (CPython 3) | 39.56 s | 1.0x |
-| `microgpt.p` (Poplog) | **12.93 s** | **3.06x faster** |
+| | run 1 | run 2 | run 3 | median |
+| --- | --- | --- | --- | --- |
+| `microgpt.py` (CPython 3.14.0) | 35.76 s | 36.02 s | 36.00 s | 36.00 s |
+| `microgpt.p` (Poplog) | 12.59 s | 12.51 s | 12.60 s | **12.59 s** |
 
-About 4.7 million graph nodes per second, allocated, differentiated and
-collected. No vectorisation on either side — this is scalar autograd in
-both, so it is a fair comparison of the two runtimes.
+**2.86x faster**, wall clock. About 4.6 million graph nodes per second,
+allocated, differentiated and collected. No vectorisation on either side —
+this is scalar autograd in both, so it is a fair comparison of the two
+runtimes rather than of two linear-algebra libraries.
 
 ## Five Poplog traps this ran into
 

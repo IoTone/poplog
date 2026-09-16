@@ -84,8 +84,9 @@ Trains a 4,192-parameter transformer on 32,033 names and babbles new ones.
 ./poplog basepop11 examples/microgpt/microgpt.p </dev/null       # 1000 steps, ~13 s
 ```
 
-1000 steps build 61 million autograd nodes in 12.9 s, against 39.6 s for the
-original under CPython — **3.1x faster**, scalar code on both sides. See
+1000 steps build 61 million autograd nodes in 12.6 s, against 36.0 s for the
+original under CPython 3.14 — **2.86x faster**, scalar code on both sides
+(median of three runs each). See
 [`microgpt/README.md`](microgpt/README.md) for the run, the gradient checks,
 and the five Poplog traps it hit along the way — one of which turned out to be
 a real engine bug, [`random(n)` on 64-bit
