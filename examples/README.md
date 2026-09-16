@@ -73,6 +73,24 @@ Lets discuss further why your mother takes care of you.
 Type `bye`, `goodbye`, `quit`, or end-of-file (Ctrl-D) to leave. Swap in a
 different script by editing `doctor.txt`.
 
+### `microgpt/` — a GPT in pure Pop-11
+
+A port of [@karpathy's `microgpt.py`](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95):
+scalar autograd, multi-head attention with a KV cache, Adam and temperature
+sampling, with **no dependencies at all** — no library, no C shim, no BLAS.
+Trains a 4,192-parameter transformer on 32,033 names and babbles new ones.
+
+```sh
+./poplog basepop11 examples/microgpt/microgpt.p </dev/null       # 1000 steps, ~13 s
+```
+
+1000 steps build 61 million autograd nodes in 12.9 s, against 39.6 s for the
+original under CPython — **3.1x faster**, scalar code on both sides. See
+[`microgpt/README.md`](microgpt/README.md) for the run, the gradient checks,
+and the five Poplog traps it hit along the way — one of which turned out to be
+a real engine bug, [`random(n)` on 64-bit
+builds](../docs/bugs/random-int-64bit.md).
+
 ## Graphics demos
 
 These use the experimental native graphics backend (`uses popgfx` /
