@@ -1,0 +1,121 @@
+# A stale src.olb silently shadows any rebuilt pop/src file
+
+Found 2026-09-16 while fixing `_posword_mul_high` on arm64
+(`docs/bugs/random-int-64bit.md`): the corrected assembly was compiled,
+archived and linked, the engine was relinked — and the engine kept running
+the **old** machine code.  **Fixed** in `Makefile.in`.
+
+This is almost certainly the same wall hit in commit 68398fc, *"stat: the
+fix is not the problem -- the engine never gets the file"*, where a
+`sys_file_stat.p` change (and even four `cucharout` calls added at the top
+of the procedure) compiled, grew the `.w`, landed in `src.wlb`, relinked,
+and never took effect.
+
+## Symptom
+
+Change any file under `pop/src` — `.p` or hand-written `.s` — and run
+`make`.  Everything reports success.  The engine's behaviour does not
+change.  Because `poplink` stamps a build date into the image, the binary's
+checksum *does* change on every relink, so "the binary was rebuilt" is not
+evidence that anything landed.
+
+The instrument that settles it is to look for the instruction bytes.  Here
+`umulh x1, x3, x2` is the old code and `umull x1, w3, w2` the new:
+
+| artifact | before the fix |
+| --- | --- |
+| `pop/src/arm64/aarith.s` | new source |
+| `target/src/aarith.o` | `umull` — correct, freshly assembled |
+| `target/src/aarith.w` | neither — a `.w` for a `.s` file holds only the symbol table |
+| `target/obj/src.wlb` | neither — same reason |
+| **`target/obj/src.olb`** | **`umulh` x2 AND `umull` x1 — old and new members together** |
+| `target/pop/basepop11` | `umulh` — the stale member won |
+
+## Cause
+
+Two halves, one of them never cleaned.
+
+`popc` splits its output: the `.w` (Poplog "word" file, symbol table and
+Poplog-level code) and the `.o` (machine code from the assembler).
+`poplibr` archives them into `src.wlb` and `src.olb` respectively, and
+`poplink` links **both** — `target/pop/poplink_cmnd` shows it:
+
+```sh
+$POP__cc  -o $IM \
+$popexternlib/pop_seed_loader.o \
+poplink_1.o poplink_2.o poplink_3.o \
+$popobjlib/src.olb \                     <-- the machine code lives here
+poplink_4.o poplink_dat.o \
+-L$popexternlib/ -lpop -lm -lc
+```
+
+`stamp_srclib` removed only the word half:
+
+```make
+stamp_srclib: stamp_popc ${SRC_SRC}
+	-rm ${popobjlib}/src.wlb ${popobjlib}/termcap.wlb    # .olb NOT removed
+	-rm ${popcobj}/src/*.[ow]
+```
+
+`poplibr -c` **updates** an existing library rather than recreating it, so
+`src.olb` accumulated members across builds.  At link time the C linker
+resolved the symbol from whichever member it reached first, and that was
+the stale one.  `src.wlb` was always current — which is exactly why the
+`.w` looked right every time it was checked.
+
+This also explains why the trick of adding print statements to a
+`pop/src` procedure to prove it was reached kept failing: the new object
+never got linked, so the prints were in a member nothing called.
+
+## It was already known, in one place
+
+`PORTING-RISCV64-LINUX.md` documents the workaround for the riscv64 port:
+
+> After a **genproc/asmout/sysdefs** change, rebuild `popc` FIRST
+> (`rm -f stamp_popc stamp_srclib stamp_new_corepop target/obj/src.{olb,wlb}`)
+
+So the `.olb` staleness was discovered during that port and written down as
+a manual step for that port only.  The Makefile was never fixed, so the
+same trap was still live for everyone else — and it is what the
+`sys_file_stat` hunt ran into on aarch64.
+
+## Fix
+
+`Makefile.in`, `stamp_srclib` (and the same omission in `stamp_vedlib` and
+`stamp_xlib`):
+
+```make
+	-rm ${popobjlib}/src.wlb ${popobjlib}/termcap.wlb
+	-rm ${popobjlib}/src.olb ${popobjlib}/termcap.olb
+```
+
+And `SYSCOMP_SRC` gained `$(wildcard pop/src/${POP_arch}/*.s)`, so editing
+the hand-written assembly rebuilds the cross tools rather than relying on
+`stamp_srclib` alone.
+
+Verified: with the stale `src.olb` removed and the tree rebuilt, the engine
+picks up the new instruction and `random0(1000)` stops returning 0.
+
+## How to check that a pop/src change actually landed
+
+Do not trust "the build succeeded" or a changed checksum.  Either look for
+the code, or make the behaviour observable:
+
+```sh
+# does the shipped engine contain the instruction you just wrote?
+python3 - <<'EOF'
+d=open('target/pop/basepop11','rb').read()
+print('old', d.count(bytes.fromhex('617cc29b')), 'new', d.count(bytes.fromhex('617ca29b')))
+EOF
+```
+
+For a `.p` change, the equivalent is a behavioural probe from a fresh
+engine, not a print statement — a print proves only that *some* copy of the
+procedure ran.
+
+## Cost
+
+This cost most of a day on the `sys_file_stat` hunt (68398fc: "The open
+question is now how base procedures get into basepop11 at all, given that
+recompiling one and relinking does not replace it") and about an hour here.
+Worth a line in `NOTES-FOR-MAINTAINERS.md`.

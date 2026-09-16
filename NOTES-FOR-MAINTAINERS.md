@@ -201,3 +201,20 @@ both out.
 * The macOS port itself, the Nix packaging (`flake.nix`,
   `nix/README.md`), and the native graphics backend are offered as a
   whole; the A-series fixes stand without them.
+
+
+## Changing anything under `pop/src`
+
+`poplink` links two libraries built from `pop/src`: `target/obj/src.wlb`
+(Poplog word files) and `target/obj/src.olb` (machine code — including the
+hand-written `pop/src/<arch>/*.s`).  `poplibr` *updates* a library rather
+than recreating it, so both halves must be deleted before a rebuild or a
+stale member silently shadows the new one: the build succeeds, the engine
+relinks, and the old code keeps running.  `make` now removes both
+(`stamp_srclib`, `stamp_vedlib`, `stamp_xlib`), but if you are driving the
+steps by hand, delete `target/obj/*.olb` too.
+
+Do not take a changed binary as evidence that a change landed — `poplink`
+stamps a build date into every image, so the checksum moves on every relink.
+Check for the code itself, or for a behavioural difference from a fresh
+engine.  See `docs/bugs/stale-olb-shadows-rebuild.md`.
