@@ -65,6 +65,43 @@ the image was built against.  It is only a lead: it has not been tested,
 and it does not by itself explain why a small `syssave` image restores fine
 while the big one does not.
 
+## The glibc lead is still UNTESTED
+
+The safe way to test it — extract `libc6` 2.39-0ubuntu8.8 (still on
+Launchpad; apt's cache is empty, unattended-upgrade cleans up) and run the
+engine under the old dynamic loader without touching the system — **does
+not work as a test**:
+
+```sh
+setarch -R ./poplog /tmp/g88/.../ld-linux-riscv64-lp64d.so.1 \
+    --library-path /tmp/g88/.../riscv64-linux-gnu:/lib/riscv64-linux-gnu \
+    target/pop/basepop11 -target/psv/startup.psv
+# -> SIGSEGV, exit 139, no output at all
+```
+
+The control settles it: invoking the **system** loader the same way
+segfaults identically.  Running a binary through an explicit `ld.so`
+changes the process layout, which is precisely the variable under test, so
+the method is confounded and says nothing about glibc either way.
+
+Actually downgrading `libc6` on the box would be a real test, but it is a
+remote machine reachable only by ssh: if libc6 breaks mid-install, ssh goes
+with it and recovery needs physical access.  Not attempted.
+
+## An observation worth chasing
+
+`syssave` of a small heap restores fine; the 1.4 MB `mkimage` startup image
+does not.  That points at an address-space collision rather than at the
+save/restore machinery — the small image fits wherever it lands, the big one
+does not.
+
+Under `setarch -R`, libc and the loader sit at `3ff7e46000-3ff7ffe000` and
+the heap at `2aaaab5000`.  The startup image's header carries
+`0x00000000009d4010` in its second word.  The faulting PC,
+`FFFFFFA3FF848492`, has the shape of a sign-extended 32-bit value — the
+same *class* of defect as the `random` bug in `random-int-64bit.md`, which
+is suggestive and no more than that.
+
 ## Where to start
 
 1. Compare the process map of a bare `basepop11` under `setarch -R` against
