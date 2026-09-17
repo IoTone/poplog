@@ -113,3 +113,16 @@ is suggestive and no more than that.
    cache and can be pinned to confirm by reverting it.
 4. `x86_64` and `aarch64` are unaffected; `raspi5` rebuilt from the same
    commit and its only failures are the separate, documented stat bug.
+
+## Step 0 — done (2026-09-17)
+
+The broken state and the working x86-64 reference are archived off-box in
+the public, versioned bucket `poplog-builds`, each with a `.sha256` and a
+`manifest.json` (kernel, glibc, compiler, validation score, source
+provenance):
+
+    https://poplog-builds.s3.us-west-1.amazonaws.com/builds/riscv64-linux/machine1-riscv64-broken-2026-09-16.tgz
+    https://poplog-builds.s3.us-west-1.amazonaws.com/builds/x86_64-linux/red5buntu-x86_64-good-2026-09-17.tgz
+
+`tools/snapshot-build.sh <platform> good` does this for any tree in one
+step.  raspi5 was unreachable and is not yet archived.
