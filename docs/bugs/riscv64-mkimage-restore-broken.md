@@ -131,6 +131,12 @@ provenance):
 `tools/snapshot-build.sh <platform> good` does this for any tree in one
 step.  raspi5 was unreachable and is not yet archived.
 
+The **fixed** build (validate 14/14) is archived beside the broken one:
+
+    https://poplog-builds.s3.us-west-1.amazonaws.com/builds/riscv64-linux/sf1-2-riscv64-linux-good-2026-09-17.tgz
+
+(`sf1-2` is machine1's real hostname; the manifest carries the alias.)
+
 ## Cause (2026-09-17)
 
 Not glibc, not ASLR, not the seed, not the sources, not the build ladder.
@@ -228,6 +234,14 @@ Full ladder under `setarch -R` on machine1 with the patched emitter
 22:19:45 UTC.  `random0(1000)`, `oneof` and `shuffle` are correct on the
 rebuilt engine (the earlier fix, `random-int-64bit.md`, survives).
 
+`tools/test-libs.sh` on the rebuilt engine, with the `poppcre`/`popcurl`
+shims built: **12/14**.  The two that fail, `test_fileutils` (`file_size`)
+and `test_zmachine` ("story file shorter than its header says"), are the
+separate, documented stat bug (`aarch64-stat-layout.md` — size comes back as
+the 4096 block size) and fail identically on raspi5.  Not related to this
+bug, not touched here.
+
 `tools/tests/test_primitives.p` now builds closures with 16, 17, 251, 252,
 331 and 600 frozen values via `consclosure` and calls each — the 331 case is
-this closure — so the emitter cannot regress silently again.
+this closure — so the emitter cannot regress silently again.  It passes on
+riscv64, aarch64-darwin and x86_64.
