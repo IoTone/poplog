@@ -30,18 +30,24 @@ lconstant macro (
 ;;;   * PB/closure-base needs auipc+addi (2 instrs), not a single adr.
 ;;;   * a USP push `str x,[x19,#-8]!` (1 instr) becomes `addi x9,x9,-8 ; sd`
 ;;;     (2 instrs), so each small-closure frozval is ld+addi+sd = 3 instrs.
-;;; Large closure (nfroz>16): data word + auipc+addi + addi+sd + ld + jr
-;;;   = 8 + 6*4 = 32 bytes.
+;;; Large closure (nfroz>16): data word + auipc+addi + addi+sd + auipc+ld + jr
+;;;   = 8 + 7*4 = 36 bytes.
+;;;   The Exec_closure address is loaded PC-relative from the data word that
+;;;   sits 8 bytes before the code, NOT base-relative: the base-relative
+;;;   offset grows with nfroz and overflowed the ld's 12-bit signed immediate
+;;;   at 0x800 (about 250 frozvals), silently wrapping negative and jumping
+;;;   through two instruction words of another procedure.  This is what broke
+;;;   every mkimage image on riscv64 (docs/bugs/riscv64-mkimage-restore-broken.md).
 ;;; Small closure: auipc+addi + nfroz*(ld+addi+sd) + ld_pdpart + ld_exec + jr
 ;;;   = (3*nfroz + 5) instrs.
 
 define Cons_closure(_nfroz) -> _clos;
     lvars _drop_ptr, _nfroz, _size, _clos, _code_bytes, _code_words,
-          _offs, _fv_offs, _exec_offs, _lo12, _hi20;
+          _offs, _fv_offs, _lo12, _hi20;
 
     ;;; Compute code size in bytes
     if _nfroz _gr _16 then
-        _32                         ;;; large: data word + 6 instructions
+        _36                         ;;; large: data word + 7 instructions
     else
         (_nfroz _mult _3 _add _5) _mult _4
     endif -> _code_bytes;
@@ -81,9 +87,11 @@ define Cons_closure(_nfroz) -> _clos;
         _16:FF848493 -> INSTR;
         _16:00A4B023 -> INSTR;
 
-        ;;; ld t5, exec_offs(a0) ; jr t5
-        _clos@PD_CLOS_FROZVALS[_nfroz] _sub _clos -> _exec_offs;
-        _shift(_exec_offs, _20) _biset _16:00053F03 -> INSTR;
+        ;;; auipc t5,0 ; ld t5,-24(t5) ; jr t5
+        ;;; The auipc is the 5th instruction (code+16); the data word is at
+        ;;; code-8, i.e. 24 bytes back -- a constant, whatever nfroz is.
+        _16:00000F17 -> INSTR;
+        _16:FE8F3F03 -> INSTR;
         _16:000F0067 -> INSTR;
     else
         ;;; Small closure: inline frozval push + pdpart chain

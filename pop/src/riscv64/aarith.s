@@ -194,13 +194,20 @@ DEF_C_LAB (_pshift_testovf)
     sd   a0, 0(USP)
     ret
 
-;;; _posword_mul_high: multiply two positive words, return high word.
+;;; _posword_mul_high: high half of a 32x32 product -- NOT of a word-wide
+;;; one.  This is really 32-bit code; x86_64/aarith.s carries the same note.
+;;; RANSEED_BITS is the width of a C int less one (31), so the seed is at
+;;; most 31 bits and random.p wants the overflow from bit 31.  mulhu takes
+;;; the high half of a 64-bit product, which is 0 for every n below
+;;; _SIMPLE_LIM = 2**24 -- i.e. every n the small-integer path handles.
+;;; See docs/bugs/random-int-64bit.md.
 DEF_C_LAB (_posword_mul_high)
-    ld   a0, 8(USP)           /* first arg */
-    ld   a2, 0(USP)           /* second arg */
+    ld   a0, 8(USP)           /* first arg (seed, < 2**31) */
+    ld   a2, 0(USP)           /* second arg (n, < 2**24) */
     addi USP, USP, 8
-    slli a3, a0, 1
-    mulhu a1, a3, a2          /* high 64 bits (unsigned) */
+    slli a3, a0, 1            /* seed*2 -- still fits in 32 bits */
+    mul  a1, a3, a2           /* both < 2**32, so the product is exact */
+    srli a1, a1, 32           /* high half of the 32-bit product */
     sd   a1, 0(USP)
     ret
 

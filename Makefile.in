@@ -160,7 +160,8 @@ stamp_dirs_and_symlinks: ${PACKAGES_DIR_TARGET}
 
 SYSCOMP_SRC = $(wildcard pop/src/syscomp/*.p) \
               $(wildcard pop/src/syscomp/*.ph) \
-              $(wildcard pop/src/syscomp/${POP_arch}/*.p)
+              $(wildcard pop/src/syscomp/${POP_arch}/*.p) \
+              $(wildcard pop/src/${POP_arch}/*.s)
 
 stamp_popc: ${popsys}/corepop stamp_dirs_and_symlinks ${SYSCOMP_SRC}
 	(cd pop/src; CC_LINK_OPTIONS="${CC_LINK_OPTIONS}" ; \
@@ -186,8 +187,16 @@ SRC_SRC = ${SRC_PSRC} \
 SRC_W := $(addsuffix .w, $(basename \
            $(patsubst termcap.p,, $(notdir ${SRC_PSRC}))))
 
+# NB: the .olb (object) halves must be removed too, not just the .wlb (word)
+# halves.  poplink links ${popobjlib}/src.olb for the machine code of anything
+# compiled from pop/src -- notably the hand-written pop/src/${POP_arch}/*.s --
+# and poplibr UPDATES an existing library rather than recreating it.  Leaving
+# src.olb in place lets a stale member shadow a freshly rebuilt one: the .w is
+# current, the link succeeds, and the engine silently keeps the OLD machine
+# code.  See docs/bugs/stale-olb-shadows-rebuild.md.
 stamp_srclib: stamp_popc ${SRC_SRC}
 	-rm ${popobjlib}/src.wlb ${popobjlib}/termcap.wlb
+	-rm ${popobjlib}/src.olb ${popobjlib}/termcap.olb
 	-rm ${popcobj}/src/*.[ow]
 	(cd pop/src && \
 	    ${DO_COMMAND} popc -c -nosys -od ${popcobj}/src \
@@ -203,7 +212,7 @@ VED_SRC = $(wildcard pop/ved/src/*.p) $(wildcard pop/ved/src/*.ph) \
           pop/lib/include/vedscreendefs.ph
 
 stamp_vedlib: stamp_srclib
-	-rm ${popobjlib}/vedsrc.wlb
+	-rm ${popobjlib}/vedsrc.wlb ${popobjlib}/vedsrc.olb
 	-rm ${popcobj}/ved/src/*.[ow]
 	(cd pop/ved/src && \
 	    ${DO_COMMAND} popc -c -nosys -od ${popcobj}/ved/src \
@@ -214,7 +223,7 @@ stamp_vedlib: stamp_srclib
 	touch stamp_vedlib
 
 stamp_xlib: stamp_srclib
-	-rm ${popobjlib}/xsrc.wlb
+	-rm ${popobjlib}/xsrc.wlb ${popobjlib}/xsrc.olb
 	-rm ${popcobj}/x/src/*.[ow]
 	(cd pop/x/src && \
 	    ${DO_COMMAND} popc -c -nosys -od ${popcobj}/x/src \

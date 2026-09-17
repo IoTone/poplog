@@ -1,0 +1,184 @@
+# A stale src.olb silently shadows any rebuilt pop/src file
+
+Found 2026-09-16 while fixing `_posword_mul_high` on arm64
+(`docs/bugs/random-int-64bit.md`): the corrected assembly was compiled,
+archived and linked, the engine was relinked — and the engine kept running
+the **old** machine code.  **Fixed** in `Makefile.in`.
+
+This is almost certainly the same wall hit in commit 68398fc, *"stat: the
+fix is not the problem -- the engine never gets the file"*, where a
+`sys_file_stat.p` change (and even four `cucharout` calls added at the top
+of the procedure) compiled, grew the `.w`, landed in `src.wlb`, relinked,
+and never took effect.
+
+## Symptom
+
+Change any file under `pop/src` — `.p` or hand-written `.s` — and run
+`make`.  Everything reports success.  The engine's behaviour does not
+change.  Because `poplink` stamps a build date into the image, the binary's
+checksum *does* change on every relink, so "the binary was rebuilt" is not
+evidence that anything landed.
+
+The instrument that settles it is to look for the instruction bytes.  Here
+`umulh x1, x3, x2` is the old code and `umull x1, w3, w2` the new:
+
+| artifact | before the fix |
+| --- | --- |
+| `pop/src/arm64/aarith.s` | new source |
+| `target/src/aarith.o` | `umull` — correct, freshly assembled |
+| `target/src/aarith.w` | neither — a `.w` for a `.s` file holds only the symbol table |
+| `target/obj/src.wlb` | neither — same reason |
+| **`target/obj/src.olb`** | **`umulh` x2 AND `umull` x1 — old and new members together** |
+| `target/pop/basepop11` | `umulh` — the stale member won |
+
+## Cause
+
+Two halves, one of them never cleaned.
+
+`popc` splits its output: the `.w` (Poplog "word" file, symbol table and
+Poplog-level code) and the `.o` (machine code from the assembler).
+`poplibr` archives them into `src.wlb` and `src.olb` respectively, and
+`poplink` links **both** — `target/pop/poplink_cmnd` shows it:
+
+```sh
+$POP__cc  -o $IM \
+$popexternlib/pop_seed_loader.o \
+poplink_1.o poplink_2.o poplink_3.o \
+$popobjlib/src.olb \                     <-- the machine code lives here
+poplink_4.o poplink_dat.o \
+-L$popexternlib/ -lpop -lm -lc
+```
+
+`stamp_srclib` removed only the word half:
+
+```make
+stamp_srclib: stamp_popc ${SRC_SRC}
+	-rm ${popobjlib}/src.wlb ${popobjlib}/termcap.wlb    # .olb NOT removed
+	-rm ${popcobj}/src/*.[ow]
+```
+
+`poplibr -c` **updates** an existing library rather than recreating it, so
+`src.olb` accumulated members across builds.  At link time the C linker
+resolved the symbol from whichever member it reached first, and that was
+the stale one.  `src.wlb` was always current — which is exactly why the
+`.w` looked right every time it was checked.
+
+This also explains why the trick of adding print statements to a
+`pop/src` procedure to prove it was reached kept failing: the new object
+never got linked, so the prints were in a member nothing called.
+
+## It was already known, in one place
+
+`PORTING-RISCV64-LINUX.md` documents the workaround for the riscv64 port:
+
+> After a **genproc/asmout/sysdefs** change, rebuild `popc` FIRST
+> (`rm -f stamp_popc stamp_srclib stamp_new_corepop target/obj/src.{olb,wlb}`)
+
+So the `.olb` staleness was discovered during that port and written down as
+a manual step for that port only.  The Makefile was never fixed, so the
+same trap was still live for everyone else — and it is what the
+`sys_file_stat` hunt ran into on aarch64.
+
+## Fix
+
+`Makefile.in`, `stamp_srclib` (and the same omission in `stamp_vedlib` and
+`stamp_xlib`):
+
+```make
+	-rm ${popobjlib}/src.wlb ${popobjlib}/termcap.wlb
+	-rm ${popobjlib}/src.olb ${popobjlib}/termcap.olb
+```
+
+And `SYSCOMP_SRC` gained `$(wildcard pop/src/${POP_arch}/*.s)`, so editing
+the hand-written assembly rebuilds the cross tools rather than relying on
+`stamp_srclib` alone.
+
+Verified: with the stale `src.olb` removed and the tree rebuilt, the engine
+picks up the new instruction and `random0(1000)` stops returning 0.
+
+## How to check that a pop/src change actually landed
+
+Do not trust "the build succeeded" or a changed checksum.  Either look for
+the code, or make the behaviour observable:
+
+```sh
+# does the shipped engine contain the instruction you just wrote?
+python3 - <<'EOF'
+d=open('target/pop/basepop11','rb').read()
+print('old', d.count(bytes.fromhex('617cc29b')), 'new', d.count(bytes.fromhex('617ca29b')))
+EOF
+```
+
+For a `.p` change, the equivalent is a behavioural probe from a fresh
+engine, not a print statement — a print proves only that *some* copy of the
+procedure ran.
+
+## Cost
+
+This cost most of a day on the `sys_file_stat` hunt (68398fc: "The open
+question is now how base procedures get into basepop11 at all, given that
+recompiling one and relinking does not replace it") and about an hour here.
+Worth a line in `NOTES-FOR-MAINTAINERS.md`.
+
+## The common thread: "done" is a timestamp, not a verified artifact
+
+Three failures hit in one session, all of the same shape — the build
+reports success without having produced what it claims:
+
+1. **A stale `.olb` member** shadows a rebuilt object.  `make` succeeds,
+   `poplink` succeeds, the engine runs the old machine code (this file).
+2. **A silently-failing step still gets its stamp touched.**  Already
+   documented in `PORTING-ARM64-VALIDATION-STATUS.md`: every `mkimage` step
+   "exits 0 (silently) and `make` then `touch`es the stamp. **Deceptive
+   green.**" — a full `make` reported success with `target/psv/` empty.
+3. **A copied tree builds the original.**  `cp -a` preserves mtimes, so
+   every `stamp_*` in the copy looks current and `make` does nothing;
+   what work does happen goes to the absolute paths baked in by
+   `configure`, i.e. back to the source tree (below).
+
+The Makefile has 15 `touch stamp_*` and prefixes its cleanup with `-` to
+ignore failures, so a stamp records *that a recipe ran*, never *that it
+produced a correct artifact*.  That is fine when every step fails loudly.
+It is not fine here, where `poplibr` updates in place, `mkimage` can exit 0
+having done nothing, and the paths may point at another tree entirely.
+
+Worth keeping in mind when adding build steps, and the reason
+`tools/tests/test_primitives.p` asserts *behaviour* rather than checking
+that a file exists.
+
+## Related footgun: a copied build tree writes into the original
+
+`Makefile` is generated by `configure` with **absolute** paths
+(`ABS_BUILD`, `poptarget`, `popobjlib`, …).  Copying a configured tree and
+building in the copy therefore does not build the copy — it reaches back
+into the original:
+
+```sh
+cp -a poplog-ci poplog-xbuild
+cd poplog-xbuild && sh tools/bootstrap-corepop-x86-64-to-riscv64.sh
+# ld: /home/dkords/poplog-ci/target/obj/src.olb(allbutfirst.o):
+#     Relocations in generic ELF (EM: 62)          <-- EM 62 = x86-64
+# ld: .../poplog-ci/target/obj/src.olb: file in wrong format
+```
+
+Note the path: `poplog-ci`, the *original*.  The cross-build had rewritten
+the original tree's `target/src/*.o` as RISC-V objects while its
+`basepop11` stayed x86-64, and then failed linking them together.  The
+error message is itself the `.olb` bug above wearing a different hat — a
+library holding objects for the wrong architecture instead of the wrong
+revision.  `tools/bootstrap-corepop-x86-64-to-riscv64.sh` already warns
+about exactly this and removes `src.{olb,wlb}` for that reason; what it
+cannot defend against is the paths pointing somewhere else entirely.
+
+**Always run `./configure` in a copied tree before building in it.**
+Recovery, if it has already happened, is to clean and rebuild the original
+for its own architecture:
+
+```sh
+cd <original> && rm -f stamp_srclib stamp_vedlib stamp_xlib stamp_images \
+    target/obj/src.olb target/obj/src.wlb target/obj/termcap.* \
+    target/src/*.o target/src/*.w && make
+```
+
+Back up `target/pop/basepop11` first: the link rule deletes it before
+relinking, so a failed rebuild leaves no engine.

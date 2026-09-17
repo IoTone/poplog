@@ -164,6 +164,33 @@ robots, open files, and pointers into C libraries are stale after a restore.
 The discipline is simply to reopen them --- Chapter~7 returns to this.
 \end{callout}
 
+\subsection{Why Prolog in the era of LLMs?}
+
+A large language model is very good at the part of command that is fuzzy ---
+reading a garbled telemetry line, guessing what an operator meant, drafting a
+plan --- and unreliable at the part that must be exact. Whether \code{sq2}
+may order \code{r4} is not a matter of judgement; it is a fact about the
+chain of command, and an agent that holds it only in its context window will
+eventually get it wrong, confidently.
+
+Prolog is the tool for that other part. A relation is a few clauses you can
+read; a query either succeeds or fails; a proof is a trace you can print and
+audit. The pattern this book uses --- the model \emph{proposes}, the logic
+\emph{checks} --- keeps each side doing what it is good at: the LLM writes
+\code{[unit r4 advance to ridge]}, and \code{can\_order/2} in
+\ghfile{chain.pl} decides, deterministically, whether the post is entitled
+to issue it (\S5.5). Backtracking gives the same rules a second life as
+generators: \emph{which units may I order?} is one query, not a loop. And
+because the rules are data in the image rather than weights in a model, the
+agent can add a clause, retract one, and see the consequence immediately ---
+with every change in the saved image, and in the history.
+
+Poplog's particular contribution is that the fact base and the agent's tools
+share one heap: a Prolog query from the Pop-11 prompt costs one \code{?-},
+not a foreign-function call and a serialisation. That is the reason the
+chain of command in this book is written in Prolog and nothing else.
+
+
 \section{Where it runs}
 
 \begin{center}
@@ -210,6 +237,17 @@ of why the system is shaped the way it is.
   Stephen Leach's \href{https://github.com/sfkleach/hidden-gems-of-pop11}{\emph{Hidden
   Gems of Pop-11}} is a short tour of what the language does that others do
   not, and a good next read after Chapter~3.
+\item \textbf{Learning Prolog.} \emph{Learn Prolog Now!} (Blackburn, Bos
+  and Striegnitz) is the standard free course, from facts and rules through
+  unification, recursion, lists and cut, with exercises:
+  \href{https://lpn.swi-prolog.org/lpnpage.php?pageid=online}{\code{lpn.swi-prolog.org}}.
+  Markus Triska's \emph{The Power of Prolog}
+  (\href{https://www.metalevel.at/prolog}{\code{metalevel.at/prolog}}) is
+  the next one --- how to think in relations rather than translate loops.
+  Inside Poplog, \code{teach prolog} is a 1982 introduction written for
+  Pop-11 users, and the \code{pop/plog/teach/} files
+  (\code{prologinpop}, \code{why}, \code{tracer}) explain Prolog in terms
+  of Pop-11 and show how to make a program justify its answers.
 \item \textbf{The system itself.} \code{ref vmcode} and \code{ref subsystem}
   are the VM and subsystem specifications behind the diagram in \S1.1.
   \href{https://github.com/hebisch/poplog}{\code{hebisch/poplog}} is the

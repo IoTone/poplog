@@ -12,9 +12,15 @@ set -e
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 src="$repo/pop/extern/popcrypto/popcrypto_shim.c"
 
+# LIB * CRYPTO picks the .dylib over the .so when both exist, so a
+# stale artifact from the other platform (a tree rsynced from a Mac to Linux,
+# say) silently shadows the one we are about to build and the load fails with
+# "can't find value for symbol".  Clear the other platform's file.
 case "$(uname -s)" in
-    Darwin) lib="$repo/pop/extern/popcrypto/popcrypto.dylib" ;;
-    *)      lib="$repo/pop/extern/popcrypto/popcrypto.so" ;;
+    Darwin) lib="$repo/pop/extern/popcrypto/popcrypto.dylib"
+            rm -f "$repo/pop/extern/popcrypto/popcrypto.so" ;;
+    *)      lib="$repo/pop/extern/popcrypto/popcrypto.so"
+            rm -f "$repo/pop/extern/popcrypto/popcrypto.dylib" ;;
 esac
 
 if [ -f "$lib" ] && [ ! "$src" -nt "$lib" ]; then
