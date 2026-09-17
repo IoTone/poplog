@@ -218,3 +218,23 @@ Do not take a changed binary as evidence that a change landed — `poplink`
 stamps a build date into every image, so the checksum moves on every relink.
 Check for the code itself, or for a behavioural difference from a fresh
 engine.  See `docs/bugs/stale-olb-shadows-rebuild.md`.
+
+## Build snapshots (poplog-builds)
+
+Built trees are archived in the public, versioned bucket `poplog-builds`
+(`us-west-1`), one object per snapshot plus its sha256 and a manifest:
+
+    https://poplog-builds.s3.us-west-1.amazonaws.com/builds/<platform>/
+
+Seeds and skill tarballs stay on GitHub Releases; this bucket is for the
+*built* tree (`target/pop`, `target/psv`, `target/obj`, `stamp_*`) — the
+thing that takes an hour to reproduce on a slow board and, on riscv64 in
+September 2026, could not be reproduced at all.  After every green
+`validate-*.sh`:
+
+    tools/snapshot-build.sh <platform> good
+
+To restore: fetch the `.tgz`, check it against the `.sha256`, untar into the
+repo root.  Read the manifest first — it records kernel, glibc, compiler
+and the git sha the sources matched, which is exactly what was missing when
+machine1's build went bad.
