@@ -3,7 +3,8 @@
 #
 #   tools/snapshot-build.sh <platform> <good|broken> [--no-upload]
 #
-# Tars target/pop, target/psv, target/obj and the stamp_* files, writes a
+# Tars target/pop, target/psv, target/obj, the stamp_* files and any built
+# C shims (pop/extern/*/*.so|dylib), writes a
 # sha256 and a manifest.json recording what was built and on what, and
 # uploads all three to the public, versioned bucket
 #
@@ -23,15 +24,17 @@ cd "$(dirname "$0")/.."
 host="$(hostname -s)"; date="$(date +%Y-%m-%d)"
 f="${host}-${plat}-${state}-${date}.tgz"
 sha() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
-tar czf "/tmp/$f" target/pop target/psv target/obj stamp_* 2>/dev/null
+set -- target/pop target/psv target/obj stamp_*
+for x in pop/extern/*/*.so pop/extern/*/*.dylib; do [ -e "$x" ] && set -- "$@" "$x"; done
+tar czf "/tmp/$f" "$@"
 ( cd /tmp && sha "$f" > "$f.sha256" )
 gitsha="$(git rev-parse --short HEAD 2>/dev/null || echo "not a git checkout")"
-glibc="$(ldd --version 2>/dev/null | head -1 | sed 's/.*) //' || echo n/a)"
+glibc="$(ldd --version 2>/dev/null | head -1 | sed 's/.*) //')"; [ -n "$glibc" ] || glibc=n/a
 cat > "/tmp/$f.manifest.json" <<EOF
 {"platform":"$plat","host":"$host","state":"$state","date":"$date",
  "sha256":"$(cut -d' ' -f1 "/tmp/$f.sha256")","bytes":$(wc -c < "/tmp/$f" | tr -d ' '),
  "kernel":"$(uname -sr)","glibc":"$glibc","cc":"$(cc --version 2>/dev/null | head -1)",
- "git":"$gitsha","contents":"target/pop target/psv target/obj stamp_*"}
+ "git":"$gitsha","contents":"target/pop target/psv target/obj stamp_* pop/extern/*/*.{so,dylib}"}
 EOF
 echo "wrote /tmp/$f  ($(cut -c1-16 "/tmp/$f.sha256"))"
 [ $upload = 1 ] || exit 0
