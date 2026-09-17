@@ -3,7 +3,8 @@
 A port of [@karpathy's `microgpt.py`](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95):
 train a small transformer and sample from it, with **no dependencies at
 all** — no library, no C shim, no BLAS. Scalar autograd, multi-head
-attention, Adam and sampling, in ~440 lines of Pop-11.
+attention, Adam and sampling, in **345 lines** of Pop-11 (451 in the file,
+less 56 comment lines and 50 blanks).
 
 ```sh
 ./poplog basepop11 examples/microgpt/microgpt.p </dev/null        # 1000 steps
@@ -17,15 +18,64 @@ learn that instead — a list of robot callsigns, say.
 
 ## What it is
 
+Code lines per section, comments and blanks excluded:
+
 | Part | Lines | What it does |
-| --- | --- | --- |
-| `Value` + `v_backward` | ~60 | Scalar reverse-mode autograd: every node holds its value, gradient, children and the local derivative w.r.t. each child |
-| `gpt` | ~55 | Token + position embedding, rmsnorm, multi-head causal attention with a KV cache, MLP, residuals, LM head |
-| `adam_step` | ~20 | Adam with bias correction and linear LR decay |
-| `train` / `generate` | ~60 | Cross-entropy over one document per step; temperature sampling |
+| --- | ---: | --- |
+| `Value` + `v_backward` | 53 | Scalar reverse-mode autograd: every node holds its value, gradient, children and the local derivative w.r.t. each child |
+| `gpt` (incl. attention + MLP) | 90 | Token + position embedding, rmsnorm, multi-head causal attention with a KV cache, MLP, residuals, LM head |
+| parameters + `matrix` | 38 | The `state_dict`, word-keyed, and gaussian init |
+| `train` | 35 | Cross-entropy over one document per step |
+| `generate` + `sample_from` | 28 | Temperature sampling |
+| dataset + tokenizer + RNG | 47 | Fetch, shuffle, vocabulary, Box–Muller |
+| `adam_step` + `init_adam` | 24 | Adam with bias correction and linear LR decay |
+| `microgpt_main` / CLI | 25 | Argument handling and the run banner |
+| setup (`popdprecision` etc.) | 5 | The three Poplog defaults that must change |
+| **total** | **345** | |
 
 Following GPT-2 with the original's simplifications: rmsnorm instead of
 layernorm, no biases, ReLU instead of GeLU.
+
+### Why it is 2.2x the Python
+
+The original is 154 code lines (199 in the file) to this port's 345, and the
+difference is almost entirely *notation*, not work done. Both build the same
+61,104,992-node graph and run the same arithmetic. Where the lines go:
+
+* **No operator overloading.** Python defines 11 dunders in 17 lines —
+  `__add__`, `__mul__`, `__pow__`, `__radd__`, `__truediv__`, … — and then
+  writes `wi * xi`. Pop-11 has the same ops as named procedures and writes
+  `v_mul(wi, xi)`, so every call site is longer and each op is its own
+  `define`.
+* **No comprehensions, `sum()` or slicing.** `linear` is one line in Python;
+  here it is `dot` plus `linear` with explicit loops. `q[hs:hs+head_dim]`
+  becomes indexing at `hs + j`.
+* **The KV cache is preallocated.** Python appends to growing lists and
+  slices them; this uses fixed vectors and an offset, which costs lines and
+  saves allocation.
+* **Declarations are explicit.** Every procedure declares its `lvars`.
+* **It does a little more.** The CLI, the dataset fetch, the graph-node
+  counter and the `rand_int` workaround have no counterpart in the original.
+
+Section by section, measured the same way on both files:
+
+| | Python | Pop-11 |
+| --- | ---: | ---: |
+| autograd (`Value` + backward) | 38 | 53 |
+| `gpt` | 33 | 90 |
+| `linear` / `softmax` / `rmsnorm` | 11 | (inside the 90) |
+| training loop | 24 | 35 |
+| inference | 14 | 28 |
+| **whole file** | **154** | **345** |
+
+The autograd core is 53 against 38 — close, because it is mostly arithmetic
+either way. `gpt` is where the ratio really lives: 33 against 90, and the
+Python 33 excludes the 11 lines of `linear`/`softmax`/`rmsnorm` that a
+Pop-11 reader sees expanded into loops. Read it as a difference in surface
+syntax between a language with operator overloading, comprehensions and
+slicing and one without — not as a measure of either language's fitness for
+the task. The runtime comparison is in "Speed" below, and it goes the other
+way.
 
 Defaults match the original: `n_layer=1`, `n_embd=16`, `n_head=4`,
 `block_size=16`, 4,192 parameters, 1000 steps, Adam at `lr=0.01`.

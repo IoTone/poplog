@@ -77,8 +77,9 @@ different script by editing `doctor.txt`.
 
 A port of [@karpathy's `microgpt.py`](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95):
 scalar autograd, multi-head attention with a KV cache, Adam and temperature
-sampling, with **no dependencies at all** — no library, no C shim, no BLAS.
-Trains a 4,192-parameter transformer on 32,033 names and babbles new ones.
+sampling, in 345 lines with **no dependencies at all** — no library, no C
+shim, no BLAS. Trains a 4,192-parameter transformer on 32,033 names and
+babbles new ones.
 
 ```sh
 ./poplog basepop11 examples/microgpt/microgpt.p </dev/null       # 1000 steps, ~13 s
