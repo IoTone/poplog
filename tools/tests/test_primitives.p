@@ -127,4 +127,31 @@ check('shuffle preserves the multiset',
       syssort(shuffle([3 1 4 1 5 9 2 6]), nonop <), [1 1 2 3 4 5 6 9]);
 check('shuffle preserves length', length(shuffle([1 2 3 4 5 6 7])), 7);
 
+;;; ---------------------------------------------------------------- closures
+;;; Regression for docs/bugs/riscv64-mkimage-restore-broken.md: the riscv64
+;;; large-closure stub loaded its target through a 12-bit immediate that
+;;; overflowed once the frozval table passed 0x800 bytes -- 252 frozvals --
+;;; and jumped through two instruction words of another procedure.  Every
+;;; mkimage image carried one such closure (331 frozvals) and none would
+;;; restore.  Build closures on both sides of the threshold and CALL them.
+;;; The pdpart takes a count as its last (topmost) frozval and sums the rest.
+define lconstant sum_frozen();
+    lvars n, s = 0, x;
+    -> n;
+    repeat n times -> x; s + x -> s endrepeat;
+    s
+enddefine;
+
+define lconstant frozen_sum(n) -> r;
+    lvars i, c;
+    consclosure(sum_frozen, for i from 1 to n do i endfor, n, n + 1) -> c;
+    c() -> r
+enddefine;
+check('closure with 16 frozvals (small path)',     frozen_sum(16),  136);
+check('closure with 17 frozvals (large path)',     frozen_sum(17),  153);
+check('closure with 251 frozvals (last safe)',     frozen_sum(251), 31626);
+check('closure with 252 frozvals (the threshold)', frozen_sum(252), 31878);
+check('closure with 331 frozvals (the one in startup.psv)', frozen_sum(331), 54946);
+check('closure with 600 frozvals',                 frozen_sum(600), 180300);
+
 test_summary();

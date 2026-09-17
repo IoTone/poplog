@@ -121,9 +121,24 @@ clisp, which had been hanging — in seconds. A change to the flush path needs t
 into the `popc` that compiles `procedure.p`/`gcmain.p`), then `new_corepop`,
 `basepop11`, and the `.psv` images.
 
+## Fixed: large-closure stub overflowed its 12-bit load immediate (2026-09-17)
+
+`closure_cons.p`'s large-closure path (`nfroz > 16`) loaded the Exec_closure
+address base-relative, `ld t5, exec_offs(a0)`, and `exec_offs` grows with
+the frozval table: past 0x800 (252 frozvals) the 12-bit immediate wraps
+negative and the stub jumps through two instruction words of another
+procedure.  `startup.psv` carried a 331-frozval closure, so every mkimage
+image crashed on restore with a wild PC while plain `syssave` images and
+`.p` files worked.  arm64 is immune (unsigned, scaled `ldr` immediate).
+Now loaded PC-relative from the data word 8 bytes before the code
+(`auipc t5,0 ; ld t5,-24(t5)`), 7 instructions instead of 6.  Full
+write-up, with the gdb chain and the decoded record:
+`docs/bugs/riscv64-mkimage-restore-broken.md`.  Regression test in
+`tools/tests/test_primitives.p`.
+
 ## Open issues
 
-None currently. (The closure-churn I-cache bug above is fixed.)
+None currently.
 
 ## Target
 

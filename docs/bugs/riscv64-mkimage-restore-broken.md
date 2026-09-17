@@ -1,8 +1,11 @@
-# riscv64: mkimage-built .psv images no longer restore (machine1)
+# riscv64: large closures are emitted with a wrapped 12-bit offset (was: mkimage images no longer restore)
 
 Found 2026-09-16 while verifying the `_posword_mul_high` fix
 (`random-int-64bit.md`) on `machine1` (StarFive VisionFive, Ubuntu 24.04,
-riscv64).  **Not fixed. Not diagnosed.**  `validate-riscv64.sh` is 1/14.
+riscv64).  **Fixed 2026-09-17** in `pop/src/riscv64/closure_cons.p`; `validate-riscv64.sh`
+14/14 on machine1 after a full-ladder rebuild.  See "Cause" and "Verified"
+below.  Everything above the Cause section is the investigation as
+it happened, including the leads that were wrong.
 
 **I caused the loss, not the bug:** rebuilding the tree destroyed a working
 `basepop11` from 2026-09-10 (the link rule deletes it before relinking) and
@@ -127,3 +130,104 @@ provenance):
 
 `tools/snapshot-build.sh <platform> good` does this for any tree in one
 step.  raspi5 was unreachable and is not yet archived.
+
+## Cause (2026-09-17)
+
+Not glibc, not ASLR, not the seed, not the sources, not the build ladder.
+A riscv64 **codegen bug in the closure emitter**, `pop/src/riscv64/closure_cons.p`,
+large-closure path (`nfroz > 16`):
+
+```pop11
+_clos@PD_CLOS_FROZVALS[_nfroz] _sub _clos -> _exec_offs;
+_shift(_exec_offs, _20) _biset _16:00053F03 -> INSTR;    ;;; ld t5, exec_offs(a0)
+```
+
+The byte offset from the closure base to its data word grows with the
+number of frozen values and is shifted straight into the `ld`'s **12-bit
+signed immediate** with no range check.  Past `0x800` (about 250 frozvals)
+bit 11 becomes the sign.  In `startup.psv` one closure had `_exec_offs =
+0xa78`, encoded as `0xa7853f03` — the word in the image — and executed as
+`ld t5, -0x588(a0)`.
+
+The chain, every link read from the image file or the live process under
+gdb (`break *0x18df38`, the `jalr` in `Sys$-Process_percent_args`):
+
+1. The stub at `0x9d6aa8` computes its own record `0x9d6028` (matches `a0`
+   at the fault), pushes it, then loads from `record - 0x588 = 0x9d5aa0`.
+2. `0x9d5aa0` holds `0x00a4b023ff848493` — two instruction words of another
+   procedure (`addi s1,s1,-8 / sd a0,0(s1)`).  Its low half, with bit 0
+   cleared as `jr` does, **is the faulting PC** `...ff848492`.
+3. The word it meant to load, `record + 0xa78 = 0x9d6aa0`, 8 bytes before
+   the stub, holds `0x10b698` — a valid `basepop11` text address.
+
+Decoding the record itself (layout from `syscomp/symdefs.p`; the record
+pointer lands on `PD_EXECUTE`, so `PD_PROPS`/`KEY` are at -16/-8):
+
+| field | value | meaning |
+| --- | --- | --- |
+| `PD_LENGTH` (+16, int) | 0x155 | 341 words = 2728 bytes |
+| `PD_NARGS` (+21) | 0xff | unassigned, as closures are |
+| **`PD_CLOS_NFROZ`** (+22, short) | **0x14b** | **331 frozen values** |
+| `FROZVALS[331]` | 32 + 331 x 8 | **= 2680 = 0xa78**, the emitted offset |
+
+2728 = 16 + 32 + 2648 + 8 (data word) + 24 (six instructions): the record is
+consistent to the byte, and the bad immediate is exactly its frozval table
+length.  The threshold is 32 + 8 x nfroz >= 0x800, i.e. **252 frozen values
+or more**.
+
+The image maps faithfully with no relocation on Linux (`file = mem -
+0x9d3000`; the record's word 0 is at file `0x3028` and is identical in
+memory), so the mis-emitted instruction is executed exactly as written.
+
+Why the observations looked contradictory: a plain `syssave` image restores
+fine because no large closure is on its startup path; `mkimage`'s image has
+one.  arm64 is immune because its `ldr` immediate is unsigned and scaled by 8
+(32 KB reach).  The bad value is not in the file because it is computed.  The
+09-10 build worked because no closure in that image happened to cross the
+threshold; something since pushed one over (the `locales` package in the
+09-12 upgrade is a candidate, unproven) — but the bug is unconditional above
+~250 frozvals regardless of what triggered it here.
+
+## Fix
+
+The data word is always 8 bytes before the code, so load it PC-relative —
+an offset that cannot grow:
+
+```
+- ld    t5, exec_offs(a0)      ; base-relative; wraps at 0x800
++ auipc t5, 0                  ; 00000f17   (code+16)
++ ld    t5, -24(t5)            ; fe8f3f03   -> code-8, the data word
+  jr    t5                     ; 000f0067
+```
+
+Stub grows from 6 to 7 instructions (32 -> 36 bytes) and the size
+arithmetic follows.  Both encodings verified against `as -march=rv64gc` on
+the target.  The small-closure path is unaffected: its offsets are bounded
+by `nfroz <= 16`.
+
+## Are there siblings?
+
+Audited every riscv64 runtime emitter for the same shape — a computed byte
+offset shifted into a 12-bit immediate without a range check:
+
+| site | what it shifts | safe? |
+| --- | --- | --- |
+| `array_cons.p:80-84`, `pdr_compose.p:59-63` | `auipc`+`addi` pair (`_hi20`/`_lo12`) | yes — 32-bit reach, the right idiom |
+| `pdr_compose.p:77-87` | `@@PD_EXECUTE`, `@@PD_COMPOSITE_P1/P2` | yes — fixed header offsets, a few words |
+| `ass.p:254` I-type encoder | masks to 12 bits | yes — callers at 495 and 626 range-check and fall back to `hi20/lo12` |
+| `closure_cons.p` small path | `_fv_offs`, `@@PD_CLOS_PDPART` | yes — bounded by `nfroz <= 16` |
+| **`closure_cons.p` large path** | **`_exec_offs`, grows with `nfroz`** | **no — this bug** |
+
+One site, now fixed.
+
+## Verified (2026-09-17)
+
+Full ladder under `setarch -R` on machine1 with the patched emitter
+(`stamp_popc` rebuilt, tool checksums changed), then
+`validate-riscv64.sh --rebuild`: **14 passed, 0 failed — PORT VALIDATED**,
+22:19:45 UTC.  `random0(1000)`, `oneof` and `shuffle` are correct on the
+rebuilt engine (the earlier fix, `random-int-64bit.md`, survives).
+
+`tools/tests/test_primitives.p` now builds closures with 16, 17, 251, 252,
+331 and 600 frozen values via `consclosure` and calls each — the 331 case is
+this closure — so the emitter cannot regress silently again.
