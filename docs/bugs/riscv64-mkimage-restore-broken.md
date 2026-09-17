@@ -123,6 +123,7 @@ provenance):
 
     https://poplog-builds.s3.us-west-1.amazonaws.com/builds/riscv64-linux/machine1-riscv64-broken-2026-09-16.tgz
     https://poplog-builds.s3.us-west-1.amazonaws.com/builds/x86_64-linux/red5buntu-x86_64-good-2026-09-17.tgz
+    https://poplog-builds.s3.us-west-1.amazonaws.com/builds/macos-arm64/MacBook-BR0-macos-arm64-good-2026-09-17.tgz
 
 `tools/snapshot-build.sh <platform> good` does this for any tree in one
 step.  raspi5 was unreachable and is not yet archived.

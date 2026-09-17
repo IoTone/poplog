@@ -227,7 +227,8 @@ Built trees are archived in the public, versioned bucket `poplog-builds`
     https://poplog-builds.s3.us-west-1.amazonaws.com/builds/<platform>/
 
 Seeds and skill tarballs stay on GitHub Releases; this bucket is for the
-*built* tree (`target/pop`, `target/psv`, `target/obj`, `stamp_*`) — the
+*built* tree (`target/pop`, `target/psv`, `target/obj`, `stamp_*`, and any
+built C shims under `pop/extern/`) — the
 thing that takes an hour to reproduce on a slow board and, on riscv64 in
 September 2026, could not be reproduced at all.  After every green
 `validate-*.sh`:
