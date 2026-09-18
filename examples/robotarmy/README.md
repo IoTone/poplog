@@ -12,6 +12,7 @@ self-contained and runs from the repository root.
 | `chain.pl` | 5 | The chain of command in Prolog: `can_order/2`, `reports_to/2`, `obeys/2`. |
 | `patrol.fth` | 5 | Robot control words in Poplog Forth: `drain`, `step`, `low?`, `patrol` with an early `leave`. `tools/forth.sh < examples/robotarmy/patrol.fth` |
 | `signed_orders.p` | 7 | HMAC-signed orders through `lib crypto` (OpenSSL via a C shim): genuine, tampered, replayed. Build the shim first: `tools/build-popcrypto.sh` |
+| `orders.p` | 3, 4, 8 | **The fleet takes orders over the network.** The *same* `obey` and the same registry from `fleet.p`, now driven from another machine. |
 | `fleetnet.p` | — | The fleet's UDP transport: `net_open`/`net_send`/`net_recv`/`net_poll`, plus `net_sign`/`net_verify` over HMAC-SHA256. Everything networked sits on this. |
 | `fthwire.p` | — | **Forth words over the wire.** A robot is taught a word it has never seen, in one signed datagram, and executes it natively. |
 | `deploy.p` | — | **Pop-11 source over the wire.** Signed, chunked, compiled into a running robot with `pop11_compile` — including redefining a procedure the robot is already using. |
@@ -290,3 +291,47 @@ Poplog's trig is in **degrees** by default, so `sin` returns nearly-linear
 nonsense for small radian arguments and nothing ever couples.  `swarm.p`
 sets `true -> popradians` at the top, as `examples/microgpt/microgpt.p` does
 for the same reason.
+
+## Orders over the network (`orders.p`)
+
+Chapter 4 built an order interpreter: `obey` matches a list of words against
+patterns and moves robots around a registry.  Chapter 8 built a signed UDP
+transport.  This is the join.
+
+**Nothing in `fleet.p` changed.**  The order interpreter never learns that a
+network exists — it still takes a list of words and returns a string.  All
+`orders.p` adds is the layer that turns a datagram into that list:
+
+```pop11
+define words_of(s) -> l;
+    lvars w;
+    [% for w in str_split(str_trim(s), ` `) do
+           if w /= '' then
+               if strnumber(w) then strnumber(w) else consword(w) endif
+           endif
+       endfor %] -> l;
+enddefine;
+```
+
+Commanding a fleet that lives in another process, on another machine, on
+another architecture — an arm64 command post, an x86-64 robot:
+
+```
+report                    ->  3 of 4 units fit for duty
+unit r2 advance to bridge ->  unit r2 advancing to bridge
+unit r4 recharge 60       ->  unit r4 at 80%
+report                    ->  4 of 4 units fit for duty
+```
+
+The state is real and it persists: the last `report` differs from the first
+because `r4` was recharged in between.  That registry is an Objectclass
+`Robot` heap living in the remote process.
+
+Unsigned orders are refused before `obey` ever sees them, and leave the
+fleet untouched:
+
+```
+unsigned 'all scout hold' ->  REFUSED: bad signature
+  <- (unverifiable order, not obeyed)
+report                    ->  4 of 4 units fit for duty     (unchanged)
+```
