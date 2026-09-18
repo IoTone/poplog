@@ -505,6 +505,106 @@ sets \code{true -> popradians} at the top, exactly as
 \code{examples/microgpt/microgpt.p} does, and for the same reason.
 \end{callout}
 
+\section{Backtracking across machines}
+
+\ghfile{chain.pl} in \S5.2 held the whole org chart on one machine. A real
+fleet does not work that way: each squad knows who it commands, and nobody
+holds the whole picture. \ghfile{chainnet.p} splits the same relation across
+nodes and lets Prolog's own backtracking put it back together.
+
+The join is two clauses, and nothing below them can tell that a network
+exists:
+
+\begin{pop}
+commands(X, Y) :- local_commands(X, Y).
+commands(X, Y) :- remote_commands(X, Y).
+
+can_order(X, Y) :- commands(X, Y).
+can_order(X, Z) :- commands(X, Y), can_order(Y, Z).
+\end{pop}
+
+\code{local\_commands/2} is ordinary Prolog facts. \code{remote\_commands/2}
+is \emph{Pop-11} --- a procedure that does a UDP round trip. The mechanism is
+\code{define :prolog}, which takes a continuation:
+
+\begin{pop}
+define :prolog remote_commands/2(x, y, contn);
+    lvars x, y, contn, xd, key, p;
+    prolog_deref(x) -> xd;
+    if isprologvar(xd) then '*' else xd sys_>< '' endif -> key;
+    for p in chain_ask(key) do
+        prolog_unifyc(x, hd(p),
+            procedure;
+                prolog_unifyc(y, hd(tl(p)), contn);
+            endprocedure);
+    endfor;
+enddefine;
+\end{pop}
+
+\code{prolog\_unifyc} establishes a real choice point, binds, calls the
+continuation, and unwinds the bindings afterwards. Calling it once per answer
+is what makes this \emph{nondeterministic}: Prolog backtracks into the next
+machine's answer exactly as it would into the next clause of a local
+predicate. That is the whole trick, and it is only available because Prolog
+and Pop-11 share one heap (\S5.1) --- there is no serialisation boundary
+between the two, so a Pop-11 procedure can simply \emph{be} a predicate.
+
+A node answers from its local facts only and never recurses into
+\code{can\_order}. That is what stops two nodes asking each other the same
+question forever: the recursion lives entirely in the asking node's Prolog,
+and each hop over the wire is a single flat lookup.
+
+\subsection{Three machines, one relation}
+
+The command post runs on macOS arm64 and knows two facts. Squad 1 lives on
+Linux x86-64, squad 2 on a Raspberry Pi:
+
+\begin{sh}
+# on each squad machine
+./poplog basepop11 examples/robotarmy/chainnet.p \
+    --serve 9821 examples/robotarmy/chain-sq1.pl
+
+# on the command post
+./poplog basepop11 examples/robotarmy/chainnet.p \
+    --ask examples/robotarmy/chain-post.pl "$LNX:9821,$PI:9822" \
+    '(can_order(commander, X), write(X), nl, fail ; true)'
+\end{sh}
+
+\begin{repl}
+sq1        <- local
+sq2        <- local
+r1         <- from the Linux box
+r2         <- from the Linux box
+r3         <- from the Pi
+r4         <- from the Pi
+\end{repl}
+
+\noindent And the query that must fail, does: \code{can\_order(sq1, r4)}
+answers \code{no}, because squad 1 does not command squad 2's robot. A
+relation that only ever says yes is not a relation.
+
+\subsection{When a node is down}
+
+Take squad 2's machine away and ask again:
+
+\begin{repl}
+sq1  sq2  r1  r2
+\end{repl}
+
+\noindent The chart is \emph{smaller}, not wrong. That is the right failure
+mode for a relation --- a peer that does not answer contributes no solutions,
+and the rest still resolve. It is also the honest limitation: this design
+cannot distinguish ``no such subordinate'' from ``the machine that knew about
+it is unreachable''. A fleet that needs that distinction has to say so in the
+relation itself, rather than inferring it from silence.
+
+Two more limits worth naming. Every remote call is a fresh round trip with no
+cache, so the same question asked twice during one proof costs two datagrams
+--- and backtracking asks the same question often. And an unreachable node
+costs the full timeout on every call that consults it. Neither hurts a chart
+this size; both would need attention before this resolved a chain of command
+with thousands of units in it.
+
 \section{What this is really showing}
 
 Strip the theme away and the chapter makes one claim: \textbf{the unit of

@@ -288,6 +288,61 @@ the coupling term never once fired and every robot free-ran while still
 producing plausible output.  See
 [docs/bugs/sys-input-waiting-blind-on-sockets.md](../../docs/bugs/sys-input-waiting-blind-on-sockets.md).
 
+## chainnet.p — backtracking across machines
+
+`chain.pl` holds the whole org chart on one machine.  A real fleet doesn't:
+each squad knows who it commands, nobody holds the whole picture.
+`chainnet.p` splits the relation across nodes and lets Prolog's own
+backtracking put it back together.
+
+```prolog
+commands(X, Y) :- local_commands(X, Y).     % ordinary Prolog facts
+commands(X, Y) :- remote_commands(X, Y).    % Pop-11, doing a UDP round trip
+
+can_order(X, Y) :- commands(X, Y).
+can_order(X, Z) :- commands(X, Y), can_order(Y, Z).
+```
+
+`remote_commands/2` is written in Pop-11 with `define :prolog`, and calls
+`prolog_unifyc` once per answer it gets back.  That establishes a real choice
+point each time, so the predicate is genuinely **nondeterministic**: Prolog
+backtracks into the next machine's answer exactly as it would into the next
+clause.  This works because Prolog and Pop-11 share one heap — there is no
+serialisation boundary, so a Pop-11 procedure can simply *be* a predicate.
+
+A node answers from its local facts only and never recurses into `can_order`.
+That is what stops two nodes asking each other the same question forever.
+
+```sh
+# on each squad machine
+./poplog basepop11 examples/robotarmy/chainnet.p \
+    --serve 9821 examples/robotarmy/chain-sq1.pl
+
+# on the command post, which knows only commander->sq1, commander->sq2
+./poplog basepop11 examples/robotarmy/chainnet.p \
+    --ask examples/robotarmy/chain-post.pl "$LNX:9821,$PI:9822" \
+    '(can_order(commander, X), write(X), nl, fail ; true)'
+```
+
+Verified across three machines and three architectures — post on macOS arm64,
+squad 1 on Linux x86-64, squad 2 on a Raspberry Pi:
+
+```
+sq1   <- local        r1  <- Linux box      r3  <- Pi
+sq2   <- local        r2  <- Linux box      r4  <- Pi
+```
+
+`can_order(sq1, r4)` correctly answers **no** — squad 1 does not command
+squad 2's robot.  A relation that only ever says yes is not a relation.
+
+**With a node down**, the same query returns `sq1 sq2 r1 r2`: the chart is
+*smaller*, not wrong.  That's the right failure mode for a relation, and also
+the honest limitation — this design can't tell "no such subordinate" from
+"the machine that knew is unreachable".  Two other limits: every remote call
+is a fresh round trip with no cache, and backtracking asks the same question
+often; and an unreachable node costs the full timeout on each call that
+consults it.
+
 ### Watching it live across real machines
 
 `swarm-live.sh` starts two robots per machine and a passive watcher on this
