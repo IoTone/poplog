@@ -69,7 +69,7 @@ and tag the commit `book-v<edition>`.
 | 1.0 | September 2026 | First edition: the Robot Army theme, six runnable examples, VM diagram, CC0. |
 | 1.1 | September 2026 | Chapter 8, "The fleet rewrites itself": UDP transport, Forth/Pop-11/VM-spec code mobility between machines, and the swarm demo. Verified between macOS arm64 and Linux x86-64. |
 | 1.2 | September 2026 | Corrects chapter 8. The swarm's order-parameter table in 1.1 was an artefact: `net_poll` was built on `sys_input_waiting`, which is blind on datagram sockets, so the coupling never fired and the robots free-ran. Fixed with `sys_device_wait`; real measurements substituted. The cross-machine result is also corrected — machine-local groups lock, the clusters beat, and the fleet never globally settles. Adds a live watcher and a third machine (Raspberry Pi, aarch64). |
-| 1.3 | September 2026 | Adds \u00a78.6, backtracking across machines: the chain of command split over three nodes, with `remote_commands/2` written in Pop-11 as a nondeterministic Prolog predicate. Verified on macOS arm64, Linux x86-64 and a Raspberry Pi. |
+| 1.3 | September 2026 | Adds §8.6, backtracking across machines: the chain of command split over three nodes, with `remote_commands/2` written in Pop-11 as a nondeterministic Prolog predicate. Verified on macOS arm64, Linux x86-64 and a Raspberry Pi. |
 
 ## Licence
 
