@@ -1,6 +1,6 @@
 # Pop-11 and the Robot Army
 
-**Edition 1.4, September 2026** — David J. Kordsmeier and Claude.
+**Edition 1.5, September 2026** — David J. Kordsmeier and Claude.
 
 An introduction to Poplog and Pop-11 built around one running example: a
 fleet of robots commanded from a live Poplog session by an AI agent. It
@@ -71,6 +71,7 @@ and tag the commit `book-v<edition>`.
 | 1.2 | September 2026 | Corrects chapter 8. The swarm's order-parameter table in 1.1 was an artefact: `net_poll` was built on `sys_input_waiting`, which is blind on datagram sockets, so the coupling never fired and the robots free-ran. Fixed with `sys_device_wait`; real measurements substituted. The cross-machine result is also corrected — machine-local groups lock, the clusters beat, and the fleet never globally settles. Adds a live watcher and a third machine (Raspberry Pi, aarch64). |
 | 1.3 | September 2026 | Adds §8.6, backtracking across machines: the chain of command split over three nodes, with `remote_commands/2` written in Pop-11 as a nondeterministic Prolog predicate. Verified on macOS arm64, Linux x86-64 and a Raspberry Pi. |
 | 1.4 | September 2026 | Corrects §8.5 again. The cross-machine beating is not a latency effect: when the link became five times faster the result was unchanged. The cause is that machines disagree about how long a tick takes (macOS 25.1 ms against 20.1 ms elsewhere at a nominal 20 ms), so the fleet partitions along clock rate rather than network topology — two machines whose ticks match lock across the network at 0.952. |
+| 1.5 | September 2026 | Fixes what 1.4 diagnosed. Robots now advance by measured elapsed time (`sys_microtime`) instead of a nominal tick, and broadcast their rate so a listener can extrapolate from its own arrival stamp — no shared epoch, no NTP. Across two machines with a 25% tick-rate difference, R goes from 0.665 (swinging 0.002–0.976) to 0.990 (spread 0.003). |
 
 ## Licence
 

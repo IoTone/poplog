@@ -449,6 +449,70 @@ alike, and it is the dominant term as soon as the fleet spans machines that do
 not. Coupling across a network is not the hard part --- agreeing what a
 unit of time \emph{is} turns out to be.
 
+\subsection{The fix: stop counting ticks}
+
+Two changes, neither of which needs the machines to agree about what time it
+is. The first is to advance by the time that actually passed:
+
+\begin{pop}
+lvars now = sys_microtime(), dt = (now - last) / 1000000.0;
+if dt < 0.0 or dt > CLOCK_JUMP then DT -> dt endif;   ;;; clock step
+now -> last;
+phase + omega * dt -> phase;
+if seen > 0 then phase + (K / seen) * sum * dt -> phase endif;
+\end{pop}
+
+\noindent A machine whose loop is slower simply takes a bigger step, so a
+25\,ms tick and a 20\,ms tick describe the same trajectory. \code{sys\_microtime}
+is microsecond resolution and purely local. The guard matters: it is a
+wall-clock reading, so an NTP correction can hand you a negative or enormous
+\code{dt}, and one such step would otherwise throw the robot across the circle.
+
+The second is to make a message describe a \emph{rate}, not just a position.
+Each robot broadcasts its phase \emph{and its} \code{omega}; a listener stamps
+the arrival with its own clock and carries that phase forward:
+
+\begin{pop}
+;;; on arrival
+sys_microtime() -> subscrv(who + 1, p_at);
+;;; when coupling, later
+(now - subscrv(j + 1, p_at)) / 1000000.0 -> age;
+sum + sin(subscrv(j + 1, p_phase)
+          + subscrv(j + 1, p_omega) * age - phase) -> sum;
+\end{pop}
+
+\noindent Note what is \emph{not} on the wire: a send timestamp. Carrying the
+sender's clock would require the two machines to agree on an epoch. Stamping
+on arrival requires only that they agree on the length of a second, which the
+first change already guarantees. No NTP, no offset estimation, no shared
+epoch --- and coupling now uses the last thing each peer said rather than only
+what happened to arrive during this tick, so a dropped datagram costs
+precision rather than a missed beat.
+
+Same two machines, same 25\% tick-rate difference, 25 seconds after lock:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lrrr}
+\toprule
+ & \textbf{mean $R$} & \textbf{min} & \textbf{max}\\
+\midrule
+counting ticks   & 0.665 & 0.002 & 0.976\\
+running on the clock & \textbf{0.990} & 0.989 & 0.992\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent A spread of 0.003 across 25 seconds, where before it swung the whole
+range and never settled. The partition is gone, and it was never the network.
+
+One more thing had to change with it. Once a tick is no longer a fixed length,
+a tick \emph{count} is not a duration: 1200 ticks is 30\,s on one machine and
+24\,s on the other, so the fleet stopped in pieces and the measurement picked
+up a tail of robots coupling to peers that had already exited. Ending the run
+on the clock (\code{SWARM\_SECONDS}) keeps the fleet together --- the same
+correction as the dynamics, one level up.
+
 \begin{callout}{Measure the plateau, not the peak}
 Watching the live display, the fleet hits $R = 0.97$ about ten seconds in and
 looks globally locked. It is not --- that is the top of a beat, and a few

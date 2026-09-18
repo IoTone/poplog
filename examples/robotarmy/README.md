@@ -422,6 +422,55 @@ Kuramoto assumes every oscillator shares one clock, and the program quietly
 substituted "one tick of my own loop" for it.  Invisible on one machine;
 dominant as soon as the fleet spans machines that tick differently.
 
+### The fix: stop counting ticks
+
+Two changes, neither needing the machines to agree what time it is.
+
+**1 — advance by the time that actually passed:**
+
+```pop11
+lvars now = sys_microtime(), dt = (now - last) / 1000000.0;
+if dt < 0.0 or dt > CLOCK_JUMP then DT -> dt endif;   ;;; clock step guard
+now -> last;
+phase + omega * dt -> phase;
+```
+
+A slower machine takes a bigger step, so 25 ms and 20 ms ticks describe the
+same trajectory.  `sys_microtime()` is microsecond resolution and purely
+local.  The guard matters — it's a wall-clock reading, so an NTP correction
+can hand you a negative or enormous `dt`.
+
+**2 — messages carry a rate, not just a position.**  Each robot sends its
+phase *and* its `omega`; the listener stamps arrival with its own clock and
+extrapolates:
+
+```pop11
+sys_microtime() -> subscrv(who + 1, p_at);          ;;; on arrival
+(now - subscrv(j + 1, p_at)) / 1000000.0 -> age;    ;;; when coupling
+sum + sin(subscrv(j+1, p_phase) + subscrv(j+1, p_omega) * age - phase) -> sum;
+```
+
+Note what is *not* on the wire: a send timestamp.  Carrying the sender's clock
+would need an agreed epoch; stamping on arrival needs only agreement on the
+length of a second, which change 1 already gives.  No NTP, no offset
+estimation.  Coupling also now uses the last thing each peer said rather than
+only what arrived this tick, so a dropped datagram costs precision rather than
+a missed beat.
+
+Same two machines, same 25% tick-rate difference, 25 s after lock:
+
+| | mean R | min | max |
+| --- | ---: | ---: | ---: |
+| counting ticks | 0.665 | 0.002 | 0.976 |
+| **running on the clock** | **0.990** | 0.989 | 0.992 |
+
+Spread of 0.003 across 25 seconds, where before it swung the whole range and
+never settled.  The partition is gone — and it was never the network.
+
+Once a tick isn't a fixed length, a tick *count* isn't a duration either: 1200
+ticks is 30 s on one machine and 24 s on the other, so the fleet stopped in
+pieces.  `SWARM_SECONDS` ends the run on the clock instead.
+
 **Measure the plateau, not the peak.**  Live, the fleet hits R = 0.97 around
 ten seconds in and looks globally locked; that is the top of a beat, and
 seconds later it is at 0.31.  A sync claim needs the value to *hold* over a
