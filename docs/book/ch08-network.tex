@@ -371,48 +371,66 @@ converge --- and note that they never line up again, which is what the broken
 poll was silently producing.}
 \end{figure}
 
-\subsection{Across two machines, it splits in two}
+\subsection{Across machines, the fleet locks in pieces}
 
-Everything above is four processes on one host. Spread the same four robots
-across two machines --- robots 0 and 2 on macOS arm64, 1 and 3 on Linux
-x86-64, over a Tailscale link --- and pass each robot the peer list:
+Everything above is four processes on one host. Spread the fleet across real
+machines --- passing each robot the peer list --- and it no longer locks as
+one:
 
 \begin{sh}
-HOSTS="$MAC,$LNX,$MAC,$LNX"
-./poplog basepop11 swarm.p 0 4 "$HOSTS"     # on the Mac
-./poplog basepop11 swarm.p 1 4 "$HOSTS"     # on the Linux box
+HOSTS="$MAC,$LNX,$PI"
+./poplog basepop11 swarm.p 0 6 "$HOSTS" 100.101.120.20:9940
 \end{sh}
 
-\noindent The fleet does not fall into one step. It falls into two:
+\noindent Six robots over three machines (macOS arm64, Linux x86-64, a
+Raspberry Pi on DietPi), two per machine, 1200 ticks:
 
 \begin{center}
 \footnotesize
-\begin{tabular}{rrrr}
+\begin{tabular}{rrrrr}
 \toprule
-\textbf{tick} & \textbf{all four} & \textbf{mac pair} & \textbf{linux pair}\\
+\textbf{tick} & \textbf{all six} & \textbf{mac pair} & \textbf{linux pair} & \textbf{pi pair}\\
 \midrule
-0   & 0.100 & 0.143 & 0.160\\
-60  & \textbf{0.935} & 0.993 & 0.992\\
-120 & 0.696 & 0.992 & 0.992\\
-239 & \textbf{0.337} & \textbf{0.997} & \textbf{0.995}\\
+60   & 0.730 & 0.978 & 0.978 & 0.985\\
+240  & 0.694 & 0.977 & 0.975 & 0.983\\
+480  & 0.313 & 0.977 & 0.976 & 0.985\\
+960  & 0.967 & 0.977 & 0.976 & 0.984\\
+1199 & 0.350 & 0.993 & 0.982 & 0.984\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Each machine's pair locks hard and holds at $0.99$. The two clusters reach
-$0.935$ together around tick 60, then drift apart to $0.337$. Run all four on
-\emph{either} machine alone and they lock at $0.99$, so this is not a
-platform difference --- it is the link. The tick is 20\,ms; the measured RTT
-is 4--108\,ms, mean 34\,ms, standard deviation 40\,ms. A local peer's phase
-arrives within the tick it describes; a remote peer's arrives two to five
-ticks stale, and jitters. Coupling to a stale phase is coupling to where your
-peer \emph{was}, and past a certain lag it stops pulling you together.
+Each machine's pair locks at $0.98$ within 60 ticks and \emph{stays} there for
+the whole run. The fleet as a whole does not: its order parameter wanders
+between $0.31$ and $0.98$, mean $0.68$, and never settles. Four robots over
+two machines behave the same way, cycling $0.94 \rightarrow 0.12 \rightarrow
+0.94$ over 1200 ticks.
 
-That is a real result about distributed systems, not a defect to hide: latency
-partitions a swarm along the lines of the network. Shorten the tick and the
-clusters separate sooner; lengthen it past the jitter and they merge. The
-loss is real too --- the Linux pair heard 630 of 717 possible messages across
-the link, while the Mac pair, whose peers were local, heard 717.
+The clusters are not drifting apart to some final value --- they are
+\emph{beating}. Each machine's robots phase-lock to each other tightly,
+because a local peer's phase arrives within the tick it describes. The
+clusters never lock to \emph{each other}, because across the link a phase
+arrives two to five ticks stale and jittered: the tick is 20\,ms and the
+measured RTT is 4--108\,ms, mean 34, standard deviation 40. So the groups run
+at slightly different rates and slide past one another forever, and the global
+measure rises and falls with them.
+
+Latency partitions a swarm along the lines of the network. That is a real
+result about distributed systems rather than a defect to hide --- the topology
+of the wiring shows up directly in the dynamics.
+
+\begin{callout}{Measure the plateau, not the peak}
+Watching the live display, the fleet hits $R = 0.97$ about ten seconds in and
+looks globally locked. It is not --- that is the top of a beat, and a few
+seconds later it is at $0.31$. The earlier version of this section reported a
+single such sample as a settled result.
+
+This is the same error as the one in the callout above, one level up: there
+the measurement was of a network that was never consulted, here it is of a
+transient read as a steady state. A synchronisation claim needs the value to
+\emph{hold} across a run several times longer than the time it took to get
+there. Both mistakes look like a good result if you stop measuring early.
+\end{callout}
 
 \subsection{A send that fails is a dropped datagram, not a dead robot}
 

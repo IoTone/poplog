@@ -39,9 +39,29 @@ lconstant BASE_PORT = 9950;      ;;; robot i listens on BASE_PORT + i
 ;;; across real machines -- the coupling does not care which, a peer being
 ;;; just a host and a port.
 vars swarm_hosts = false;        ;;; false => everyone on 127.0.0.1
-lconstant STEPS  = 240;
-lconstant DT     = 0.05;
-lconstant K      = 2.2;          ;;; coupling strength; 0 = every robot alone
+vars swarm_watch = false;        ;;; 'host:port' of a passive observer, or false
+;;; Defaults reproduce the figure in the book.  The environment overrides
+;;; them so a live demo can run long and couple gently enough to watch the
+;;; fleet actually fall into step, rather than locking in the first second.
+;;;
+;;;     SWARM_STEPS   ticks to run          (default 240)
+;;;     SWARM_K       coupling strength     (default 2.2, 0 = every robot alone)
+;;;     SWARM_TICK    milliseconds a tick   (default 20, real time only)
+;;;     SWARM_DT      model timestep        (default 0.05)
+;;;
+;;; DT is the model's timestep and TICK_MS is wall-clock pacing; they are
+;;; deliberately independent, so slowing the demo down to watch it does not
+;;; change the dynamics being watched.
+
+define lconstant envnum(name, dflt) -> v;
+    lvars e = systranslate(name);
+    if e and strnumber(e) then strnumber(e) else dflt endif -> v;
+enddefine;
+
+lconstant STEPS   = envnum('SWARM_STEPS', 240);
+lconstant TICK_MS = envnum('SWARM_TICK', 20);
+lconstant DT      = envnum('SWARM_DT', 0.05);
+lconstant K       = envnum('SWARM_K', 2.2);
 
 ;;; --------------------------------------------------------------- a robot
 
@@ -65,11 +85,18 @@ define swarm_robot(id, n);
     sysflush(popdevout);
     for tick from 1 to STEPS do
         ;;; tell the fleet where we are
+        lvars wire = net_sign('' sys_>< id sys_>< ' ' sys_>< phase);
         for j from 0 to n - 1 do
             nextif(j == id);
-            net_send(s, swarm_peer(j), BASE_PORT + j,
-                     net_sign('' sys_>< id sys_>< ' ' sys_>< phase));
+            net_send(s, swarm_peer(j), BASE_PORT + j, wire);
         endfor;
+        ;;; A watcher is a passive observer: robots copy their phase to it,
+        ;;; it never sends anything back, so it cannot perturb the dynamics.
+        if swarm_watch then
+            lvars c = locchar(`:`, 1, swarm_watch);
+            net_send(s, substring(1, c - 1, swarm_watch),
+                     strnumber(allbutfirst(c, swarm_watch)), wire);
+        endif;
         ;;; take in whatever has arrived since last tick
         0.0 -> sum; 0 -> seen;
         repeat
@@ -85,7 +112,7 @@ define swarm_robot(id, n);
         if seen > 0 then phase + (K / seen) * sum * DT -> phase endif;
         phase mod TWO_PI -> phase;
         conspair(phase, hist) -> hist;
-        syssleep(2);                                ;;; ~20 ms a tick
+        syssleep(max(1, TICK_MS div 10));           ;;; TICK_MS per tick
     endfor;
     sysclose(s);
     ;;; leave our history where --render can find it.  Redirecting the
@@ -150,6 +177,65 @@ enddefine;
 
 ;;; ------------------------------------------------------------------ main
 
+;;; Pop-11 printf has no %5.3f, and '\033' is not a Pop-11 string escape.
+;;; Build the escape from its character code and round by hand.
+lconstant ESC = consstring(27, 1);
+
+define lconstant d3(x) -> s;
+    intof(x * 1000.0) / 1000.0 -> s;
+enddefine;
+
+define swarm_watcher(n, port);
+    lvars s = net_open(port), phase = initv(n), i, text, sender, seen = 0;
+    for i from 1 to n do false -> subscrv(i, phase) endfor;
+    printf('watching %p robots on port %p -- ctrl-C to stop\n\n', [% n, port %]);
+    define lconstant bar(ph);
+        ;;; one robot's phase as a position on a 2pi track
+        lvars col = intof((ph / TWO_PI) * 40) + 1, x;
+        for x from 1 to 40 do
+            cucharout(if x == col then `#` else `.` endif)
+        endfor;
+    enddefine;
+    define lconstant draw();
+        lvars i, ph, c = 0.0, sn = 0.0, live = 0, R;
+        for i from 1 to n do
+            subscrv(i, phase) -> ph;
+            if ph then
+                c + cos(ph) -> c; sn + sin(ph) -> sn; live + 1 -> live
+            endif;
+        endfor;
+        if live > 0 then sqrt(c*c + sn*sn) / live else 0.0 endif -> R;
+        printf(ESC >< '[H' >< ESC >< '[2J', []);   ;;; home + clear
+        printf('robot   phase track (0 .. 2pi)                    phase\n', []);
+        for i from 1 to n do
+            subscrv(i, phase) -> ph;
+            printf('  %p     ', [% i - 1 %]);
+            if ph then bar(ph); printf('  %p\n', [% d3(ph) %])
+            else printf('(silent)                                  --\n', []) endif;
+        endfor;
+        printf('\nsync R = %p   ', [% d3(R) %]);
+        lvars k;
+        for k from 1 to intof(R * 40) do cucharout(`=`) endfor;
+        printf('\n%p robots reporting, %p messages seen\n', [% live, seen %]);
+        sysflush(popdevout);
+    enddefine;
+    repeat
+        ;;; drain everything that has arrived, then redraw once
+        repeat
+            net_poll_signed(s) -> (text, sender);
+            quitunless(text);
+            lvars sp = locchar(` `, 1, text);
+            lvars who = strnumber(substring(1, sp - 1, text));
+            lvars ph  = strnumber(allbutfirst(sp, text));
+            if who and ph and who < n then
+                ph -> subscrv(who + 1, phase); seen + 1 -> seen
+            endif;
+        endrepeat;
+        draw();
+        syssleep(10);                          ;;; ~10 frames a second
+    endrepeat;
+enddefine;
+
 define swarm_main();
     lvars args = poparglist;
     returnif(args == []);
@@ -157,9 +243,14 @@ define swarm_main();
         lvars n = strnumber(hd(tl(args)));
         swarm_render(n, '/tmp/swarm.ppm');
         printf('wrote /tmp/swarm.ppm\n', []);
+    elseif hd(args) = '--watch' then
+        swarm_watcher(strnumber(hd(tl(args))), strnumber(hd(tl(tl(args)))));
     else
         if tl(tl(args)) /== [] then
             str_split(hd(tl(tl(args))), `,`) -> swarm_hosts
+        endif;
+        if tl(tl(args)) /== [] and tl(tl(tl(args))) /== [] then
+            hd(tl(tl(tl(args)))) -> swarm_watch
         endif;
         swarm_robot(strnumber(hd(args)), strnumber(hd(tl(args))));
     endif;

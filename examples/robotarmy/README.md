@@ -288,29 +288,62 @@ the coupling term never once fired and every robot free-ran while still
 producing plausible output.  See
 [docs/bugs/sys-input-waiting-blind-on-sockets.md](../../docs/bugs/sys-input-waiting-blind-on-sockets.md).
 
-### Across two machines it splits in two
+### Watching it live across real machines
 
-Pass a comma-separated peer list and spread the fleet over the network —
-robots 0 and 2 on macOS arm64, 1 and 3 on Linux x86-64, over Tailscale:
+`swarm-live.sh` starts two robots per machine and a passive watcher on this
+host.  The watcher only listens — robots copy their phase to it and it never
+replies, so it cannot perturb what it measures:
 
 ```sh
-HOSTS="$MAC,$LNX,$MAC,$LNX"
-./poplog basepop11 examples/robotarmy/swarm.p 0 4 "$HOSTS"   # on the Mac
-./poplog basepop11 examples/robotarmy/swarm.p 1 4 "$HOSTS"   # on the Linux box
+./examples/robotarmy/swarm-live.sh
 ```
 
-| tick | all four | mac pair | linux pair |
-| ---: | ---: | ---: | ---: |
-| 0 | 0.100 | 0.143 | 0.160 |
-| 60 | **0.935** | 0.993 | 0.992 |
-| 120 | 0.696 | 0.992 | 0.992 |
-| 239 | **0.337** | **0.997** | **0.995** |
+```
+robot   phase track (0 .. 2pi)                    phase
+  0     .............................#..........  4.594
+  1     ..............................#.........  4.778
+  2     ..............................#.........  4.858
+  3     ................................#.......  5.031
+  4     .................................#......  5.205
+  5     .................................#......  5.299
 
-Each machine's pair locks at 0.99 and holds; the two clusters peak together
-at 0.935 then drift apart.  All four on *either* machine alone lock at 0.99,
-so this is the link, not the platform: the tick is 20 ms and the RTT is
-4–108 ms (mean 34, stddev 40), so a remote peer's phase arrives two to five
-ticks stale.  Latency partitions a swarm along the lines of the network.
+sync R = 0.970   ======================================
+6 robots reporting, 566 messages seen
+```
+
+Configure with `NODES` (`ssh-target:remote-dir:tailnet-ip` per machine, `-`
+for this one) and `WATCH_IP`.  Robots read `SWARM_STEPS`, `SWARM_K`,
+`SWARM_TICK` (wall-clock pacing) and `SWARM_DT` (model timestep) from the
+environment; tick and timestep are independent, so slowing the demo down to
+watch it does not change the dynamics being watched.
+
+### Across machines, the fleet locks in pieces
+
+Six robots over three machines — macOS arm64, Linux x86-64, a Pi on DietPi —
+two per machine, 1200 ticks:
+
+| tick | all six | mac | linux | pi |
+| ---: | ---: | ---: | ---: | ---: |
+| 60 | 0.730 | 0.978 | 0.978 | 0.985 |
+| 240 | 0.694 | 0.977 | 0.975 | 0.983 |
+| 480 | 0.313 | 0.977 | 0.976 | 0.985 |
+| 960 | 0.967 | 0.977 | 0.976 | 0.984 |
+| 1199 | 0.350 | 0.993 | 0.982 | 0.984 |
+
+Each machine's pair locks at 0.98 within 60 ticks and stays there.  The fleet
+as a whole never settles: global R wanders between 0.31 and 0.98, mean 0.68.
+Four robots over two machines behave the same, cycling 0.94 → 0.12 → 0.94.
+
+The clusters are **beating**, not drifting to a final value.  A local peer's
+phase arrives within the tick it describes; across the link it arrives two to
+five ticks stale and jittered (tick 20 ms, RTT 4–108 ms, mean 34, stddev 40),
+so the groups run at slightly different rates and slide past each other
+forever.  Latency partitions a swarm along the lines of the network.
+
+**Measure the plateau, not the peak.**  Live, the fleet hits R = 0.97 around
+ten seconds in and looks globally locked; that is the top of a beat, and
+seconds later it is at 0.31.  A sync claim needs the value to *hold* over a
+run several times longer than it took to get there.
 
 ![four robots falling into step](../../docs/images/robotarmy-swarm.png)
 
