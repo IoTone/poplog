@@ -16,6 +16,7 @@ self-contained and runs from the repository root.
 | `fthwire.p` | — | **Forth words over the wire.** A robot is taught a word it has never seen, in one signed datagram, and executes it natively. |
 | `deploy.p` | — | **Pop-11 source over the wire.** Signed, chunked, compiled into a running robot with `pop11_compile` — including redefining a procedure the robot is already using. |
 | `deployments/patrol_order.p` | — | A capability to deploy: route planning the robot does not start with. |
+| `plant.p` | 6 | **VM specs over the wire.** Not source at all — an abstract instruction list the robot plants directly with `sysPROCEDURE`/`sysPUSHQ`/`sysCALL`. The same datagram becomes arm64 on one machine and x86-64 on another. |
 
 `fleet.p` runs its demonstration when it is the program; the other
 files load it as a library by declaring `robotarmy_lib` first.
@@ -166,3 +167,65 @@ The three mechanisms are the same as `fthwire.p`'s — `dlocal cucharout` to
 capture, `dlocal interrupt` + `exitfrom` to trap, and restoring the open
 stack afterwards — and they matter more here, not less, because what is
 being compiled is arbitrary.
+
+## VM specs over the wire (`plant.p`)
+
+`fthwire.p` and `deploy.p` both ship *source* and let the robot's compiler
+front-end read it.  This ships neither Forth nor Pop-11.  It ships an
+abstract instruction spec, and the robot plants VM code from it directly —
+no reader, no parser of any language.  This is Chapter 6 done between
+machines.
+
+The wire format is deliberately trivial, one instruction per line:
+
+```
+plant
+name double
+nargs 1
+pushq 2
+call fi_*
+```
+
+### One spec, two instruction sets
+
+The identical five lines, sent to two machines:
+
+```
+                 plant                                      call double 21
+  macOS arm64    planted double/1 as native code, 2 instr.        42
+  Linux x86-64   planted double/1 as native code, 2 instr.        42
+```
+
+Nothing architecture-specific crossed the wire.  Each robot's own back-end
+turned the same spec into its own native instructions — arm64 on one,
+x86-64 on the other.  A larger spec behaves the same way:
+
+```
+plant / name score / nargs 2 / call fi_* / pushq 10 / call fi_+
+  call score 6 7   ->  52     on both
+```
+
+A bad opcode gives `ERROR planting` and the robot keeps serving.
+
+### Two traps
+
+**Planting must happen while something is running.** At the top level of a
+file being compiled it mishaps with `sysEXECUTE: NOT AT EXECUTE LEVEL`,
+which is why `pl_plant` is a procedure rather than inline code.
+
+**`fi_*` does not type-check.** An early version of the `call` path wrote
+
+```pop11
+'' sys_>< fast_apply(p)        ;;; WRONG
+```
+
+which pushes the empty string *on top of* the argument `applist` had just
+pushed, so the planted procedure consumed `''` instead of `21`.  Because
+the fast integer operations skip type checks, the answer came back as
+`210.0` — quiet nonsense rather than a mishap.  Apply first, format second.
+
+### Why this is the interesting one
+
+Source needs a front-end for the language it is written in; a saved image
+needs an identical architecture and build.  A spec needs neither.  It is
+the smallest thing you can send that still arrives as native code.
