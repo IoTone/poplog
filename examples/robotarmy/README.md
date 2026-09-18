@@ -16,6 +16,7 @@ self-contained and runs from the repository root.
 | `fthwire.p` | — | **Forth words over the wire.** A robot is taught a word it has never seen, in one signed datagram, and executes it natively. |
 | `deploy.p` | — | **Pop-11 source over the wire.** Signed, chunked, compiled into a running robot with `pop11_compile` — including redefining a procedure the robot is already using. |
 | `deployments/patrol_order.p` | — | A capability to deploy: route planning the robot does not start with. |
+| `swarm.p` | 4 | **Robots that fall into step.** Each broadcasts its phase over UDP and pulls itself towards the others; with no leader or clock the fleet ends up marching in time. |
 | `plant.p` | 6 | **VM specs over the wire.** Not source at all — an abstract instruction list the robot plants directly with `sysPROCEDURE`/`sysPUSHQ`/`sysCALL`. The same datagram becomes arm64 on one machine and x86-64 on another. |
 
 `fleet.p` runs its demonstration when it is the program; the other
@@ -229,3 +230,57 @@ the fast integer operations skip type checks, the answer came back as
 Source needs a front-end for the language it is written in; a saved image
 needs an identical architecture and build.  A spec needs neither.  It is
 the smallest thing you can send that still arrives as native code.
+
+## Falling into step (`swarm.p`)
+
+Each robot carries a phase and a rhythm of its own.  Every tick it
+broadcasts its phase to the rest of the fleet, listens for theirs, and pulls
+itself slightly towards them:
+
+```
+phase' = phase + omega*dt + (K/N) * sum over peers of sin(peer - self)
+```
+
+Left alone, robots with different natural rhythms drift apart forever.
+Coupled, they pull each other into lockstep — **no leader, no clock, no
+central authority**.  (Kuramoto's model; the same arithmetic describes
+fireflies and pendulum clocks sharing a beam.)
+
+```sh
+for i in 0 1 2 3; do ./poplog basepop11 examples/robotarmy/swarm.p $i 4 & done
+wait
+./poplog basepop11 examples/robotarmy/swarm.p --render 4
+```
+
+Four separate OS processes, coupled only by signed datagrams.  Measured by
+the Kuramoto order parameter — 0 is chaos, 1 is perfect lockstep:
+
+| tick | phases | sync |
+| ---: | --- | ---: |
+| 0 | 0.05  1.77  3.48  5.20 | **0.096** |
+| 60 | 3.05  5.82  2.30  5.07 | 0.173 |
+| 120 | 6.05  3.58  1.12  4.94 | 0.259 |
+| 239 | 5.72  5.33  4.95  4.57 | **0.911** |
+
+They settle at a constant phase *lag* rather than identical phases, which is
+the correct behaviour for oscillators with different natural frequencies.
+
+![four robots falling into step](../../docs/images/robotarmy-swarm.png)
+
+Time runs left to right, one band per robot, colour is phase.  On the left
+the bands cycle at visibly different rates; by the right they share a rhythm
+and line up.
+
+### No graphics build needed
+
+The image is a PPM, written by redirecting the character sink to a file —
+the same `dlocal cucharout` trick that captures a Forth word's output in
+`fthwire.p`.  Set `K = 0` in the source to remove the coupling and watch the
+bands never converge.
+
+### Trap
+
+Poplog's trig is in **degrees** by default, so `sin` returns nearly-linear
+nonsense for small radian arguments and nothing ever couples.  `swarm.p`
+sets `true -> popradians` at the top, as `examples/microgpt/microgpt.p` does
+for the same reason.
