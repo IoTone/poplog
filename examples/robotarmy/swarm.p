@@ -27,22 +27,39 @@
 */
 vars robotarmy_lib = true;
 load 'examples/robotarmy/fleetnet.p';
+uses strutils;
 
 true -> popradians;              ;;; TRAP: Poplog trig is in DEGREES by default
 
 lconstant TWO_PI = 6.283185307179586;
 lconstant BASE_PORT = 9950;      ;;; robot i listens on BASE_PORT + i
+
+;;; Where the other robots are.  All on one machine by default; pass a
+;;; comma-separated host list as the third argument to spread the fleet
+;;; across real machines -- the coupling does not care which, a peer being
+;;; just a host and a port.
+vars swarm_hosts = false;        ;;; false => everyone on 127.0.0.1
 lconstant STEPS  = 240;
 lconstant DT     = 0.05;
 lconstant K      = 2.2;          ;;; coupling strength; 0 = every robot alone
 
 ;;; --------------------------------------------------------------- a robot
 
+define swarm_peer(j) -> host;
+    if swarm_hosts then
+        lvars l = swarm_hosts;
+        until j == 0 or tl(l) == [] do tl(l) -> l; j - 1 -> j enduntil;
+        hd(l) -> host;
+    else
+        '127.0.0.1' -> host;
+    endif;
+enddefine;
+
 define swarm_robot(id, n);
     lvars s = net_open(BASE_PORT + id), i, j, tick, msg, sender;
     lvars phase = (id * 1.7) mod TWO_PI;          ;;; scattered start
     lvars omega = 1.0 + id * 0.35;                ;;; each its own rhythm
-    lvars hist = [], peers, sum, seen, text;
+    lvars hist = [], peers, sum, seen, text, heard = 0;
     printf('robot %p: omega %p, listening on %p\n',
            [% id, omega, BASE_PORT + id %]);
     sysflush(popdevout);
@@ -50,7 +67,7 @@ define swarm_robot(id, n);
         ;;; tell the fleet where we are
         for j from 0 to n - 1 do
             nextif(j == id);
-            net_send(s, '127.0.0.1', BASE_PORT + j,
+            net_send(s, swarm_peer(j), BASE_PORT + j,
                      net_sign('' sys_>< id sys_>< ' ' sys_>< phase));
         endfor;
         ;;; take in whatever has arrived since last tick
@@ -60,7 +77,8 @@ define swarm_robot(id, n);
             quitunless(text);
             lvars sp = locchar(` `, 1, text);
             lvars peer = strnumber(allbutfirst(sp, text));
-            if peer then sum + sin(peer - phase) -> sum; seen + 1 -> seen endif;
+            if peer then sum + sin(peer - phase) -> sum; seen + 1 -> seen;
+                         heard + 1 -> heard endif;
         endrepeat;
         ;;; drift, plus a nudge towards everyone we heard from
         phase + omega * DT -> phase;
@@ -82,7 +100,8 @@ define swarm_robot(id, n);
         dump();
     endprocedure();
     out(termin);
-    printf('robot %p done\n', [% id %]);
+    printf('robot %p done -- heard %p peer messages over %p ticks, %p sends dropped\n',
+           [% id, heard, STEPS, net_send_errors %]);
 enddefine;
 
 ;;; --------------------------------------------------------------- drawing
@@ -139,6 +158,9 @@ define swarm_main();
         swarm_render(n, '/tmp/swarm.ppm');
         printf('wrote /tmp/swarm.ppm\n', []);
     else
+        if tl(tl(args)) /== [] then
+            str_split(hd(tl(tl(args))), `,`) -> swarm_hosts
+        endif;
         swarm_robot(strnumber(hd(args)), strnumber(hd(tl(args))));
     endif;
 enddefine;

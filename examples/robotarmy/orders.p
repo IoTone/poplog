@@ -95,8 +95,16 @@ define orders_main();
     lvars args = poparglist;
     returnif(args == []);
     if hd(args) = '--order' then
-        printf('%p\n', [% send_order(hd(tl(args)), strnumber(hd(tl(tl(args)))),
-                                     hd(tl(tl(tl(args))))) %]);
+        ;;; the shell hands us the order as separate words -- 'advance r2'
+        ;;; arrives as two arguments.  Join everything after host and port
+        ;;; back into one order, or the post hears only the verb and says
+        ;;; "unintelligible".
+        lvars rest = tl(tl(tl(args))), order = '', w;
+        for w in rest do
+            if order = '' then w -> order else order <> ' ' <> w -> order endif
+        endfor;
+        printf('%p\n', [% send_order(hd(tl(args)),
+                                     strnumber(hd(tl(tl(args)))), order) %]);
     else
         orders_robot(strnumber(hd(args)), false);
     endif;

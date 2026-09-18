@@ -265,18 +265,59 @@ the Kuramoto order parameter — 0 is chaos, 1 is perfect lockstep:
 | tick | phases | sync |
 | ---: | --- | ---: |
 | 0 | 0.05  1.77  3.48  5.20 | **0.096** |
-| 60 | 3.05  5.82  2.30  5.07 | 0.173 |
-| 120 | 6.05  3.58  1.12  4.94 | 0.259 |
-| 239 | 5.72  5.33  4.95  4.57 | **0.911** |
+| 60 | 3.72  3.90  3.98  4.13 | 0.990 |
+| 120 | 1.78  1.96  2.04  2.18 | 0.990 |
+| 239 | 4.11  4.29  4.37  4.51 | **0.990** |
 
-They settle at a constant phase *lag* rather than identical phases, which is
-the correct behaviour for oscillators with different natural frequencies.
+They lock by tick 60 and *stay* locked, at a constant phase *lag* rather than
+identical phases — the correct behaviour for oscillators with different
+natural frequencies.  The staying is the signal: a merely *rising* order
+parameter proves nothing, because uncoupled oscillators drift past each other
+and the measure climbs on the way past.
+
+Each robot reports its traffic on exit:
+
+```
+robot 0 done -- heard 717 peer messages over 240 ticks, 0 sends dropped
+```
+
+717 is 3 × 239 — every peer, every tick.  This line exists because an earlier
+version of this table was an artefact: `net_poll` was built on
+`sys_input_waiting`, which answers `false` forever on a datagram socket, so
+the coupling term never once fired and every robot free-ran while still
+producing plausible output.  See
+[docs/bugs/sys-input-waiting-blind-on-sockets.md](../../docs/bugs/sys-input-waiting-blind-on-sockets.md).
+
+### Across two machines it splits in two
+
+Pass a comma-separated peer list and spread the fleet over the network —
+robots 0 and 2 on macOS arm64, 1 and 3 on Linux x86-64, over Tailscale:
+
+```sh
+HOSTS="$MAC,$LNX,$MAC,$LNX"
+./poplog basepop11 examples/robotarmy/swarm.p 0 4 "$HOSTS"   # on the Mac
+./poplog basepop11 examples/robotarmy/swarm.p 1 4 "$HOSTS"   # on the Linux box
+```
+
+| tick | all four | mac pair | linux pair |
+| ---: | ---: | ---: | ---: |
+| 0 | 0.100 | 0.143 | 0.160 |
+| 60 | **0.935** | 0.993 | 0.992 |
+| 120 | 0.696 | 0.992 | 0.992 |
+| 239 | **0.337** | **0.997** | **0.995** |
+
+Each machine's pair locks at 0.99 and holds; the two clusters peak together
+at 0.935 then drift apart.  All four on *either* machine alone lock at 0.99,
+so this is the link, not the platform: the tick is 20 ms and the RTT is
+4–108 ms (mean 34, stddev 40), so a remote peer's phase arrives two to five
+ticks stale.  Latency partitions a swarm along the lines of the network.
 
 ![four robots falling into step](../../docs/images/robotarmy-swarm.png)
 
-Time runs left to right, one band per robot, colour is phase.  On the left
-the bands cycle at visibly different rates; by the right they share a rhythm
-and line up.
+Time runs left to right, one band per robot, colour is phase.  At the far
+left the bands are out of register, each cycling at its own rate; within the
+first quarter they lock, and every column is one colour across all four bands
+for the rest of the run.
 
 ### No graphics build needed
 

@@ -35,11 +35,28 @@ enddefine;
 ;;; symmetric-looking `vars r = sys_socket_send(...)` underflows the open
 ;;; stack and the mishap surfaces in the COMPILER, lines later, pointing at
 ;;; an innocent string.  See docs/bugs/sys-socket-send-returns-nothing.md.
+;;; A datagram send is best-effort by definition, and the kernel reports
+;;; some failures late and on the wrong call -- an ICMP error provoked by
+;;; one peer surfaces as a mishap on a send to a different one.  On Linux we
+;;; see an intermittent EPERM ("Operation not permitted") when the whole
+;;; fleet starts at the same instant; staggering the launch by a second
+;;; makes it vanish.  The kernel-side cause is not isolated, so we treat it
+;;; the way UDP asks to be treated: a failed send is a dropped datagram, not
+;;; a dead robot.  Programming errors (an over-MTU payload) still mishap.
+vars net_send_errors = 0;
+
 define net_send(sock, host, port, msg);
     if length(msg) > NET_MTU then
         mishap(length(msg), 1, 'net_send: payload exceeds NET_MTU -- chunk it')
     endif;
-    sys_socket_send(sock, msg, length(msg), 0, [^host ^port]);
+    procedure;
+        dlocal interrupt =
+            procedure;
+                net_send_errors + 1 -> net_send_errors;
+                exitfrom(net_send);
+            endprocedure;
+        sys_socket_send(sock, msg, length(msg), 0, [^host ^port]);
+    endprocedure();
 enddefine;
 
 ;;; Blocking receive -> (payload, sender)
@@ -50,8 +67,21 @@ define net_recv(sock) -> (msg, sender);
 enddefine;
 
 ;;; Non-blocking: (false, false) when nothing is waiting
+;;; TRAP: sys_input_waiting() answers false forever on a datagram socket,
+;;; even with a datagram sitting in it that a blocking recv returns at once.
+;;; A poll built on it is silently deaf: every read says "nothing arrived",
+;;; so a loop that couples on received messages simply never couples and
+;;; still produces plausible-looking output.  sys_device_wait is select(2)
+;;; and is what pop/ref/sockets tells you to use.  See
+;;; docs/bugs/sys-input-waiting-blind-on-sockets.md.
+define net_ready(sock) -> yes;
+    lvars rd;
+    sys_device_wait([^sock], [], [], 0) -> (rd, , );
+    rd /== [] -> yes;
+enddefine;
+
 define net_poll(sock) -> (msg, sender);
-    if sys_input_waiting(sock) then
+    if net_ready(sock) then
         net_recv(sock) -> (msg, sender)
     else
         false -> msg; false -> sender

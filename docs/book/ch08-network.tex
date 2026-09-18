@@ -98,6 +98,7 @@ extra chunk into a message whose other parts are genuine. Verified at 7992
 bytes over 8 datagrams, reassembled byte-identical.
 
 \section{Forth over the wire}
+\label{sec:forthwire}
 
 The smallest useful thing to send. \ghfile{fthwire.p} listens, verifies,
 and hands the payload to \code{forth\_run} --- which, as \S5.4 explained,
@@ -302,35 +303,150 @@ no central authority. (Kuramoto's model; the same arithmetic describes
 fireflies and pendulum clocks sharing a beam.)
 
 Four separate OS processes, coupled only by signed datagrams. Measured by
-the order parameter, where 0 is chaos and 1 is perfect lockstep:
+the order parameter $R$, where 0 is chaos and 1 is perfect lockstep:
 
 \begin{center}
 \footnotesize
 \begin{tabular}{rlr}
 \toprule
-\textbf{tick} & \textbf{phases} & \textbf{sync}\\
+\textbf{tick} & \textbf{phases} & \textbf{$R$}\\
 \midrule
 0   & 0.05\ \ 1.77\ \ 3.48\ \ 5.20 & \textbf{0.096}\\
-60  & 3.05\ \ 5.82\ \ 2.30\ \ 5.07 & 0.173\\
-120 & 6.05\ \ 3.58\ \ 1.12\ \ 4.94 & 0.259\\
-239 & 5.72\ \ 5.33\ \ 4.95\ \ 4.57 & \textbf{0.911}\\
+60  & 3.72\ \ 3.90\ \ 3.98\ \ 4.13 & 0.990\\
+120 & 1.78\ \ 1.96\ \ 2.04\ \ 2.18 & 0.990\\
+239 & 4.11\ \ 4.29\ \ 4.37\ \ 4.51 & \textbf{0.990}\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-They settle at a constant phase \emph{lag} rather than identical phases,
-which is the right answer for oscillators with different natural
-frequencies.
+They lock by tick 60 and \emph{stay} locked, holding a constant phase lag ---
+not identical phases, which is the right answer for oscillators with different
+natural frequencies. The staying is the whole signal. A rising $R$ proves
+nothing on its own: four uncoupled oscillators drift past one another and $R$
+climbs on the way past, purely by coincidence. Only a plateau is entrainment.
+
+\begin{callout}{The measurement that was wrong for a week}
+This table used to read $0.096 \rightarrow 0.911$, and it was an artefact.
+\code{net\_poll} was built on \code{sys\_input\_waiting}, which answers
+\code{false} forever on a datagram socket --- even with a datagram queued that
+a blocking \code{recv} returns at once. So \code{seen} was always 0, the
+coupling term never fired, and every robot free-ran. No error was raised: a
+poll returning nothing is exactly what a quiet network looks like.
+
+Every printed phase was reproducible from $(id \cdot 1.7 + \omega t) \bmod
+2\pi$ with no network term at all. The tell was that a run across two machines
+matched the single-machine run to the last digit --- impossible over a 34\,ms
+jittered link, and proof that nothing in the output depended on the network.
+The fix is \code{sys\_device\_wait}, which is \code{select(2)} and is what
+\code{pop/ref/sockets} tells you to use:
+
+\begin{pop}
+define net_ready(sock) -> yes;
+    lvars rd;
+    sys_device_wait([^sock], [], [], 0) -> (rd, , );
+    rd /== [] -> yes;
+enddefine;
+\end{pop}
+
+\noindent Robots now report their traffic, so a silent poll cannot hide again:
+
+\begin{repl}
+robot 0 done -- heard 717 peer messages over 240 ticks, 0 sends dropped
+\end{repl}
+
+\noindent 717 is $3 \times 239$: every peer, every tick. When it was broken,
+this line would have read 0. Assert on the traffic, not on whether output
+appeared. See \ghfile{docs/bugs/sys-input-waiting-blind-on-sockets.md}.
+\end{callout}
 
 \begin{figure}[h]
 \centering
 \includegraphics[width=\linewidth]{figures/swarm}
 \caption*{\small Four robots falling into step. Time runs left to right, one
-band per robot, colour is phase. On the left the bands cycle at visibly
-different rates; by the right they share a rhythm and line up. Set
+band per robot, colour is phase. At the far left the bands are visibly out of
+register, each cycling at its own rate; within the first quarter they lock and
+every column is one colour across all four for the rest of the run. Set
 \code{K = 0} in the source to remove the coupling and watch them never
-converge.}
+converge --- and note that they never line up again, which is what the broken
+poll was silently producing.}
 \end{figure}
+
+\subsection{Across two machines, it splits in two}
+
+Everything above is four processes on one host. Spread the same four robots
+across two machines --- robots 0 and 2 on macOS arm64, 1 and 3 on Linux
+x86-64, over a Tailscale link --- and pass each robot the peer list:
+
+\begin{sh}
+HOSTS="$MAC,$LNX,$MAC,$LNX"
+./poplog basepop11 swarm.p 0 4 "$HOSTS"     # on the Mac
+./poplog basepop11 swarm.p 1 4 "$HOSTS"     # on the Linux box
+\end{sh}
+
+\noindent The fleet does not fall into one step. It falls into two:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{rrrr}
+\toprule
+\textbf{tick} & \textbf{all four} & \textbf{mac pair} & \textbf{linux pair}\\
+\midrule
+0   & 0.100 & 0.143 & 0.160\\
+60  & \textbf{0.935} & 0.993 & 0.992\\
+120 & 0.696 & 0.992 & 0.992\\
+239 & \textbf{0.337} & \textbf{0.997} & \textbf{0.995}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each machine's pair locks hard and holds at $0.99$. The two clusters reach
+$0.935$ together around tick 60, then drift apart to $0.337$. Run all four on
+\emph{either} machine alone and they lock at $0.99$, so this is not a
+platform difference --- it is the link. The tick is 20\,ms; the measured RTT
+is 4--108\,ms, mean 34\,ms, standard deviation 40\,ms. A local peer's phase
+arrives within the tick it describes; a remote peer's arrives two to five
+ticks stale, and jitters. Coupling to a stale phase is coupling to where your
+peer \emph{was}, and past a certain lag it stops pulling you together.
+
+That is a real result about distributed systems, not a defect to hide: latency
+partitions a swarm along the lines of the network. Shorten the tick and the
+clusters separate sooner; lengthen it past the jitter and they merge. The
+loss is real too --- the Linux pair heard 630 of 717 possible messages across
+the link, while the Mac pair, whose peers were local, heard 717.
+
+\subsection{A send that fails is a dropped datagram, not a dead robot}
+
+Starting all four robots on Linux at the same instant used to kill one with
+\code{MISHAP - ERROR SENDING TO SOCKET (Operation not permitted)}. Staggering
+the launch by a second made it vanish, and it never reproduced in isolation
+--- not against a dead port, not under a 400-datagram burst --- so the
+kernel-side cause is still unidentified. The handling does not depend on
+knowing it. UDP sends are advisory, and the kernel reports some failures late
+and against the wrong call, so \code{net\_send} counts a failure and carries
+on, while genuine programming errors still mishap:
+
+\begin{pop}
+vars net_send_errors = 0;
+
+define net_send(sock, host, port, msg);
+    if length(msg) > NET_MTU then
+        mishap(length(msg), 1, 'net_send: payload exceeds NET_MTU -- chunk it')
+    endif;
+    procedure;
+        dlocal interrupt =
+            procedure;
+                net_send_errors + 1 -> net_send_errors;
+                exitfrom(net_send);
+            endprocedure;
+        sys_socket_send(sock, msg, length(msg), 0, [^host ^port]);
+    endprocedure();
+enddefine;
+\end{pop}
+
+\noindent \code{dlocal interrupt} again --- the same mechanism that sandboxes
+a Forth word in \S\ref{sec:forthwire}, here turning a fatal error into a
+counter. The count is reported at exit, so a fleet quietly shedding traffic
+is visible rather than merely slow.
 
 \subsection{Drawing without a graphics build}
 
