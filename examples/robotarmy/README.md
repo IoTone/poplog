@@ -14,6 +14,8 @@ self-contained and runs from the repository root.
 | `signed_orders.p` | 7 | HMAC-signed orders through `lib crypto` (OpenSSL via a C shim): genuine, tampered, replayed. Build the shim first: `tools/build-popcrypto.sh` |
 | `fleetnet.p` | — | The fleet's UDP transport: `net_open`/`net_send`/`net_recv`/`net_poll`, plus `net_sign`/`net_verify` over HMAC-SHA256. Everything networked sits on this. |
 | `fthwire.p` | — | **Forth words over the wire.** A robot is taught a word it has never seen, in one signed datagram, and executes it natively. |
+| `deploy.p` | — | **Pop-11 source over the wire.** Signed, chunked, compiled into a running robot with `pop11_compile` — including redefining a procedure the robot is already using. |
+| `deployments/patrol_order.p` | — | A capability to deploy: route planning the robot does not start with. |
 
 `fleet.p` runs its demonstration when it is the program; the other
 files load it as a library by declaring `robotarmy_lib` first.
@@ -76,3 +78,66 @@ before reaching the compiler:
 against has an interface MTU of 1380, and a 1372-byte don't-fragment ping to
 the peer is already dropped while 1200 passes.  Forth words are tens of
 bytes, so they fit comfortably; shipping Pop-11 source will need chunking.
+
+## Pop-11 source over the wire (`deploy.p`)
+
+The same idea as `fthwire.p` one level up.  Instead of a Forth word, a robot
+receives **Pop-11 source**, signed, in as many chunks as it takes, and
+compiles it into itself with `pop11_compile`.  The new procedure is native
+machine code and is simply there from then on.
+
+```sh
+./poplog basepop11 examples/robotarmy/deploy.p 9800                  # the robot
+
+./poplog basepop11 examples/robotarmy/deploy.p --tell 127.0.0.1 9800 \
+    'define escort(n); n * 3 enddefine;'                             # -> compiled ok
+./poplog basepop11 examples/robotarmy/deploy.p --tell 127.0.0.1 9800 \
+    'npr(escort(7));'                                                # -> 21
+```
+
+### Redefinition, in a running robot
+
+This is the part worth watching.  Redeploy the *same* procedure with a new
+body and call it again — same process, no restart, no dispatch table:
+
+```
+define escort(n); n * 3 enddefine;        ->  compiled ok
+npr(escort(7));                           ->  21
+define escort(n); n * 100 + 1 enddefine;  ->  compiled ok
+npr(escort(7));                           ->  701
+```
+
+### A real capability, chunked
+
+`deployments/patrol_order.p` is 1898 bytes — two signed chunks, reassembled
+before a single character reaches the compiler.  Immediately afterwards the
+robot can plan a route it could not plan a second earlier:
+
+```
+--file  … patrol_order.p                                  ->  compiled ok
+npr(describe_patrol(plan_patrol(
+    [[ridge 4] [creek 2] [tower 9] [mill 3]], 10)));      ->  creek -> mill -> ridge [cost 9]
+```
+
+(`tower` is left out: it would break the budget of 10.)
+
+### Chunking
+
+A long message goes out as numbered chunks, `<id>:<seq>:<total>:<payload>`,
+**each signed in its own right** — so an attacker cannot slip an extra chunk
+into a message whose other parts are genuine.  Chunks are reassembled per
+`(sender, id)`.  Verified at 7992 bytes over 8 datagrams, byte-identical.
+
+### It survives what is thrown at it
+
+| | |
+| --- | --- |
+| malformed source | `ERROR compiling deployment`, robot keeps serving |
+| still knows what it learned | `alpha -> beta [cost 6]` |
+| **unsigned deployment** | `refused - no backdoor` — never reaches the compiler |
+| legitimately signed one | `plan_patrol present (signed, accepted)` |
+
+The three mechanisms are the same as `fthwire.p`'s — `dlocal cucharout` to
+capture, `dlocal interrupt` + `exitfrom` to trap, and restoring the open
+stack afterwards — and they matter more here, not less, because what is
+being compiled is arbitrary.

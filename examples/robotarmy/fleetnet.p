@@ -89,3 +89,61 @@ define net_poll_signed(sock) -> (text, sender);
     net_poll(sock) -> (wire, sender);
     if wire then net_verify(wire) -> text else false -> text endif
 enddefine;
+
+;;; -------------------------------------------------------------- chunking
+;;; Forth words fit in one datagram; Pop-11 source generally does not.  A
+;;; long message goes out as numbered chunks, each one signed in its own
+;;; right -- so an attacker cannot slip an extra chunk into a message whose
+;;; other parts are genuine.  Chunks are reassembled per (sender, id).
+;;;
+;;;     wire:  <id>:<seq>:<total>:<payload>   then signed
+
+lconstant NET_CHUNK = 1000;     ;;; leaves room for signature + header
+
+vars net_msgid = 0;             ;;; per-process message counter
+vars net_partial = newmapping([], 32, false, true);
+
+define net_send_big(sock, host, port, text);
+    lvars len = length(text), total, i, seq = 0, chunk, hdr;
+    net_msgid + 1 -> net_msgid;
+    ((len + NET_CHUNK - 1) div NET_CHUNK) -> total;
+    if total == 0 then 1 -> total endif;
+    for i from 1 by NET_CHUNK to max(len, 1) do
+        seq + 1 -> seq;
+        substring(i, min(NET_CHUNK, len - i + 1), text) -> chunk;
+        '' sys_>< net_msgid sys_>< ':' sys_>< seq sys_>< ':'
+           sys_>< total sys_>< ':' sys_>< chunk -> hdr;
+        net_send(sock, host, port, net_sign(hdr));
+    endfor;
+enddefine;
+
+;;; Split "id:seq:total:payload" -> (id, seq, total, payload)
+define net_unpack(s) -> (id, seq, total, payload);
+    lvars a = locchar(`:`, 1, s), b, c;
+    locchar(`:`, a + 1, s) -> b;
+    locchar(`:`, b + 1, s) -> c;
+    substring(1, a - 1, s) -> id;
+    strnumber(substring(a + 1, b - a - 1, s)) -> seq;
+    strnumber(substring(b + 1, c - b - 1, s)) -> total;
+    allbutfirst(c, s) -> payload;
+enddefine;
+
+;;; Receive one datagram; return the whole message once its last chunk
+;;; arrives, else (false, sender).  Unverifiable datagrams are dropped.
+define net_collect(sock) -> (text, sender);
+    lvars wire, body, id, seq, total, payload, key, slots, i;
+    false -> text;
+    net_recv(sock) -> (wire, sender);
+    net_verify(wire) -> body;
+    returnunless(body);
+    net_unpack(body) -> (id, seq, total, payload);
+    consword(hd(sender) sys_>< '/' sys_>< id) -> key;
+    net_partial(key) -> slots;
+    unless slots then initv(total) ->> slots -> net_partial(key) endunless;
+    payload -> subscrv(seq, slots);
+    ;;; complete?
+    for i from 1 to total do returnunless(isstring(subscrv(i, slots))) endfor;
+    '' -> text;
+    for i from 1 to total do text <> subscrv(i, slots) -> text endfor;
+    false -> net_partial(key);
+enddefine;
