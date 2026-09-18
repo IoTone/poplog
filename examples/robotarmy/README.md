@@ -187,15 +187,21 @@ pushq 2
 call fi_*
 ```
 
-### One spec, two instruction sets
+### One spec, three instruction sets
 
-The identical five lines, sent to two machines:
+The identical five lines, sent to three machines:
 
 ```
-                 plant                                      call double 21
-  macOS arm64    planted double/1 as native code, 2 instr.        42
-  Linux x86-64   planted double/1 as native code, 2 instr.        42
+                  plant                                     call double 21
+  macOS arm64     planted double/1 as native code, 2 instr.       42
+  Linux x86-64    planted double/1 as native code, 2 instr.       42
+  Linux aarch64   planted double/1 as native code, 2 instr.       42
 ```
+
+The Pi is not on the tailnet — it sits on the x86-64 box's local network, so
+that leg was driven from x86-64 rather than from the Mac: an x86-64 command
+post planting aarch64 code.  Nothing in the code knows or cares; a robot is
+a host and a port.
 
 Nothing architecture-specific crossed the wire.  Each robot's own back-end
 turned the same spec into its own native instructions — arm64 on one,

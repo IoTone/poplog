@@ -15,8 +15,16 @@ heap is the one that cannot cross a heterogeneous fleet. That constraint
 shapes everything below.
 
 Everything here is in \href{\ghbase}{\code{examples/robotarmy/}} and was run
-between two machines while this chapter was written --- a command post on
-macOS \code{arm64} and a robot on Linux \code{x86-64}, over a tailnet.
+between real machines while this chapter was written: a command post on
+macOS \code{arm64}, a robot on Linux \code{x86-64} over a tailnet, and a
+Raspberry Pi 5 on Linux \code{aarch64}.
+
+The Pi is worth a note, because it is what a fleet actually looks like. It
+is not on the tailnet; it sits on the x86-64 box's local network, so the Mac
+cannot address it at all and the x86-64 machine has to act as the command
+post for that leg. Nothing in the code knows or cares --- a robot is a host
+and a port --- but it is a reminder that ``the fleet'' is rarely one flat
+network.
 
 \section{The transport}
 
@@ -243,12 +251,13 @@ define pl_plant(nargs, instrs) -> p;
 enddefine;
 \end{pop}
 
-Send those five lines to two machines at once:
+Send those five lines to three machines:
 
 \begin{repl}
-                 plant                                   call double 21
-  macOS arm64    planted double/1 as native code, 2 instructions   42
-  Linux x86-64   planted double/1 as native code, 2 instructions   42
+                  plant                                  call double 21
+  macOS arm64     planted double/1 as native code, 2 instrs     42
+  Linux x86-64    planted double/1 as native code, 2 instrs     42
+  Linux aarch64   planted double/1 as native code, 2 instrs     42
 \end{repl}
 
 Nothing architecture-specific crossed the wire. Each robot's own back-end
@@ -260,6 +269,10 @@ A larger one behaves identically: \code{name score / nargs 2 / call fi\_* /
 pushq 10 / call fi\_+} answers \code{52} to \code{call score 6 7} on both
 architectures. A bad opcode gives \code{ERROR planting} and the robot keeps
 serving.
+
+The Pi leg was driven from the x86-64 machine rather than the Mac, for the
+routing reason above --- an \code{x86-64} command post planting
+\code{aarch64} code, which is the same trick pointing a third way.
 
 \begin{callout}{Two traps}
 \textbf{Planting must happen while something is running.} At the top level
