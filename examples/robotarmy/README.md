@@ -41,10 +41,35 @@ executed in the second.  Recursion works too — `: fib dup 2 < if drop 1
 else dup 1 - recurse swap 2 - recurse + then ; 20 fib .` returns `10946`
 from a robot that had never heard of `fib`.
 
-**Measured:** 500 round trips — sign, send, verify, compile a brand-new
-native word, run it, reply — in **20 ms of client CPU**; the whole program
-including engine startup ran in 84 ms wall.  A word is about sixty bytes on
-the wire.
+**Measured on loopback:** 500 round trips — sign, send, verify, compile a
+brand-new native word, run it, reply — in **20 ms of client CPU**; the whole
+program including engine startup ran in 84 ms wall.  A word is about sixty
+bytes on the wire.
+
+### Verified between two machines, two architectures
+
+The point of the exercise.  Robot on **Linux x86-64**, command post on
+**macOS arm64**, over a tailnet — the word is compiled to *x86-64* native
+code by a datagram sent from an *arm64* machine:
+
+```
+  <- : patrol 0 do 1 + loop ;
+  -> ok
+  <- 0 10 patrol .
+  -> 10
+  <- : fib dup 2 < if drop 1 else dup 1 - recurse swap 2 - recurse + then ; 20 fib .
+  -> 10946
+```
+
+Signing holds across the network too: an unsigned datagram comes back
+`REFUSED: bad signature`, a signed `7 7 * .` comes back `49`.  Twenty
+cross-machine teach-and-run round trips complete inside a 0.186 s program,
+engine startup included.
+
+Source is what travels — not a saved image.  A `.psv` could not make this
+trip at all (images are tied to their architecture and build), which is
+exactly why the fleet ships code as text and lets each robot's own compiler
+turn it into native instructions.
 
 ### Three things hold it together
 
