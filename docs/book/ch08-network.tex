@@ -1,0 +1,373 @@
+\chapter{The fleet rewrites itself}
+
+Everything so far has happened inside one process. A fleet is not one
+process. This chapter puts the robots on a network and gives them the one
+capability that makes Poplog worth choosing for the job: a robot can be sent
+something over UDP and \emph{become able to do it} --- not by loading a
+plugin or dispatching through a table, but by compiling the arrival into
+native machine code and carrying on.
+
+Three things travel well, and they are not equally good. Source in a
+language the robot can read. A \emph{spec} that needs no reader at all. And,
+notably, \textbf{not} a saved image: a \code{.psv} is tied to its
+architecture and its build, so the one artefact that carries a whole living
+heap is the one that cannot cross a heterogeneous fleet. That constraint
+shapes everything below.
+
+Everything here is in \href{\ghbase}{\code{examples/robotarmy/}} and was run
+between two machines while this chapter was written --- a command post on
+macOS \code{arm64} and a robot on Linux \code{x86-64}, over a tailnet.
+
+\section{The transport}
+
+\ghfile{fleetnet.p} is the whole network layer: datagram sockets, signing,
+and chunking, in about ninety lines.
+
+\begin{pop}
+uses unix_sockets;
+
+define net_open(port) -> sock;
+    sys_socket(`i`, `D`, false) -> sock;        ;;; `D` = SOCK_DGRAM
+    [* ^port] -> sys_socket_name(sock);         ;;; bind; * is INADDR_ANY
+enddefine;
+
+define net_send(sock, host, port, msg);
+    if length(msg) > NET_MTU then
+        mishap(length(msg), 1, 'net_send: payload exceeds NET_MTU -- chunk it')
+    endif;
+    sys_socket_send(sock, msg, length(msg), 0, [^host ^port]);
+enddefine;
+\end{pop}
+
+\begin{callout}{The trap that costs an hour}
+\code{sys\_socket\_recv} leaves a byte count on the stack (and the sender's
+address). \code{sys\_socket\_send} leaves \textbf{nothing}. Writing the
+symmetric-looking \code{vars r = sys\_socket\_send(\ldots)} underflows the
+open stack --- and nothing complains there. The mishap surfaces in the
+\emph{compiler}, on a later line, pointing at an innocent string constant:
+\code{BAD SUBSCRIPT FOR INDEXED STACK ACCESS} inside \code{read\_strcon}.
+Under other orderings the same underflow arrives as a bare
+\code{[fatal] sig=11} with no Pop-11 diagnostic at all. \code{net\_send}
+wraps it so no caller meets it again;
+\code{docs/bugs/sys-socket-send-returns-nothing.md} has the details.
+\end{callout}
+
+\subsection{Signing, and why it is in the transport}
+
+Three of the four things below \emph{compile what they receive}. That makes
+the signature check part of the transport rather than a courtesy the handler
+might remember:
+
+\begin{pop}
+define net_sign(text) -> wire;
+    crypto_hmac_hex('sha256', fleet_key, text) <> ' ' <> text -> wire
+enddefine;
+
+define net_verify(wire) -> text;                ;;; false unless genuinely ours
+    ...
+enddefine;
+\end{pop}
+
+A robot that cannot verify a datagram does not act on it, and above all does
+not hand it to a compiler. Chapter~7 built the HMAC; this is what it was
+for.
+
+\subsection{Sizing, measured}
+
+\code{NET\_MTU} is 1200 bytes. That is not a guess. The tailnet interface
+reports an MTU of 1380, and a 1372-byte don't-fragment ping to the peer is
+already dropped while 1200 passes:
+
+\begin{repl}
+  200 bytes: OK      1200 bytes: OK
+  800 bytes: OK      1372 bytes: BLOCKED
+\end{repl}
+
+Forth words are tens of bytes and fit comfortably. Pop-11 source does not, so
+long messages go out as numbered chunks, \code{<id>:<seq>:<total>:<payload>},
+\textbf{each signed in its own right} --- otherwise an attacker could slip an
+extra chunk into a message whose other parts are genuine. Verified at 7992
+bytes over 8 datagrams, reassembled byte-identical.
+
+\section{Forth over the wire}
+
+The smallest useful thing to send. \ghfile{fthwire.p} listens, verifies,
+and hands the payload to \code{forth\_run} --- which, as \S5.4 explained,
+transpiles a colon definition to Pop-11 and runs it through the incremental
+compiler. The new word is native code.
+
+\begin{repl}
+$ ./poplog basepop11 examples/robotarmy/fthwire.p 9600      # the robot
+
+$ ... --tell 100.70.154.54 9600 ': patrol 0 do 1 + loop ;'
+ok
+$ ... --tell 100.70.154.54 9600 '0 10 patrol .'
+10
+\end{repl}
+
+The word was taught in the first datagram and executed in the second. The
+robot had never heard of \code{patrol}. Recursion crosses just as happily:
+\code{: fib dup 2 < if drop 1 else dup 1 - recurse swap 2 - recurse + then ;
+20 fib .} comes back \code{10946}.
+
+Those addresses are real: the robot was a Linux \code{x86-64} box and the
+command post an \code{arm64} Mac. The word arrived as text and left as
+x86-64 instructions.
+
+\subsection{Three mechanisms hold it together}
+
+None of them is plumbing; all three are Chapter~3 material doing real work.
+
+\textbf{Capturing the output.} Forth prints through \code{cucharout}, so
+rebinding the sink for the dynamic extent of the call collects whatever the
+word printed --- and \code{dlocal} restores it however the call exits,
+including when the word blows up.
+
+\begin{pop}
+define fw_capture(p) -> out;
+    lvars acc = [];
+    dlocal cucharout = procedure(c); conspair(c, acc) -> acc endprocedure;
+    p();
+    consstring(#| applist(rev(acc), identfn) |#) -> out;
+enddefine;
+\end{pop}
+
+\textbf{Trapping a bad word.} A word that mishaps must not take the robot
+with it. The idiom is \code{lib jsonrpc}'s:
+
+\begin{pop}
+define fw_trapped(src);
+    dlocal interrupt =
+        procedure(); false -> fw_ok; exitfrom(fw_trapped) endprocedure;
+    forth_run(src);
+enddefine;
+\end{pop}
+
+\textbf{Repairing the stack.} This is the subtle one. \code{exitfrom}
+unwinds the call chain but \emph{not} the open stack --- and Forth's data
+stack \textbf{is} that stack (\S5.4), so a word that died holding values
+would poison the next order. After a deliberate crash, \code{.s} must report
+an empty stack, and it does:
+
+\begin{repl}
+  <- nosuchword
+  -> ERROR executing: nosuchword
+  <- : sq dup * ; 9 sq .
+  -> 81
+  <- .s
+  -> <0>
+\end{repl}
+
+\begin{callout}{Measured}
+500 round trips on loopback --- sign, send, verify, compile a brand-new
+native word, run it, reply --- in \textbf{20\,ms of client CPU}; the whole
+program including engine startup ran in 84\,ms. Twenty cross-machine round
+trips fit inside a 0.186\,s program.
+\end{callout}
+
+\section{Pop-11 source over the wire}
+
+\ghfile{deploy.p} is the same idea one level up: the payload is Pop-11, it
+arrives in as many signed chunks as it takes, and \code{pop11\_compile} puts
+it into the running robot.
+
+The demonstration is redefinition. Same process, same call, no restart:
+
+\begin{repl}
+define escort(n); n * 3 enddefine;        ->  compiled ok
+npr(escort(7));                           ->  21
+define escort(n); n * 100 + 1 enddefine;  ->  compiled ok
+npr(escort(7));                           ->  701
+\end{repl}
+
+Nothing was reloaded and nothing was dispatched through. The identifier
+\code{escort} now names different machine code, and every later caller gets
+it --- which is exactly the behaviour \S1.2 measured at fifteen microseconds
+a definition, now happening at the far end of a network.
+
+A real capability behaves the same. \code{deployments/patrol\_order.p} is
+1898 bytes of route planning --- two chunks --- and the moment it lands the
+robot can do something it could not do a second earlier:
+
+\begin{repl}
+--file ... patrol_order.p                             ->  compiled ok
+npr(describe_patrol(plan_patrol(
+    [[ridge 4] [creek 2] [tower 9] [mill 3]], 10)));  ->  creek -> mill -> ridge [cost 9]
+\end{repl}
+
+(\code{tower} is left out: it would break the budget of 10.)
+
+\subsection{What it refuses}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{ll}
+\toprule
+malformed source & \code{ERROR compiling deployment}, robot keeps serving\\
+still knows what it learned & \code{alpha -> beta [cost 6]}\\
+\textbf{unsigned deployment} & \code{refused - no backdoor} --- never reaches the compiler\\
+the signed one & \code{plan\_patrol present (signed, accepted)}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The unsigned payload carried \code{define backdoor}. The robot was asked
+afterwards whether \code{backdoor} existed, and it did not.
+
+\section{Specs over the wire}
+
+Source still needs a front-end for the language it is written in.
+\ghfile{plant.p} sends neither Forth nor Pop-11 --- it sends an abstract
+instruction list, and the robot plants VM code from it directly with the
+builder procedures of Chapter~6:
+
+\begin{repl}
+plant
+name double
+nargs 1
+pushq 2
+call fi_*
+\end{repl}
+
+\begin{pop}
+define pl_plant(nargs, instrs) -> p;
+    lvars ins, op, arg;
+    sysPROCEDURE(false, nargs);
+    for ins in instrs do
+        hd(ins) -> op; hd(tl(ins)) -> arg;
+        if      op == "pushq" then sysPUSHQ(arg)
+        elseif  op == "call"  then sysCALL(arg)
+        ...
+    endfor;
+    sysENDPROCEDURE() -> p;
+enddefine;
+\end{pop}
+
+Send those five lines to two machines at once:
+
+\begin{repl}
+                 plant                                   call double 21
+  macOS arm64    planted double/1 as native code, 2 instructions   42
+  Linux x86-64   planted double/1 as native code, 2 instructions   42
+\end{repl}
+
+Nothing architecture-specific crossed the wire. Each robot's own back-end
+turned the same spec into its own instructions --- and this is the thing no
+bytecode VM gives you, because there is no interpreter at the far end. The
+spec became \emph{machine code} on both.
+
+A larger one behaves identically: \code{name score / nargs 2 / call fi\_* /
+pushq 10 / call fi\_+} answers \code{52} to \code{call score 6 7} on both
+architectures. A bad opcode gives \code{ERROR planting} and the robot keeps
+serving.
+
+\begin{callout}{Two traps}
+\textbf{Planting must happen while something is running.} At the top level
+of a file being compiled it mishaps with \code{sysEXECUTE: NOT AT EXECUTE
+LEVEL}, which is why \code{pl\_plant} is a procedure and not inline code.
+
+\textbf{\code{fi\_*} does not type-check.} An early version of the call path
+wrote \code{'' sys\_>< fast\_apply(p)}, which pushes the empty string
+\emph{on top of} the argument already on the stack, so the planted procedure
+consumed \code{''} instead of \code{21}. The fast integer operations skip
+type checks, so the answer came back \code{210.0} --- quiet nonsense rather
+than a mishap. Apply first, format second.
+\end{callout}
+
+\section{Falling into step}
+
+The last one sends no code at all --- only numbers --- and is the clearest
+picture of a fleet behaving as one thing. Each robot in \ghfile{swarm.p}
+carries a phase and a rhythm of its own, broadcasts its phase every tick, and
+pulls itself towards whatever it hears:
+
+\[ \theta' = \theta + \omega\,dt + \frac{K}{N}\sum_{\text{peers}} \sin(\theta_{\text{peer}} - \theta) \]
+
+Left alone, robots with different natural rhythms drift apart forever.
+Coupled, they pull each other into lockstep --- with no leader, no clock and
+no central authority. (Kuramoto's model; the same arithmetic describes
+fireflies and pendulum clocks sharing a beam.)
+
+Four separate OS processes, coupled only by signed datagrams. Measured by
+the order parameter, where 0 is chaos and 1 is perfect lockstep:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{rlr}
+\toprule
+\textbf{tick} & \textbf{phases} & \textbf{sync}\\
+\midrule
+0   & 0.05\ \ 1.77\ \ 3.48\ \ 5.20 & \textbf{0.096}\\
+60  & 3.05\ \ 5.82\ \ 2.30\ \ 5.07 & 0.173\\
+120 & 6.05\ \ 3.58\ \ 1.12\ \ 4.94 & 0.259\\
+239 & 5.72\ \ 5.33\ \ 4.95\ \ 4.57 & \textbf{0.911}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+They settle at a constant phase \emph{lag} rather than identical phases,
+which is the right answer for oscillators with different natural
+frequencies.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figures/swarm}
+\caption*{\small Four robots falling into step. Time runs left to right, one
+band per robot, colour is phase. On the left the bands cycle at visibly
+different rates; by the right they share a rhythm and line up. Set
+\code{K = 0} in the source to remove the coupling and watch them never
+converge.}
+\end{figure}
+
+\subsection{Drawing without a graphics build}
+
+That figure was produced by a console-only Poplog. The image is a PPM,
+written by redirecting the character sink to a file --- the same
+\code{dlocal cucharout} trick that captures a Forth word's output:
+
+\begin{pop}
+lvars out = discout(path);
+dlocal cucharout = out;
+emit();                         ;;; ordinary printf calls land in the file
+out(termin);
+\end{pop}
+
+If you would rather watch it live than look at a picture afterwards, build
+with the experimental graphics backend and drive \code{rc\_graphic} from the
+same loop:
+
+\begin{sh}
+./configure --experimental-graphics      # Metal on macOS, SDL3+OpenGL on Linux
+make
+\end{sh}
+
+This is opt-in for a reason --- it is newer than the rest of the system, it
+pulls in Dear ImGui, and the default build (and \code{nix build .\#poplog})
+stays console-only. \code{gfx\_spec()} reports the running backend. SDL3
+picks its display transport at run time, so the same build serves Wayland,
+X11, KMS/DRM \emph{and} headless software rendering --- which is how the
+project's own CI renders graphics with no display attached
+(\code{tools/validate-gfx-headless.sh}).
+
+\begin{callout}{The trap, for the third time}
+Poplog's trig functions take \textbf{degrees} by default. \code{sin} of a
+small radian argument then returns something nearly linear, the coupling
+term never changes sign, and the robots simply drift --- no error, no
+warning, just a demonstration that quietly does not work. \code{swarm.p}
+sets \code{true -> popradians} at the top, exactly as
+\code{examples/microgpt/microgpt.p} does, and for the same reason.
+\end{callout}
+
+\section{What this is really showing}
+
+Strip the theme away and the chapter makes one claim: \textbf{the unit of
+deployment can be smaller than a program.} A word, a procedure, a handful of
+VM instructions --- signed, sent, compiled on arrival, live in a process that
+never stopped. The fleet is not running software that was installed; it is
+running software that arrived.
+
+That is only practical because compiling is cheap enough to do casually
+(\S1.2), because the compiler is a procedure in the running system rather
+than a separate program (\S2.2), and because the VM's back-ends make the same
+abstract code native on every port (Chapter~6). Take any one of those away
+and you are back to shipping containers.

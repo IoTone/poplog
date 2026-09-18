@@ -1,6 +1,6 @@
 # Pop-11 and the Robot Army
 
-**Edition 1.0, September 2026** — David J. Kordsmeier and Claude.
+**Edition 1.1, September 2026** — David J. Kordsmeier and Claude.
 
 An introduction to Poplog and Pop-11 built around one running example: a
 fleet of robots commanded from a live Poplog session by an AI agent. It
@@ -35,8 +35,8 @@ common packages (`geometry`, `listings`, `tcolorbox`, `hyperref`, `titlesec`,
 | `version.tex` | The edition number and date — bump here only |
 | `preamble.tex` | Page geometry, palette, headings, listing languages, callout box |
 | `ch00-title.tex` | Title page and colophon |
-| `ch01-why.tex` … `ch08-next.tex` | The eight chapters |
-| `ch09-appendix.tex` | Appendix A — cheat sheet, mishap decoder |
+| `ch01-why.tex` … `ch09-next.tex` | The nine chapters |
+| `ch10-appendix.tex` | Appendix A — cheat sheet, mishap decoder |
 | `figures/` | Cover art and screenshots (screenshots cropped from `docs/images/`) |
 
 ## On the examples
@@ -67,6 +67,7 @@ and tag the commit `book-v<edition>`.
 | Edition | Date | Notes |
 | --- | --- | --- |
 | 1.0 | September 2026 | First edition: the Robot Army theme, six runnable examples, VM diagram, CC0. |
+| 1.1 | September 2026 | Chapter 8, "The fleet rewrites itself": UDP transport, Forth/Pop-11/VM-spec code mobility between machines, and the swarm demo. Verified between macOS arm64 and Linux x86-64. |
 
 ## Licence
 
