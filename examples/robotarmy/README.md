@@ -372,33 +372,67 @@ for this one) and `WATCH_IP`.  Robots read `SWARM_STEPS`, `SWARM_K`,
 environment; tick and timestep are independent, so slowing the demo down to
 watch it does not change the dynamics being watched.
 
-### Across machines, the fleet locks in pieces
+### Across machines, the fleet locks by clock rate — not by network
 
-Six robots over three machines — macOS arm64, Linux x86-64, a Pi on DietPi —
-two per machine, 1200 ticks:
+Two robots each on macOS arm64, Linux x86-64 and a Raspberry Pi.  Each
+machine's pair holds at 0.97 for the whole run; the fleet as a whole wanders
+between 0.32 and 0.97 (mean 0.69) and never settles.
 
-| tick | all six | mac | linux | pi |
-| ---: | ---: | ---: | ---: | ---: |
-| 60 | 0.730 | 0.978 | 0.978 | 0.985 |
-| 240 | 0.694 | 0.977 | 0.975 | 0.983 |
-| 480 | 0.313 | 0.977 | 0.976 | 0.985 |
-| 960 | 0.967 | 0.977 | 0.976 | 0.984 |
-| 1199 | 0.350 | 0.993 | 0.982 | 0.984 |
+The obvious explanation is latency, and it is wrong.  That was the claim here
+in edition 1.2: 20 ms tick, RTT 4–108 ms, so remote phases must arrive stale.
+The link later became direct (4.6–16.3 ms, mean 7.2), putting every remote
+phase well inside its tick.  The result didn't move: mean 0.70 vs 0.69.
 
-Each machine's pair locks at 0.98 within 60 ticks and stays there.  The fleet
-as a whole never settles: global R wanders between 0.31 and 0.98, mean 0.68.
-Four robots over two machines behave the same, cycling 0.94 → 0.12 → 0.94.
+What actually differs is how long a tick *takes*:
 
-The clusters are **beating**, not drifting to a final value.  A local peer's
-phase arrives within the tick it describes; across the link it arrives two to
-five ticks stale and jittered (tick 20 ms, RTT 4–108 ms, mean 34, stddev 40),
-so the groups run at slightly different rates and slide past each other
-forever.  Latency partitions a swarm along the lines of the network.
+| | nominal 20 ms | nominal 100 ms |
+| --- | ---: | ---: |
+| macOS arm64 | 25.1 ms | 104.5 ms |
+| Linux x86-64 | 20.2 ms | 100.3 ms |
+| Raspberry Pi | 20.1 ms | — |
+
+The Mac carries ~4.5 ms of fixed overhead per tick.  A robot advances by
+`omega*dt` per tick, so 25% longer ticks means 25% slower phase advance *in
+real time* — a frequency error far bigger than the 0.35 spread between the
+model's omegas.  Robots on one machine share the error exactly; robots on
+different machines don't.
+
+Grouping the same run by machine makes it sharp:
+
+| group | mean R | |
+| --- | ---: | --- |
+| mac pair | 0.974 | one machine |
+| linux pair | 0.969 | one machine |
+| pi pair | 0.967 | one machine |
+| **linux + pi** (4 robots) | **0.952** | *two* machines, ticks matched |
+| **mac + linux** (4 robots) | **0.607** | two machines, ticks differ |
+| all six | 0.690 | |
+
+Four robots across two machines, two architectures and a network link hold
+0.952 — as tight as any single machine.  The same count spanning the Mac
+collapses to 0.607.  **The fleet partitions along clock rate, not network
+topology.**
+
+Shrink the mismatch and the beat slows: at a 100 ms tick the Mac's overhead is
+4.2% instead of 25%, and the fleet stays coherent several times longer (0.969
+at tick 60, still 0.890 at 300) before drifting.  It doesn't lock forever,
+because 4.2% is still more than this K can absorb.
+
+Kuramoto assumes every oscillator shares one clock, and the program quietly
+substituted "one tick of my own loop" for it.  Invisible on one machine;
+dominant as soon as the fleet spans machines that tick differently.
 
 **Measure the plateau, not the peak.**  Live, the fleet hits R = 0.97 around
 ten seconds in and looks globally locked; that is the top of a beat, and
 seconds later it is at 0.31.  A sync claim needs the value to *hold* over a
 run several times longer than it took to get there.
+
+**And vary what you blame.**  Having measured the beat correctly, 1.2 then
+explained it by latency — the link was slow and the story fit.  Nobody varied
+the latency.  When the link got five times faster the result was unchanged,
+and the real cause had been in plain sight.  A measurement consistent with
+your explanation is not evidence for it until you have tried something that
+would tell them apart.
 
 ![four robots falling into step](../../docs/images/robotarmy-swarm.png)
 

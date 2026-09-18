@@ -335,8 +335,8 @@ poll returning nothing is exactly what a quiet network looks like.
 
 Every printed phase was reproducible from $(id \cdot 1.7 + \omega t) \bmod
 2\pi$ with no network term at all. The tell was that a run across two machines
-matched the single-machine run to the last digit --- impossible over a 34\,ms
-jittered link, and proof that nothing in the output depended on the network.
+matched the single-machine run to the last digit --- impossible over any real
+link, and proof that nothing in the output depended on the network.
 The fix is \code{sys\_device\_wait}, which is \code{select(2)} and is what
 \code{pop/ref/sockets} tells you to use:
 
@@ -373,51 +373,81 @@ poll was silently producing.}
 
 \subsection{Across machines, the fleet locks in pieces}
 
-Everything above is four processes on one host. Spread the fleet across real
-machines --- passing each robot the peer list --- and it no longer locks as
-one:
+Everything above is six processes on one host. Spread the fleet across real
+machines --- two robots each on macOS arm64, Linux x86-64 and a Raspberry Pi
+--- and it no longer locks as one. Each machine's pair holds at $0.97$ for the
+whole run; the fleet as a whole wanders between $0.32$ and $0.97$, mean
+$0.69$, and never settles.
 
-\begin{sh}
-HOSTS="$MAC,$LNX,$PI"
-./poplog basepop11 swarm.p 0 6 "$HOSTS" 100.101.120.20:9940
-\end{sh}
+The obvious explanation is latency, and it is wrong. It was the explanation
+printed here in edition 1.2: the tick is 20\,ms, the measured RTT was
+4--108\,ms, so a remote phase must arrive stale and the coupling must fail.
+The link later became direct --- 4.6--16.3\,ms, mean 7.2 --- putting every
+remote phase comfortably inside the tick it describes. The result did not
+change at all: mean $0.70$ against $0.69$. A fivefold drop in latency that
+changes nothing is not a latency effect.
 
-\noindent Six robots over three machines (macOS arm64, Linux x86-64, a
-Raspberry Pi on DietPi), two per machine, 1200 ticks:
+What actually differs between the machines is how long a tick \emph{takes}:
 
 \begin{center}
 \footnotesize
-\begin{tabular}{rrrrr}
+\begin{tabular}{lrr}
 \toprule
-\textbf{tick} & \textbf{all six} & \textbf{mac pair} & \textbf{linux pair} & \textbf{pi pair}\\
+ & \textbf{nominal 20\,ms} & \textbf{nominal 100\,ms}\\
 \midrule
-60   & 0.730 & 0.978 & 0.978 & 0.985\\
-240  & 0.694 & 0.977 & 0.975 & 0.983\\
-480  & 0.313 & 0.977 & 0.976 & 0.985\\
-960  & 0.967 & 0.977 & 0.976 & 0.984\\
-1199 & 0.350 & 0.993 & 0.982 & 0.984\\
+macOS arm64        & 25.1\,ms & 104.5\,ms\\
+Linux x86-64       & 20.2\,ms & 100.3\,ms\\
+Raspberry Pi       & 20.1\,ms & ---\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Each machine's pair locks at $0.98$ within 60 ticks and \emph{stays} there for
-the whole run. The fleet as a whole does not: its order parameter wanders
-between $0.31$ and $0.98$, mean $0.68$, and never settles. Four robots over
-two machines behave the same way, cycling $0.94 \rightarrow 0.12 \rightarrow
-0.94$ over 1200 ticks.
+\noindent The Mac carries about 4.5\,ms of fixed overhead per tick, the others
+almost none. A robot advances its phase by $\omega\,dt$ per tick, so a machine
+whose ticks are 25\% longer advances its robots 25\% slower \emph{in real
+time} --- a frequency error far larger than the 0.35 spread between the
+$\omega$ values the model was given. Robots on one machine share that error
+exactly and stay commensurate. Robots on different machines do not.
 
-The clusters are not drifting apart to some final value --- they are
-\emph{beating}. Each machine's robots phase-lock to each other tightly,
-because a local peer's phase arrives within the tick it describes. The
-clusters never lock to \emph{each other}, because across the link a phase
-arrives two to five ticks stale and jittered: the tick is 20\,ms and the
-measured RTT is 4--108\,ms, mean 34, standard deviation 40. So the groups run
-at slightly different rates and slide past one another forever, and the global
-measure rises and falls with them.
+Group the same run by machine and the prediction is sharp: the two machines
+that tick alike should lock to each other \emph{across the network}, and only
+the odd one out should drift.
 
-Latency partitions a swarm along the lines of the network. That is a real
-result about distributed systems rather than a defect to hide --- the topology
-of the wiring shows up directly in the dynamics.
+\begin{center}
+\footnotesize
+\begin{tabular}{lrl}
+\toprule
+\textbf{group} & \textbf{mean $R$} & \\
+\midrule
+mac pair                        & 0.974 & one machine\\
+linux pair                      & 0.969 & one machine\\
+pi pair                         & 0.967 & one machine\\
+linux + pi (four robots)        & \textbf{0.952} & \emph{two} machines, ticks matched\\
+mac + linux (four robots)       & \textbf{0.607} & two machines, ticks differ\\
+all six                         & 0.690 & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Four robots spread across two different machines, two architectures and a
+network link hold $0.952$ --- as tightly as any single machine. The same
+number of robots spanning the Mac collapses to $0.607$. The fleet does not
+partition along the lines of the network. It partitions along lines of
+\emph{clock rate}.
+
+Shrink the mismatch and the beat slows accordingly. At a 100\,ms tick the
+Mac's fixed overhead is 4.2\% rather than 25\%, and the fleet stays coherent
+several times longer --- $0.969$ at tick 60, still $0.890$ at tick 300 ---
+before drifting apart. It does not lock permanently, because a 4.2\% error is
+still more than this $K$ can absorb; it beats more slowly, which is what the
+model says should happen.
+
+The lesson is not about UDP. Kuramoto's model assumes every oscillator shares
+one clock, and the program quietly substituted ``one tick of my own loop'' for
+it. That substitution is invisible on one machine, where every process ticks
+alike, and it is the dominant term as soon as the fleet spans machines that do
+not. Coupling across a network is not the hard part --- agreeing what a
+unit of time \emph{is} turns out to be.
 
 \begin{callout}{Measure the plateau, not the peak}
 Watching the live display, the fleet hits $R = 0.97$ about ten seconds in and
@@ -429,7 +459,19 @@ This is the same error as the one in the callout above, one level up: there
 the measurement was of a network that was never consulted, here it is of a
 transient read as a steady state. A synchronisation claim needs the value to
 \emph{hold} across a run several times longer than the time it took to get
-there. Both mistakes look like a good result if you stop measuring early.
+there.
+
+Then a third, which is why this section has been rewritten twice. Having
+measured the beat correctly, edition 1.2 explained it by latency, because the
+link was slow and the explanation fit. Nobody had varied the latency. When the
+link later became five times faster the result was unchanged, and the real
+cause --- machines that disagree about how long a tick is --- had been sitting
+in plain sight the whole time.
+
+All three mistakes look like a good result if you stop early: stop before
+checking the traffic, stop before the plateau, or stop before varying the thing
+you have blamed. A measurement that is consistent with your explanation is not
+evidence for it until something that would distinguish them has been tried.
 \end{callout}
 
 \subsection{A send that fails is a dropped datagram, not a dead robot}
