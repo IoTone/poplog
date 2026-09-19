@@ -30,7 +30,15 @@ uses prolog;
 uses define_prolog;
 
 vars chain_peers = [];          ;;; list of 'host:port' strings
-lconstant CHAIN_WAIT = 60;      ;;; centiseconds to wait for replies
+define lconstant envnum(name, dflt) -> v;
+    lvars e = systranslate(name);
+    if e and strnumber(e) then strnumber(e) else dflt endif -> v;
+enddefine;
+
+;;; Centiseconds to wait for peer replies.  A peer that misses the window
+;;; contributes no solutions, so this is a correctness knob, not a tuning
+;;; one: too small and the chart silently loses branches.
+lconstant CHAIN_WAIT = envnum('CHAIN_WAIT', 60);
 
 ;;; ------------------------------------------------- this node's own facts
 ;;; Read straight out of the Prolog database rather than a Pop-11 copy of
@@ -95,9 +103,14 @@ define chain_serve(port);
         nextunless(length(text) > 2 and substring(1, 2, text) = 'q ');
         allbutfirst(2, text) -> key;
         chain_pack(chain_local(key)) -> reply;
-        printf('  ?- commands(%p, _)  ->  %p\n', [% key, reply %]);
-        sysflush(popdevout);
+        lvars before = net_send_errors;
         net_send(s, hd(sender), hd(tl(sender)), net_sign(reply));
+        ;;; net_send counts failures instead of raising, so a reply that never
+        ;;; leaves would otherwise be invisible here -- say so.
+        printf('  ?- commands(%p, _)  ->  %p   [reply to %p:%p%p]\n',
+               [% key, reply, hd(sender), hd(tl(sender)),
+                  if net_send_errors > before then ' FAILED' else '' endif %]);
+        sysflush(popdevout);
     endrepeat;
 enddefine;
 

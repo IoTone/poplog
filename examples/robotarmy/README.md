@@ -457,15 +457,23 @@ estimation.  Coupling also now uses the last thing each peer said rather than
 only what arrived this tick, so a dropped datagram costs precision rather than
 a missed beat.
 
-Same two machines, same 25% tick-rate difference, 25 s after lock:
+The same fleets that would not lock:
 
 | | mean R | min | max |
 | --- | ---: | ---: | ---: |
-| counting ticks | 0.665 | 0.002 | 0.976 |
-| **running on the clock** | **0.990** | 0.989 | 0.992 |
+| two machines, counting ticks | 0.665 | 0.002 | 0.976 |
+| two machines, **on the clock** | **0.990** | 0.989 | 0.992 |
+| six robots / three machines, ticks | 0.690 | 0.309 | 0.977 |
+| six robots / three machines, **clock** | **0.972** | 0.970 | 0.975 |
 
-Spread of 0.003 across 25 seconds, where before it swung the whole range and
-never settled.  The partition is gone — and it was never the network.
+Spreads of 0.003 and 0.005, where before they swung the whole range and never
+settled.  The partition is gone — and it was never the network.
+
+The clearest sign is what the robots report.  Over one 40-second run the two
+on macOS did 1601 ticks, the two on Linux 1942 and 1944, the two on the Pi
+1978 — and all six held 0.972 throughout.  Three machines doing visibly
+different amounts of work, agreeing on the physics anyway, because none of
+them is counting.
 
 Once a tick isn't a fixed length, a tick *count* isn't a duration either: 1200
 ticks is 30 s on one machine and 24 s on the other, so the fleet stopped in

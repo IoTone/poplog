@@ -489,7 +489,8 @@ epoch --- and coupling now uses the last thing each peer said rather than only
 what happened to arrive during this tick, so a dropped datagram costs
 precision rather than a missed beat.
 
-Same two machines, same 25\% tick-rate difference, 25 seconds after lock:
+The same fleets that would not lock, measured after lock and over the whole
+run:
 
 \begin{center}
 \footnotesize
@@ -497,14 +498,23 @@ Same two machines, same 25\% tick-rate difference, 25 seconds after lock:
 \toprule
  & \textbf{mean $R$} & \textbf{min} & \textbf{max}\\
 \midrule
-counting ticks   & 0.665 & 0.002 & 0.976\\
-running on the clock & \textbf{0.990} & 0.989 & 0.992\\
+two machines, counting ticks       & 0.665 & 0.002 & 0.976\\
+two machines, on the clock         & \textbf{0.990} & 0.989 & 0.992\\
+\midrule
+six robots / three machines, ticks & 0.690 & 0.309 & 0.977\\
+six robots / three machines, clock & \textbf{0.972} & 0.970 & 0.975\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent A spread of 0.003 across 25 seconds, where before it swung the whole
-range and never settled. The partition is gone, and it was never the network.
+\noindent Spreads of 0.003 and 0.005, where before they swung the whole range
+and never settled. The partition is gone, and it was never the network.
+
+The clearest sign is in what the robots report. Over one 40-second run the two
+on macOS completed 1601 ticks, the two on Linux 1942 and 1944, the two on the
+Pi 1978 --- and all six held $0.972$ throughout. Three machines doing visibly
+different amounts of work, agreeing on the physics anyway, because none of
+them is counting.
 
 One more thing had to change with it. Once a tick is no longer a fixed length,
 a tick \emph{count} is not a duration: 1200 ticks is 30\,s on one machine and
