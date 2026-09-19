@@ -492,15 +492,16 @@ define lconstant dump_literals();
     else
         _int(front(literal_pools)) -> _current_literal_pool;
         back(literal_pools) -> literal_pools;
-#_IF DEF DARWIN
         ;;; invariant: a mid-code pool must land exactly where pass 0
         ;;; recorded it, or the LDRs computed against the recorded position
-        ;;; read garbage.
+        ;;; read garbage.  This check used to be Darwin-only; the invariant
+        ;;; is not platform-specific and neither is the damage when it
+        ;;; breaks, so it now runs everywhere.  See
+        ;;; docs/bugs/aarch64-large-literal-sigill.md.
         if _current_literal_pool /== _asm_code_offset then
             _extern printf('[pool-diverge] recorded=%lx actual=%lx\n',
                             _current_literal_pool, _asm_code_offset) -> ;
         endif;
-#_ENDIF
     endif;
     _0 -> _lit_count;
 enddefine;
@@ -2137,7 +2138,6 @@ define Do_consprocedure(codelist, reg_locals) -> pdr;
     Code_pass(0, codelist) -> _code_offset;
     @@(w)[_int(listlength(asm_struct_list))] -> _strsize;
 
-#_IF DEF DARWIN
     ;;; Pass 0b -- re-measure with the REAL _pdr_offset and _strsize.
     ;;; Instruction SELECTION depends on them: I_CREATE_SF plants one
     ;;; instruction when (_pdr_offset - 8) fits in a sub immediate (< 4KB)
@@ -2157,7 +2157,6 @@ define Do_consprocedure(codelist, reg_locals) -> pdr;
     _0 -> _current_literal_zone;
     _16:80000 -> _current_literal_pool;
     Code_pass(0, codelist) -> _code_offset;
-#_ENDIF
 
     ;;; Now calculate total size of procedure and allocate store for it.
     ;;; The procedure record will be returned with the header and structure
@@ -2177,14 +2176,14 @@ define Do_consprocedure(codelist, reg_locals) -> pdr;
     back(literal_pools) -> literal_pools;
     ;;; Final pass -- plants the code
     Code_pass(false, codelist) -> _asm_code_offset;
-#_IF DEF DARWIN
-    ;;; invariant: the final stream must match the measured one, or
-    ;;; the recorded literal-pool positions are wrong for every pooled LDR.
+    ;;; invariant: the final stream must match the measured one, or the
+    ;;; recorded literal-pool positions are wrong for every pooled LDR.
+    ;;; Not Darwin-specific: the invariant and the damage are the same on
+    ;;; ELF, which the Pass 0b comment above says outright.
     if _code_offset /== _asm_code_offset then
         _extern printf('[ass-diverge] measured=%lx planted=%lx\n',
                         _code_offset, _asm_code_offset) -> ;
     endif;
-#_ENDIF
     _asm_drop_ptr _sub _buff -> _cnt;
     lvars _n = _0;
     while _n _lt _lit_count do

@@ -194,4 +194,39 @@ check('datagram socket ready once one arrives',    r_after,   true);
 check('datagram survives the round trip',          r_payload, 'ping');
 check('datagram socket not ready once drained',    r_drained, false);
 
+;;; ------------------------------------------------- large literal vectors
+;;; Compiling a big vector literal plants a long run of push instructions
+;;; followed by a literal pool.  On aarch64 the instruction SELECTED depends
+;;; on how far into the procedure record the data sits, so a structure table
+;;; over 4KB could change the instruction stream between the measuring pass
+;;; and the planting pass -- and the planted code then ran off its own end
+;;; into the pool.  The process died with SIGILL, no mishap, nothing to
+;;; catch.  See docs/bugs/aarch64-large-literal-sigill.md.
+;;;
+;;; Nothing else here compiles a literal anywhere near big enough to notice.
+;;; The sizes below straddle the band that used to fail (550-2500 elements);
+;;; the assertion is simply that the compiler survives and the data arrives
+;;; intact, because when this breaks there is no subtler symptom to test for.
+
+define lconstant literal_sum(v) -> t;
+    lvars i;
+    0.0 -> t;
+    for i from 1 to length(v) do t + subscrv(i, v) -> t endfor;
+enddefine;
+
+define lconstant build_literal(n) -> v;
+    ;;; built by compiling source, which is the path that broke -- not by
+    ;;; initv/subscrv, which never exercised the code generator this way
+    lvars i, src = 'lvars _v = {';
+    for i from 1 to n do src <> '0.5 ' -> src endfor;
+    src <> '}; _v' -> src;
+    pop11_compile(stringin(src)) -> v;
+enddefine;
+
+check('literal vector of 600 compiles',   length(build_literal(600)),  600);
+check('literal vector of 600 intact',     literal_sum(build_literal(600)),  300.0);
+check('literal vector of 1500 compiles',  length(build_literal(1500)), 1500);
+check('literal vector of 1500 intact',    literal_sum(build_literal(1500)), 750.0);
+check('literal vector of 3000 compiles',  length(build_literal(3000)), 3000);
+
 test_summary();
