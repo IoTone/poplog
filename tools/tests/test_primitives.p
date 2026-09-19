@@ -154,4 +154,44 @@ check('closure with 252 frozvals (the threshold)', frozen_sum(252), 31878);
 check('closure with 331 frozvals (the one in startup.psv)', frozen_sum(331), 54946);
 check('closure with 600 frozvals',                 frozen_sum(600), 180300);
 
+;;; ---------------------------------------------------- datagram readiness
+;;; sys_input_waiting answers false forever on a datagram socket, even with a
+;;; datagram queued that a blocking recv returns at once.  Anything that polls
+;;; through it is silently deaf -- and a deaf poll raises no error, because a
+;;; poll returning nothing is exactly what a quiet network looks like.  That
+;;; shipped a swarm demo whose robots never once exchanged a phase and still
+;;; produced a plausible picture (docs/bugs/sys-input-waiting-blind-on-sockets.md).
+;;;
+;;; The assertion has to be that readiness CHANGES around a known datagram.
+;;; Checking only that a poll returns without error passes on a blind poll,
+;;; which is how this got through the first time.
+uses unix_sockets;
+
+define lconstant dgram_ready(sock) -> yes;
+    lvars rd;
+    sys_device_wait([^sock], [], [], 0) -> (rd, , );
+    rd /== [] -> yes;
+enddefine;
+
+define lconstant probe_readiness() -> (before, after, drained, payload);
+    lvars a = sys_socket(`i`, `D`, false), b = sys_socket(`i`, `D`, false);
+    lvars buf = inits(64), n, sender;
+    [* 9938] -> sys_socket_name(a);
+    [* 9939] -> sys_socket_name(b);
+    dgram_ready(a) -> before;
+    sys_socket_send(b, 'ping', 4, 0, ['127.0.0.1' 9938]);
+    syssleep(20);                       ;;; 200ms: let it land
+    dgram_ready(a) -> after;
+    sys_socket_recv(a, buf, 64, 0, true) -> (n, sender);
+    substring(1, n, buf) -> payload;
+    dgram_ready(a) -> drained;
+    sysclose(a); sysclose(b);
+enddefine;
+
+lvars (r_before, r_after, r_drained, r_payload) = probe_readiness();
+check('datagram socket not ready when empty',      r_before,  false);
+check('datagram socket ready once one arrives',    r_after,   true);
+check('datagram survives the round trip',          r_payload, 'ping');
+check('datagram socket not ready once drained',    r_drained, false);
+
 test_summary();

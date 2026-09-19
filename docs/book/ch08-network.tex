@@ -1,0 +1,743 @@
+\chapter{The fleet rewrites itself}
+
+Everything so far has happened inside one process. A fleet is not one
+process. This chapter puts the robots on a network and gives them the one
+capability that makes Poplog worth choosing for the job: a robot can be sent
+something over UDP and \emph{become able to do it} --- not by loading a
+plugin or dispatching through a table, but by compiling the arrival into
+native machine code and carrying on.
+
+Three things travel well, and they are not equally good. Source in a
+language the robot can read. A \emph{spec} that needs no reader at all. And,
+notably, \textbf{not} a saved image: a \code{.psv} is tied to its
+architecture and its build, so the one artefact that carries a whole living
+heap is the one that cannot cross a heterogeneous fleet. That constraint
+shapes everything below.
+
+Everything here is in \href{\ghbase}{\code{examples/robotarmy/}} and was run
+between real machines while this chapter was written: a command post on
+macOS \code{arm64}, a robot on Linux \code{x86-64} over a tailnet, and a
+Raspberry Pi 5 on Linux \code{aarch64}.
+
+The Pi is worth a note, because it is what a fleet actually looks like. It
+is not on the tailnet; it sits on the x86-64 box's local network, so the Mac
+cannot address it at all and the x86-64 machine has to act as the command
+post for that leg. Nothing in the code knows or cares --- a robot is a host
+and a port --- but it is a reminder that ``the fleet'' is rarely one flat
+network.
+
+\section{The transport}
+
+\ghfile{fleetnet.p} is the whole network layer: datagram sockets, signing,
+and chunking, in about ninety lines.
+
+\begin{pop}
+uses unix_sockets;
+
+define net_open(port) -> sock;
+    sys_socket(`i`, `D`, false) -> sock;        ;;; `D` = SOCK_DGRAM
+    [* ^port] -> sys_socket_name(sock);         ;;; bind; * is INADDR_ANY
+enddefine;
+
+define net_send(sock, host, port, msg);
+    if length(msg) > NET_MTU then
+        mishap(length(msg), 1, 'net_send: payload exceeds NET_MTU -- chunk it')
+    endif;
+    sys_socket_send(sock, msg, length(msg), 0, [^host ^port]);
+enddefine;
+\end{pop}
+
+\begin{callout}{The trap that costs an hour}
+\code{sys\_socket\_recv} leaves a byte count on the stack (and the sender's
+address). \code{sys\_socket\_send} leaves \textbf{nothing}. Writing the
+symmetric-looking \code{vars r = sys\_socket\_send(\ldots)} underflows the
+open stack --- and nothing complains there. The mishap surfaces in the
+\emph{compiler}, on a later line, pointing at an innocent string constant:
+\code{BAD SUBSCRIPT FOR INDEXED STACK ACCESS} inside \code{read\_strcon}.
+Under other orderings the same underflow arrives as a bare
+\code{[fatal] sig=11} with no Pop-11 diagnostic at all. \code{net\_send}
+wraps it so no caller meets it again;
+\code{docs/bugs/sys-socket-send-returns-nothing.md} has the details.
+\end{callout}
+
+\subsection{Signing, and why it is in the transport}
+
+Three of the four things below \emph{compile what they receive}. That makes
+the signature check part of the transport rather than a courtesy the handler
+might remember:
+
+\begin{pop}
+define net_sign(text) -> wire;
+    crypto_hmac_hex('sha256', fleet_key, text) <> ' ' <> text -> wire
+enddefine;
+
+define net_verify(wire) -> text;                ;;; false unless genuinely ours
+    ...
+enddefine;
+\end{pop}
+
+A robot that cannot verify a datagram does not act on it, and above all does
+not hand it to a compiler. Chapter~7 built the HMAC; this is what it was
+for.
+
+\subsection{Sizing, measured}
+
+\code{NET\_MTU} is 1200 bytes. That is not a guess. The tailnet interface
+reports an MTU of 1380, and a 1372-byte don't-fragment ping to the peer is
+already dropped while 1200 passes:
+
+\begin{repl}
+  200 bytes: OK      1200 bytes: OK
+  800 bytes: OK      1372 bytes: BLOCKED
+\end{repl}
+
+Forth words are tens of bytes and fit comfortably. Pop-11 source does not, so
+long messages go out as numbered chunks, \code{<id>:<seq>:<total>:<payload>},
+\textbf{each signed in its own right} --- otherwise an attacker could slip an
+extra chunk into a message whose other parts are genuine. Verified at 7992
+bytes over 8 datagrams, reassembled byte-identical.
+
+\section{Forth over the wire}
+\label{sec:forthwire}
+
+The smallest useful thing to send. \ghfile{fthwire.p} listens, verifies,
+and hands the payload to \code{forth\_run} --- which, as \S5.4 explained,
+transpiles a colon definition to Pop-11 and runs it through the incremental
+compiler. The new word is native code.
+
+\begin{repl}
+$ ./poplog basepop11 examples/robotarmy/fthwire.p 9600      # the robot
+
+$ ... --tell 100.70.154.54 9600 ': patrol 0 do 1 + loop ;'
+ok
+$ ... --tell 100.70.154.54 9600 '0 10 patrol .'
+10
+\end{repl}
+
+The word was taught in the first datagram and executed in the second. The
+robot had never heard of \code{patrol}. Recursion crosses just as happily:
+\code{: fib dup 2 < if drop 1 else dup 1 - recurse swap 2 - recurse + then ;
+20 fib .} comes back \code{10946}.
+
+Those addresses are real: the robot was a Linux \code{x86-64} box and the
+command post an \code{arm64} Mac. The word arrived as text and left as
+x86-64 instructions.
+
+\subsection{Three mechanisms hold it together}
+
+None of them is plumbing; all three are Chapter~3 material doing real work.
+
+\textbf{Capturing the output.} Forth prints through \code{cucharout}, so
+rebinding the sink for the dynamic extent of the call collects whatever the
+word printed --- and \code{dlocal} restores it however the call exits,
+including when the word blows up.
+
+\begin{pop}
+define fw_capture(p) -> out;
+    lvars acc = [];
+    dlocal cucharout = procedure(c); conspair(c, acc) -> acc endprocedure;
+    p();
+    consstring(#| applist(rev(acc), identfn) |#) -> out;
+enddefine;
+\end{pop}
+
+\textbf{Trapping a bad word.} A word that mishaps must not take the robot
+with it. The idiom is \code{lib jsonrpc}'s:
+
+\begin{pop}
+define fw_trapped(src);
+    dlocal interrupt =
+        procedure(); false -> fw_ok; exitfrom(fw_trapped) endprocedure;
+    forth_run(src);
+enddefine;
+\end{pop}
+
+\textbf{Repairing the stack.} This is the subtle one. \code{exitfrom}
+unwinds the call chain but \emph{not} the open stack --- and Forth's data
+stack \textbf{is} that stack (\S5.4), so a word that died holding values
+would poison the next order. After a deliberate crash, \code{.s} must report
+an empty stack, and it does:
+
+\begin{repl}
+  <- nosuchword
+  -> ERROR executing: nosuchword
+  <- : sq dup * ; 9 sq .
+  -> 81
+  <- .s
+  -> <0>
+\end{repl}
+
+\begin{callout}{Measured}
+500 round trips on loopback --- sign, send, verify, compile a brand-new
+native word, run it, reply --- in \textbf{20\,ms of client CPU}; the whole
+program including engine startup ran in 84\,ms. Twenty cross-machine round
+trips fit inside a 0.186\,s program.
+\end{callout}
+
+\section{Pop-11 source over the wire}
+
+\ghfile{deploy.p} is the same idea one level up: the payload is Pop-11, it
+arrives in as many signed chunks as it takes, and \code{pop11\_compile} puts
+it into the running robot.
+
+The demonstration is redefinition. Same process, same call, no restart:
+
+\begin{repl}
+define escort(n); n * 3 enddefine;        ->  compiled ok
+npr(escort(7));                           ->  21
+define escort(n); n * 100 + 1 enddefine;  ->  compiled ok
+npr(escort(7));                           ->  701
+\end{repl}
+
+Nothing was reloaded and nothing was dispatched through. The identifier
+\code{escort} now names different machine code, and every later caller gets
+it --- which is exactly the behaviour \S1.2 measured at fifteen microseconds
+a definition, now happening at the far end of a network.
+
+A real capability behaves the same. \code{deployments/patrol\_order.p} is
+1898 bytes of route planning --- two chunks --- and the moment it lands the
+robot can do something it could not do a second earlier:
+
+\begin{repl}
+--file ... patrol_order.p                             ->  compiled ok
+npr(describe_patrol(plan_patrol(
+    [[ridge 4] [creek 2] [tower 9] [mill 3]], 10)));  ->  creek -> mill -> ridge [cost 9]
+\end{repl}
+
+(\code{tower} is left out: it would break the budget of 10.)
+
+\subsection{What it refuses}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{ll}
+\toprule
+malformed source & \code{ERROR compiling deployment}, robot keeps serving\\
+still knows what it learned & \code{alpha -> beta [cost 6]}\\
+\textbf{unsigned deployment} & \code{refused - no backdoor} --- never reaches the compiler\\
+the signed one & \code{plan\_patrol present (signed, accepted)}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The unsigned payload carried \code{define backdoor}. The robot was asked
+afterwards whether \code{backdoor} existed, and it did not.
+
+\section{Specs over the wire}
+
+Source still needs a front-end for the language it is written in.
+\ghfile{plant.p} sends neither Forth nor Pop-11 --- it sends an abstract
+instruction list, and the robot plants VM code from it directly with the
+builder procedures of Chapter~6:
+
+\begin{repl}
+plant
+name double
+nargs 1
+pushq 2
+call fi_*
+\end{repl}
+
+\begin{pop}
+define pl_plant(nargs, instrs) -> p;
+    lvars ins, op, arg;
+    sysPROCEDURE(false, nargs);
+    for ins in instrs do
+        hd(ins) -> op; hd(tl(ins)) -> arg;
+        if      op == "pushq" then sysPUSHQ(arg)
+        elseif  op == "call"  then sysCALL(arg)
+        ...
+    endfor;
+    sysENDPROCEDURE() -> p;
+enddefine;
+\end{pop}
+
+Send those five lines to three machines:
+
+\begin{repl}
+                  plant                                  call double 21
+  macOS arm64     planted double/1 as native code, 2 instrs     42
+  Linux x86-64    planted double/1 as native code, 2 instrs     42
+  Linux aarch64   planted double/1 as native code, 2 instrs     42
+\end{repl}
+
+Nothing architecture-specific crossed the wire. Each robot's own back-end
+turned the same spec into its own instructions --- and this is the thing no
+bytecode VM gives you, because there is no interpreter at the far end. The
+spec became \emph{machine code} on both.
+
+A larger one behaves identically: \code{name score / nargs 2 / call fi\_* /
+pushq 10 / call fi\_+} answers \code{52} to \code{call score 6 7} on both
+architectures. A bad opcode gives \code{ERROR planting} and the robot keeps
+serving.
+
+The Pi leg was driven from the x86-64 machine rather than the Mac, for the
+routing reason above --- an \code{x86-64} command post planting
+\code{aarch64} code, which is the same trick pointing a third way.
+
+\begin{callout}{Two traps}
+\textbf{Planting must happen while something is running.} At the top level
+of a file being compiled it mishaps with \code{sysEXECUTE: NOT AT EXECUTE
+LEVEL}, which is why \code{pl\_plant} is a procedure and not inline code.
+
+\textbf{\code{fi\_*} does not type-check.} An early version of the call path
+wrote \code{'' sys\_>< fast\_apply(p)}, which pushes the empty string
+\emph{on top of} the argument already on the stack, so the planted procedure
+consumed \code{''} instead of \code{21}. The fast integer operations skip
+type checks, so the answer came back \code{210.0} --- quiet nonsense rather
+than a mishap. Apply first, format second.
+\end{callout}
+
+\section{Falling into step}
+
+The last one sends no code at all --- only numbers --- and is the clearest
+picture of a fleet behaving as one thing. Each robot in \ghfile{swarm.p}
+carries a phase and a rhythm of its own, broadcasts its phase every tick, and
+pulls itself towards whatever it hears:
+
+\[ \theta' = \theta + \omega\,dt + \frac{K}{N}\sum_{\text{peers}} \sin(\theta_{\text{peer}} - \theta) \]
+
+Left alone, robots with different natural rhythms drift apart forever.
+Coupled, they pull each other into lockstep --- with no leader, no clock and
+no central authority. (Kuramoto's model; the same arithmetic describes
+fireflies and pendulum clocks sharing a beam.)
+
+Four separate OS processes, coupled only by signed datagrams. Measured by
+the order parameter $R$, where 0 is chaos and 1 is perfect lockstep:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{rlr}
+\toprule
+\textbf{elapsed} & \textbf{phases} & \textbf{$R$}\\
+\midrule
+0.00\,s & 0.00\ \ 1.70\ \ 3.40\ \ 5.10 & \textbf{0.085}\\
+0.75\,s & 0.59\ \ 2.29\ \ 5.12\ \ 0.48 & 0.422\\
+1.50\,s & 1.50\ \ 2.08\ \ 1.30\ \ 1.85 & 0.954\\
+3.00\,s & 3.76\ \ 3.88\ \ 3.99\ \ 4.13 & 0.991\\
+5.97\,s & 1.94\ \ 2.06\ \ 2.18\ \ 2.31 & \textbf{0.990}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The rows are seconds rather than tick numbers, for the reason
+\S\ref{sec:swarmfix} gets to:
+a tick is not a fixed amount of time, so it is not an axis. $R$ passes 0.985
+about 1.75\,s in and never drops below it again. They hold a constant phase
+\emph{lag} rather than identical phases, which is the right answer for
+oscillators with different natural frequencies.
+
+The staying is the whole signal. A rising $R$ proves nothing on its own: four
+uncoupled oscillators drift past one another and $R$ climbs on the way past,
+purely by coincidence. Only a plateau is entrainment.
+
+\begin{callout}{The measurement that was wrong for a week}
+This table used to end at $R = 0.911$, and it was an artefact.
+\code{net\_poll} was built on \code{sys\_input\_waiting}, which answers
+\code{false} forever on a datagram socket --- even with a datagram queued that
+a blocking \code{recv} returns at once. So \code{seen} was always 0, the
+coupling term never fired, and every robot free-ran. No error was raised: a
+poll returning nothing is exactly what a quiet network looks like.
+
+Every printed phase was reproducible from $(id \cdot 1.7 + \omega t) \bmod
+2\pi$ with no network term at all. The tell was that a run across two machines
+matched the single-machine run to the last digit --- impossible over any real
+link, and proof that nothing in the output depended on the network.
+The fix is \code{sys\_device\_wait}, which is \code{select(2)} and is what
+\code{pop/ref/sockets} tells you to use:
+
+\begin{pop}
+define net_ready(sock) -> yes;
+    lvars rd;
+    sys_device_wait([^sock], [], [], 0) -> (rd, , );
+    rd /== [] -> yes;
+enddefine;
+\end{pop}
+
+\noindent Robots now report their traffic, so a silent poll cannot hide again:
+
+\begin{repl}
+robot 0 done -- heard 717 peer messages over 240 ticks, 0 sends dropped
+\end{repl}
+
+\noindent 717 is $3 \times 239$: every peer, every tick. When it was broken,
+this line would have read 0. Assert on the traffic, not on whether output
+appeared. See \ghfile{docs/bugs/sys-input-waiting-blind-on-sockets.md}.
+\end{callout}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figures/swarm}
+\caption*{\small Four robots falling into step. Time runs left to right, one
+band per robot, colour is phase. At the far left the bands are visibly out of
+register, each cycling at its own rate; within the first quarter they lock and
+every column is one colour across all four for the rest of the run. Set
+\code{K = 0} in the source to remove the coupling and watch them never
+converge --- and note that they never line up again, which is what the broken
+poll was silently producing.}
+\end{figure}
+
+\subsection{Across machines, the fleet locks in pieces}
+
+Everything above is four processes on one host. Spread the fleet across real
+machines --- two robots each on macOS arm64, Linux x86-64 and a Raspberry Pi
+--- and it no longer locks as one. Each machine's pair holds at $0.97$ for the
+whole run; the fleet as a whole wanders between $0.32$ and $0.97$, mean
+$0.69$, and never settles.
+
+The obvious explanation is latency, and it is wrong. It was the explanation
+printed here in edition 1.2: the tick is 20\,ms, the measured RTT was
+4--108\,ms, so a remote phase must arrive stale and the coupling must fail.
+The link later became direct --- 4.6--16.3\,ms, mean 7.2 --- putting every
+remote phase comfortably inside the tick it describes. The result did not
+change at all: mean $0.70$ against $0.69$. A fivefold drop in latency that
+changes nothing is not a latency effect.
+
+What actually differs between the machines is how long a tick \emph{takes}:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lrr}
+\toprule
+ & \textbf{nominal 20\,ms} & \textbf{nominal 100\,ms}\\
+\midrule
+macOS arm64        & 25.1\,ms & 104.5\,ms\\
+Linux x86-64       & 20.2\,ms & 100.3\,ms\\
+Raspberry Pi       & 20.1\,ms & ---\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The Mac carries about 4.5\,ms of fixed overhead per tick, the others
+almost none. A robot advances its phase by $\omega\,dt$ per tick, so a machine
+whose ticks are 25\% longer advances its robots 25\% slower \emph{in real
+time} --- a frequency error far larger than the 0.35 spread between the
+$\omega$ values the model was given. Robots on one machine share that error
+exactly and stay commensurate. Robots on different machines do not.
+
+Group the same run by machine and the prediction is sharp: the two machines
+that tick alike should lock to each other \emph{across the network}, and only
+the odd one out should drift.
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lrl}
+\toprule
+\textbf{group} & \textbf{mean $R$} & \\
+\midrule
+mac pair                        & 0.974 & one machine\\
+linux pair                      & 0.969 & one machine\\
+pi pair                         & 0.967 & one machine\\
+linux + pi (four robots)        & \textbf{0.952} & \emph{two} machines, ticks matched\\
+mac + linux (four robots)       & \textbf{0.607} & two machines, ticks differ\\
+all six                         & 0.690 & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Four robots spread across two different machines, two architectures and a
+network link hold $0.952$ --- as tightly as any single machine. The same
+number of robots spanning the Mac collapses to $0.607$. The fleet does not
+partition along the lines of the network. It partitions along lines of
+\emph{clock rate}.
+
+Shrink the mismatch and the beat slows accordingly. At a 100\,ms tick the
+Mac's fixed overhead is 4.2\% rather than 25\%, and the fleet stays coherent
+several times longer --- $0.969$ at tick 60, still $0.890$ at tick 300 ---
+before drifting apart. It does not lock permanently, because a 4.2\% error is
+still more than this $K$ can absorb; it beats more slowly, which is what the
+model says should happen.
+
+The lesson is not about UDP. Kuramoto's model assumes every oscillator shares
+one clock, and the program quietly substituted ``one tick of my own loop'' for
+it. That substitution is invisible on one machine, where every process ticks
+alike, and it is the dominant term as soon as the fleet spans machines that do
+not. Coupling across a network is not the hard part --- agreeing what a
+unit of time \emph{is} turns out to be.
+
+\subsection{The fix: stop counting ticks}
+\label{sec:swarmfix}
+
+Two changes, neither of which needs the machines to agree about what time it
+is. The first is to advance by the time that actually passed:
+
+\begin{pop}
+lvars now = sys_microtime(), dt = (now - last) / 1000000.0;
+if dt < 0.0 or dt > CLOCK_JUMP then DT -> dt endif;   ;;; clock step
+now -> last;
+phase + omega * dt -> phase;
+if seen > 0 then phase + (K / seen) * sum * dt -> phase endif;
+\end{pop}
+
+\noindent A machine whose loop is slower simply takes a bigger step, so a
+25\,ms tick and a 20\,ms tick describe the same trajectory. \code{sys\_microtime}
+is microsecond resolution and purely local. The guard matters: it is a
+wall-clock reading, so an NTP correction can hand you a negative or enormous
+\code{dt}, and one such step would otherwise throw the robot across the circle.
+
+The second is to make a message describe a \emph{rate}, not just a position.
+Each robot broadcasts its phase \emph{and its} \code{omega}; a listener stamps
+the arrival with its own clock and carries that phase forward:
+
+\begin{pop}
+;;; on arrival
+sys_microtime() -> subscrv(who + 1, p_at);
+;;; when coupling, later
+(now - subscrv(j + 1, p_at)) / 1000000.0 -> age;
+sum + sin(subscrv(j + 1, p_phase)
+          + subscrv(j + 1, p_omega) * age - phase) -> sum;
+\end{pop}
+
+\noindent Note what is \emph{not} on the wire: a send timestamp. Carrying the
+sender's clock would require the two machines to agree on an epoch. Stamping
+on arrival requires only that they agree on the length of a second, which the
+first change already guarantees. No NTP, no offset estimation, no shared
+epoch --- and coupling now uses the last thing each peer said rather than only
+what happened to arrive during this tick, so a dropped datagram costs
+precision rather than a missed beat.
+
+The same fleets that would not lock, measured after lock and over the whole
+run:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lrrr}
+\toprule
+ & \textbf{mean $R$} & \textbf{min} & \textbf{max}\\
+\midrule
+two machines, counting ticks       & 0.665 & 0.002 & 0.976\\
+two machines, on the clock         & \textbf{0.990} & 0.989 & 0.992\\
+\midrule
+six robots / three machines, ticks & 0.690 & 0.309 & 0.977\\
+six robots / three machines, clock & \textbf{0.972} & 0.970 & 0.975\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Spreads of 0.003 and 0.005, where before they swung the whole range
+and never settled. The partition is gone, and it was never the network.
+
+The clearest sign is in what the robots report. Over one 40-second run the two
+on macOS completed 1601 ticks, the two on Linux 1942 and 1944, the two on the
+Pi 1978 --- and all six held $0.972$ throughout. Three machines doing visibly
+different amounts of work, agreeing on the physics anyway, because none of
+them is counting.
+
+One more thing had to change with it. Once a tick is no longer a fixed length,
+a tick \emph{count} is not a duration: 1200 ticks is 30\,s on one machine and
+24\,s on the other, so the fleet stopped in pieces and the measurement picked
+up a tail of robots coupling to peers that had already exited. Ending the run
+on the clock (\code{SWARM\_SECONDS}) keeps the fleet together --- the same
+correction as the dynamics, one level up.
+
+\begin{callout}{Measure the plateau, not the peak}
+Watching the live display, the fleet hits $R = 0.97$ about ten seconds in and
+looks globally locked. It is not --- that is the top of a beat, and a few
+seconds later it is at $0.31$. The earlier version of this section reported a
+single such sample as a settled result.
+
+This is the same error as the one in the callout above, one level up: there
+the measurement was of a network that was never consulted, here it is of a
+transient read as a steady state. A synchronisation claim needs the value to
+\emph{hold} across a run several times longer than the time it took to get
+there.
+
+Then a third, which is why this section has been rewritten twice. Having
+measured the beat correctly, edition 1.2 explained it by latency, because the
+link was slow and the explanation fit. Nobody had varied the latency. When the
+link later became five times faster the result was unchanged, and the real
+cause --- machines that disagree about how long a tick is --- had been sitting
+in plain sight the whole time.
+
+All three mistakes look like a good result if you stop early: stop before
+checking the traffic, stop before the plateau, or stop before varying the thing
+you have blamed. A measurement that is consistent with your explanation is not
+evidence for it until something that would distinguish them has been tried.
+\end{callout}
+
+\subsection{A send that fails is a dropped datagram, not a dead robot}
+
+Starting all four robots on Linux at the same instant used to kill one with
+\code{MISHAP - ERROR SENDING TO SOCKET (Operation not permitted)}. Staggering
+the launch by a second made it vanish, and it never reproduced in isolation
+--- not against a dead port, not under a 400-datagram burst --- so the
+kernel-side cause is still unidentified. The handling does not depend on
+knowing it. UDP sends are advisory, and the kernel reports some failures late
+and against the wrong call, so \code{net\_send} counts a failure and carries
+on, while genuine programming errors still mishap:
+
+\begin{pop}
+vars net_send_errors = 0;
+
+define net_send(sock, host, port, msg);
+    if length(msg) > NET_MTU then
+        mishap(length(msg), 1, 'net_send: payload exceeds NET_MTU -- chunk it')
+    endif;
+    procedure;
+        dlocal interrupt =
+            procedure;
+                net_send_errors + 1 -> net_send_errors;
+                exitfrom(net_send);
+            endprocedure;
+        sys_socket_send(sock, msg, length(msg), 0, [^host ^port]);
+    endprocedure();
+enddefine;
+\end{pop}
+
+\noindent \code{dlocal interrupt} again --- the same mechanism that sandboxes
+a Forth word in \S\ref{sec:forthwire}, here turning a fatal error into a
+counter. The count is reported at exit, so a fleet quietly shedding traffic
+is visible rather than merely slow.
+
+\subsection{Drawing without a graphics build}
+
+That figure was produced by a console-only Poplog. The image is a PPM,
+written by redirecting the character sink to a file --- the same
+\code{dlocal cucharout} trick that captures a Forth word's output:
+
+\begin{pop}
+lvars out = discout(path);
+dlocal cucharout = out;
+emit();                         ;;; ordinary printf calls land in the file
+out(termin);
+\end{pop}
+
+If you would rather watch it live than look at a picture afterwards, build
+with the experimental graphics backend and drive \code{rc\_graphic} from the
+same loop:
+
+\begin{sh}
+./configure --experimental-graphics      # Metal on macOS, SDL3+OpenGL on Linux
+make
+\end{sh}
+
+This is opt-in for a reason --- it is newer than the rest of the system, it
+pulls in Dear ImGui, and the default build (and \code{nix build .\#poplog})
+stays console-only. \code{gfx\_spec()} reports the running backend. SDL3
+picks its display transport at run time, so the same build serves Wayland,
+X11, KMS/DRM \emph{and} headless software rendering --- which is how the
+project's own CI renders graphics with no display attached
+(\code{tools/validate-gfx-headless.sh}).
+
+\begin{callout}{The trap, for the third time}
+Poplog's trig functions take \textbf{degrees} by default. \code{sin} of a
+small radian argument then returns something nearly linear, the coupling
+term never changes sign, and the robots simply drift --- no error, no
+warning, just a demonstration that quietly does not work. \code{swarm.p}
+sets \code{true -> popradians} at the top, exactly as
+\code{examples/microgpt/microgpt.p} does, and for the same reason.
+\end{callout}
+
+\section{Backtracking across machines}
+
+\ghfile{chain.pl} in \S5.2 held the whole org chart on one machine. A real
+fleet does not work that way: each squad knows who it commands, and nobody
+holds the whole picture. \ghfile{chainnet.p} splits the same relation across
+nodes and lets Prolog's own backtracking put it back together.
+
+The join is two clauses, and nothing below them can tell that a network
+exists:
+
+\begin{pop}
+commands(X, Y) :- local_commands(X, Y).
+commands(X, Y) :- remote_commands(X, Y).
+
+can_order(X, Y) :- commands(X, Y).
+can_order(X, Z) :- commands(X, Y), can_order(Y, Z).
+\end{pop}
+
+\code{local\_commands/2} is ordinary Prolog facts. \code{remote\_commands/2}
+is \emph{Pop-11} --- a procedure that does a UDP round trip. The mechanism is
+\code{define :prolog}, which takes a continuation:
+
+\begin{pop}
+define :prolog remote_commands/2(x, y, contn);
+    lvars x, y, contn, xd, key, p;
+    prolog_deref(x) -> xd;
+    if isprologvar(xd) then '*' else xd sys_>< '' endif -> key;
+    for p in chain_ask(key) do
+        prolog_unifyc(x, hd(p),
+            procedure;
+                prolog_unifyc(y, hd(tl(p)), contn);
+            endprocedure);
+    endfor;
+enddefine;
+\end{pop}
+
+\code{prolog\_unifyc} establishes a real choice point, binds, calls the
+continuation, and unwinds the bindings afterwards. Calling it once per answer
+is what makes this \emph{nondeterministic}: Prolog backtracks into the next
+machine's answer exactly as it would into the next clause of a local
+predicate. That is the whole trick, and it is only available because Prolog
+and Pop-11 share one heap (\S5.1) --- there is no serialisation boundary
+between the two, so a Pop-11 procedure can simply \emph{be} a predicate.
+
+A node answers from its local facts only and never recurses into
+\code{can\_order}. That is what stops two nodes asking each other the same
+question forever: the recursion lives entirely in the asking node's Prolog,
+and each hop over the wire is a single flat lookup.
+
+\subsection{Three machines, one relation}
+
+The command post runs on macOS arm64 and knows two facts. Squad 1 lives on
+Linux x86-64, squad 2 on a Raspberry Pi:
+
+\begin{sh}
+# on each squad machine
+./poplog basepop11 examples/robotarmy/chainnet.p \
+    --serve 9821 examples/robotarmy/chain-sq1.pl
+
+# on the command post
+./poplog basepop11 examples/robotarmy/chainnet.p \
+    --ask examples/robotarmy/chain-post.pl "$LNX:9821,$PI:9822" \
+    '(can_order(commander, X), write(X), nl, fail ; true)'
+\end{sh}
+
+\begin{repl}
+sq1        <- local
+sq2        <- local
+r1         <- from the Linux box
+r2         <- from the Linux box
+r3         <- from the Pi
+r4         <- from the Pi
+\end{repl}
+
+\noindent And the query that must fail, does: \code{can\_order(sq1, r4)}
+answers \code{no}, because squad 1 does not command squad 2's robot. A
+relation that only ever says yes is not a relation.
+
+\subsection{When a node is down}
+
+Take squad 2's machine away and ask again:
+
+\begin{repl}
+sq1  sq2  r1  r2
+\end{repl}
+
+\noindent The chart is \emph{smaller}, not wrong. That is the right failure
+mode for a relation --- a peer that does not answer contributes no solutions,
+and the rest still resolve. It is also the honest limitation: this design
+cannot distinguish ``no such subordinate'' from ``the machine that knew about
+it is unreachable''. A fleet that needs that distinction has to say so in the
+relation itself, rather than inferring it from silence.
+
+Two more limits worth naming. Every remote call is a fresh round trip with no
+cache, so the same question asked twice during one proof costs two datagrams
+--- and backtracking asks the same question often. And an unreachable node
+costs the full timeout on every call that consults it. Neither hurts a chart
+this size; both would need attention before this resolved a chain of command
+with thousands of units in it.
+
+\section{What this is really showing}
+
+Strip the theme away and the chapter makes one claim: \textbf{the unit of
+deployment can be smaller than a program.} A word, a procedure, a handful of
+VM instructions --- signed, sent, compiled on arrival, live in a process that
+never stopped. The fleet is not running software that was installed; it is
+running software that arrived.
+
+That is only practical because compiling is cheap enough to do casually
+(\S1.2), because the compiler is a procedure in the running system rather
+than a separate program (\S2.2), and because the VM's back-ends make the same
+abstract code native on every port (Chapter~6). Take any one of those away
+and you are back to shipping containers.

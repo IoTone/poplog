@@ -282,3 +282,37 @@ tree asserts a distribution.
   routine that was mis-ported.  The warning was already written down;
   nothing made a porter read it.  `PORTING-POPLOG.md` should list the
   routines whose contract is narrower than the machine word.
+
+## Found again on a third machine, 2026-09-18
+
+The Raspberry Pi (DietPi, aarch64) failed 9 of the 41 checks in
+`tools/tests/test_primitives.p` — every one of them a `random` check — because
+its tree still carried the pre-fix `pop/src/arm64/aarith.s`. The fix had been
+in the repository for weeks.
+
+It survived there because that machine is not a git checkout. It is a
+hand-copied source tree (`~/poplog-ci`, `target/` build layout, built
+2026-08-14) that no CI job touches, so nothing ever told it the world had
+moved. Nobody had run a test on it either, which is the part worth noticing:
+the bug was not hiding, it had simply never been looked for.
+
+Repair, for the next stale tree:
+
+1. Copy in the fixed `pop/src/arm64/aarith.s`.
+2. Apply the two `Makefile` fixes as well — `SYSCOMP_SRC` must include
+   `pop/src/${POP_arch}/*.s` or make never notices the `.s` changed, and the
+   `.olb` halves must be removed or a stale member shadows the rebuild
+   (`docs/bugs/stale-olb-shadows-rebuild.md`). Patch both `Makefile` and
+   `Makefile.in` textually; `configure` only substitutes `@@VAR@@`
+   placeholders, so re-running it is unnecessary and risks losing the
+   machine's build flags.
+3. `make all`, then verify through the *saved image* and not only
+   `basepop11` — `random` reaching a `.psv` is the thing users run.
+
+Afterwards: 41/41 on `test_primitives.p`, and 13/13 on
+`tools/validate-raspi5.sh` (PORT VALIDATED, console core).
+
+The general lesson is the one this file keeps teaching from a new angle: a
+machine that is never tested is not a machine that is working, it is a machine
+whose state is unknown. The test suite makes that cheap to settle — it took
+one command to find this and one rebuild to fix it.
