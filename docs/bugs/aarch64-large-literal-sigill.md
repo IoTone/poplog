@@ -170,50 +170,61 @@ was available when this was found.
 
 
 
-## riscv64 has the same defect, and cannot be fixed the same way
+## riscv64 had the same defect, and the same fix works
 
 The regression test added to `tools/tests/test_primitives.p` found it
-immediately: riscv64 dies with SIGILL compiling the same large literal.
-`pop/src/riscv64/ass.p` carries an identical Pass 0b, with an identical
-`#_IF DEF DARWIN` around it — on a port that never runs on Darwin, so the
-mitigation has always been dead code there.
+immediately: riscv64 died with SIGILL compiling the same large literal.
+`pop/src/riscv64/ass.p` carried an identical Pass 0b behind an identical
+`#_IF DEF DARWIN` — on a port that never runs on Darwin, so the mitigation
+had always been dead code there.
 
-Removing the gate does not work, because of a bootstrap problem. The Pass 0b
-block is currently *preprocessed out*; compiling it in makes the enclosing
-procedure larger, and the compiler that has to compile it is the old one,
-which still has the bug. `popc` segfaults part-way through `pop/src`:
+Ungating it fixes riscv64 too: `test_primitives.p` now passes 46/46 on
+machine1, and `validate-riscv64.sh` is 14/14.
+
+Getting there took two false conclusions, both recorded because each looked
+convincing:
+
+**"It is a bootstrap problem."** The first attempt failed with `popc`
+segfaulting through `pop/src`, which fit a tidy story — compiling the
+previously-preprocessed-out block makes the procedure bigger, and the
+compiler doing the compiling still has the bug. Reverting did not clear it,
+which seemed to confirm the tree could not rebuild itself.
+
+The real cause was neither. That port's `corepop` dates from before the
+2026-08-15 `I_CHECK` fix (`userstack-growth-aslr.md`), so the bootstrap
+binary still needs ASLR disabled. The Makefile never does that:
+`DO_COMMAND = ${ABS_BUILD}/poplog`, no `setarch`. Building as
 
 ```
-(cd pop/src && .../poplog popc -c -nosys -od .../target/src riscv64/*.[ps] *.p)
-Segmentation fault (core dumped)
-make: *** [Makefile:192: stamp_srclib] Error 139
+setarch -R make all
 ```
 
-Reverting the change does not clear it — the same failure occurs with
-unmodified sources, so **that tree could not rebuild itself before this was
-touched**. The segfault compiling `pop/src` is plausibly the same defect
-biting the compiler while it compiles its own source, which would make the
-port unable to regenerate itself at all.
+works. Without it, `popc` segfaults with no output at all; with it, the same
+command compiles cleanly. Nothing about the source was at fault.
 
-arm64 escaped this only by luck: the same edit compiled cleanly on the Pi and
-on macOS, so the new code happened not to cross the threshold during that
-build.
+**"The fix does not work on riscv64."** With the build finally succeeding,
+the SIGILL persisted — and `strings target/pop/basepop11` could not find the
+new diagnostic, while `target/obj/src.olb` could. That machine's Makefile was
+the version *without* the `.olb` cleanup, so `poplibr` had been accumulating
+members: six copies of one `ass.p` string in the library where the Pi had
+two, and the link kept picking a stale one. Exactly
+`stale-olb-shadows-rebuild.md`, still live on that host months after the fix
+landed in the repo.
 
-Fixing riscv64 therefore needs a bootstrap route — building the fixed
-assembler with something that is not itself broken (`corepop`, a
-cross-compile, or a staged build). That is not attempted here.
+Applying that Makefile fix, removing `stamp_srclib` to force the library to
+be rebuilt, and building under `setarch -R` brings the stale count back to
+two and puts the change in the binary.
 
-### State of machine1 (riscv64) after this investigation
+### For anyone rebuilding machine1
 
-* `basepop11` runs, and `tools/validate-riscv64.sh` passes 14/14 — PORT
-  VALIDATED. The machine is functionally unchanged.
-* `target/obj/src.wlb` is gone: `make` removes it at the start of
-  `stamp_srclib` and the run then failed. It cannot be regenerated until the
-  bootstrap problem is solved, so the tree can run but cannot relink.
-* An older `~/poplog-ci` on that box has an intact `src.wlb` from August, but
-  against a September `src.olb`. Mixing them is exactly the hazard in
-  `stale-olb-shadows-rebuild.md` and was not done.
-* `tools/tests/test_primitives.p` now dies on riscv64 at the literal checks,
-  taking the other 41 with it. That is the regression test doing its job, but
-  it does mean the suite reports nothing on that platform until the port is
-  fixed.
+* Build with `setarch -R make all` until its `corepop` is regenerated. A
+  plain `make all` segfaults in `popc` with an empty log, which looks like a
+  source problem and is not one.
+* Its Makefile needed the `.olb` cleanup from `stale-olb-shadows-rebuild.md`
+  applied by hand; the tree is not a git checkout and inherits nothing.
+* A changed source file is not enough to force the library to be rebuilt if
+  `stamp_srclib` is newer. Remove the stamp.
+* After the rebuild: `validate-riscv64.sh` 14/14, `test_primitives.p` 46/46,
+  `test-libs.sh` 12/14 — the two failures are `test_fileutils` and
+  `test_zmachine`, the known `aarch64-stat-layout` bug.
+
