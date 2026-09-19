@@ -103,6 +103,137 @@ FreeBSD/x86-64 は既存の Poplog 移植(ARM32 は歴史あるもの、Solaris 
 プラットフォーム別の移植ノート: `PORTING-ARM64-LINUX-RPI5.md` と
 `PORTING-ARM64-M-SILICON-OSX.md`。
 
+## インストール
+
+速い順に 3 つの方法があります。
+
+**1. バイナリのワンライナー**(約 2 MB のダウンロード。
+[pop11 Claude スキル](.claude/skills/pop11/SKILL.md) も同時に
+インストールされます):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/IoTone/poplog/master/tools/install-skill.sh | sh
+```
+
+プラットフォームを自動判別し、最新の GitHub リリースから
+`pop11-skill-<os>-<arch>.tar.gz` を取得します(まずは macOS arm64 と
+Linux x86-64 から)。再配置可能なランタイム(`basepop11` とライブラリ)を
+`~/.local/share/pop11-skill` に展開し、最後に実際に動かすスモークテストで
+仕上げます。`POP11_SKILL_PREFIX` で配置先を上書きでき、
+`POP11_SKILL_URL` でバージョンを固定できます(`file://` を含む、curl で
+取得可能な任意の URL)。アンインストール:
+`rm -rf ~/.local/share/pop11-skill ~/.claude/skills/pop11 ~/.cache/pop11-skill`。
+tarball は `tools/release-skill-tarball.sh` がビルドし、チェックサム
+(`SHA256SUMS.pop11-skill`)とともにリリースページで公開されます。
+
+**2. ソースから** — [INSTALL](INSTALL) を参照してください。
+`target/pop/corepop` をシードとして用意し(移植済み 4 プラットフォーム
+向けのバイナリは `nix/seeds/` に同梱)、`./configure && make all` を
+実行します。
+
+**3. Nix** — 次のセクションを参照してください。
+
+## エージェント: MCP サーバー
+
+Poplog は [MCP](https://modelcontextprotocol.io) サーバーを同梱して
+います。Pop-11 自身で書かれており(`pop/mcp/pop11_mcp.p`)、MCP 対応の
+エージェントは **永続的でネイティブコンパイルされた Pop-11 セッション**
+を 4 つのツールとともに利用できます。`pop11_eval`(状態とコンパイル済み
+プロシージャは呼び出しをまたいで保持され、mishap は診断として返り、
+セッションは生き残ります)、`pop11_help`(実際の HELP/REF/TEACH
+コーパス)、`pop11_checkpoint`(セッション全体を約 200 KB のイメージへ
+凍結。検証式による条件付けも可能)、そして `pop11_state` です。
+実測値: エンジンの起動を含めて 100 回以上の eval ラウンドトリップが
+0.04 秒。
+
+Claude Code への登録(tarball 版インストールでは
+`~/.local/share/pop11-skill/tools/pop11-mcp` にランチャーも同梱されます):
+
+```sh
+# このマシンの全プロジェクトで:
+claude mcp add --scope user pop11 -- /path/to/poplog/tools/pop11-mcp
+
+# または 1 プロジェクトだけ(コミット可能な .mcp.json を書き出します):
+claude mcp add --scope project pop11 -- /path/to/poplog/tools/pop11-mcp
+```
+
+このチェックアウト自身の [.mcp.json](.mcp.json) は、ここで開始した
+セッション向けに登録を行います。チェックポイントしたセッションの再開は
+`pop11-mcp --restore image.psv`。スコープの意味と `.mcp.json` の形式は
+[Claude Code の MCP ドキュメント](https://docs.claude.com/en/docs/claude-code/mcp)
+に記載されています。他の MCP クライアントでも、同じ stdio コマンドを
+それぞれの方法で設定できます。エンドツーエンドのプロトコルテスト:
+`python3 tools/mcp/test-e2e.py`。
+
+## エディタ: LSP サーバー
+
+同じ発想をエディタに適用したものが、Pop-11 で書かれた Language Server
+Protocol サーバーです(`pop/lsp/pop11_lsp.p`、`tools/pop11-lsp` が起動し、
+tarball にも同梱されています)。サーバー自体が Poplog セッションである
+ため、診断は **実際のコンパイラ** から得られます。バッファは
+`pop_syntax_only` を設定した状態で検査されるので、VM は何もプラントせず、
+ファイルの内容が実行されることもありません。ホバーはカーソル下の語に
+対応する実際の HELP/REF/TEACH エントリを表示し、補完はライブの辞書から
+引かれます。[Neovim プラグイン](editors/nvim/) は `pop11` バッファで
+自動的に起動します。任意の LSP クライアントが同じ stdio コマンドを
+実行できます。エンドツーエンドのプロトコルテスト:
+`python3 tools/lsp/test-e2e.py`。
+
+両サーバーは 1 つのトランスポート `pop/lib/lib/jsonrpc.p` の上に載って
+います。行ベースと Content-Length のフレーミング、stdio と TCP の
+エンドポイント、そしてハンドラの mishap を `-32603` に変換して処理を
+続けるサーブループを備えます。これを切り出したことで 2 つのサーバーから
+342 行が取り除かれ、後述の swank サーバーもこの上に構築されています。
+
+## エディタ: ライブセッション
+
+`pop/lib/lib/swank.p` はこの発想のもう半分であり、SLIME の swank と
+同じ理由から同じ名前を冠しています。エディタが対話する相手として
+興味深いのはコンパイラではなく **動作中のセッション** だ、という点です。
+LSP サーバーはテキストについての質問に答えますが、こちらはライブな
+ヒープについての質問に答えます。ある名前が *いま* 何に束縛されて
+いるか、プロシージャが実行中に何を出力したか、落ちた時点でどのフレームが
+スタックにあったか。
+
+出力は最後にまとめて届くのではなく、生成されるそばからストリーミング
+されます。mishap はスクレイピングすべきテキストの塊ではなく、データ
+(`message`、`culprits`、`frames`)として返ります。暴走したループは
+ハンドシェイクが渡す pid にシグナルを送ることで停止できます。これは
+この一連の作業の中で `I_CHECK` を arm64 と riscv64 に実装したからこそ
+動作します。
+
+すでに使っているセッションから起動すれば、エディタはその中身ごと
+そのセッションを受け取ります:
+
+```pop11
+uses swank;
+swank_serve(4005);          ;;; 同じ発想なので SLIME のポートを使用
+```
+
+新しいセッションを起動する場合は `tools/pop11-swank` を使います。
+テスト: `sh tools/test-libs.sh tools/tests/test_swank.p` — 別プロセスの
+実サーバーに対する 56 個のチェック(割り込みを含む)。
+
+[Emacs パッケージ](editors/emacs/) がそのクライアントです。
+`M-x pop11-swank` でセッションを起動して接続すると、以降の編集コマンドは
+そちらへ送られます。コードの実行に合わせて出力が REPL へストリーミング
+され、mishap は実際のフレームを持つバックトレースバッファを開きます。
+`C-c C-i` で値をインスペクトし、ハンドル経由でその構成要素へ辿れます。
+`M-.` は動作中のヒープに名前の出所を問い合わせ、補完はライブの辞書を
+読み、`C-c C-a` は暴走したループを停止します。
+
+`TEACH SWANK` がその手引きです。エディタを介する前に、手動での接続、
+出力がストリーミングされる様子、mishap の分解、暴走ループへの割り込み、
+ライブな値のインスペクトを実際に体験できます。
+
+[Emacs パッケージ](editors/emacs/) はさらに踏み込み、この発想のもう
+半分にも手を伸ばします。`M-x run-pop11` は comint バッファに本物の
+Poplog リスナーを置き、編集バッファには VED の `ENTER` コマンドが
+Emacs のキーで割り当てられます — `C-x C-e` が `ENTER l1`、`C-c C-r` が
+`ENTER lmr`、`C-M-x` が `ENTER lcp` — これによりプロシージャは、
+ファイルを離れることなくバッファから動作中のイメージへ渡ります。
+テスト: `emacs -Q --batch -l tools/emacs/test-e2e.el`。
+
 ## パッケージング(Nix)
 
 自己完結した **Nix flake** が、システム全体 — 全 4 言語とそのセーブド
@@ -193,6 +324,17 @@ Poplog のインクリメンタルコンパイラは、どのバックエンド�
 ベンチマーク結果(x86-64、Apple M シリーズ、Raspberry Pi 5、
 MediaTek Genio 720、RISC-V。比較用に Python と Perl のベースライン付き)は
 **[BENCHMARKS.md](BENCHMARKS.md)** を参照してください。
+
+## ドキュメント
+
+ツリー内の全コーパス — 900 以上の HELP、TEACH、REF ファイル — は
+**<https://iotone.github.io/poplog/>** で閲覧できます(AI アシスタント
+向けの [`llms.txt`](https://iotone.github.io/poplog/llms.txt) も併せて
+提供しています)。サイトはプッシュのたびに `tools/gen-docs.sh` によって
+再生成されます。これは Pop-11 のプログラムです。つまり Poplog は CI 上で、
+リリース済みのシード corepop から、生成処理 1 秒未満で自身のドキュメント
+サイトをビルドしているということです。システム内部では、同じ内容が ved の
+`help json`、`teach json`、`ref regexp` などとして利用できます。
 
 ## 学習資料
 
