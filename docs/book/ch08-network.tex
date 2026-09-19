@@ -728,6 +728,203 @@ costs the full timeout on every call that consults it. Neither hurts a chart
 this size; both would need attention before this resolved a chain of command
 with thousands of units in it.
 
+\section{What the fleet has seen lately}
+
+\S8.6 distributed a relation that never changes. An org chart is a fixture:
+it is the same at midnight as at noon, and a fact about it is true or it is
+not. \ghfile{sightnet.p} distributes the other kind --- each robot records
+what it saw, the record expires, and any robot can ask the fleet a question
+with a \emph{when} in it: what has anyone seen in the last five minutes that
+I do not already know about?
+
+Three decisions carry the weight, and each avoids a trap the rest of this
+chapter has already paid for.
+
+\subsection{Ages on the wire, not timestamps}
+
+The obvious design puts a timestamp on each sighting and compares them. It
+does not survive contact with the fleet. The Raspberry Pi in these
+measurements was running with NTP inactive and had drifted 21 seconds ahead
+of the Mac; a timestamp from it was not comparable with anything. The general
+form of the problem is the one \S8.5 spent three editions getting wrong:
+these machines agree about how long a second lasts and they do not agree
+about what time it is.
+
+So the wire carries an \emph{age}. A node says ``I saw this 47 seconds ago'',
+which is a duration, and the asking node stamps it against its own clock on
+arrival:
+
+\begin{pop}
+;;; answer: 'o <id>|<label>|<conf>|<age> ...'
+sane_age((now - subscrv(4, r)) / 1000000.0) -> age;
+nextif(age > max_age);
+\end{pop}
+
+\noindent This needs no NTP, no offset estimation and no shared epoch. It is
+the same correction \code{swarm.p} needed, one layer up.
+
+\begin{callout}{Fixing the clock is not a reason to undo this}
+The Pi's NTP was later repaired --- it now measures $+0.16$\,s against this
+machine, inside the ssh round trip. That is not an argument for putting
+timestamps back on the wire. A disciplined clock still \emph{steps}, forwards
+and back, and a design should not depend on a daemon being healthy on every
+node.
+
+The repair in fact introduced a failure mode the Pi did not have while it was
+merely wrong: a backward step makes an age negative, which sails straight
+through an ``older than the window?'' test and reports a sighting from the
+future, while a forward step expires the whole store at once.
+\code{swarm.p} already guarded its \code{dt} against exactly this;
+\code{sightnet.p} did not, until fixing the clock made it reachable.
+\code{sane\_age/1} now clamps both ends.
+\end{callout}
+
+\subsection{Expiry is the owner's job}
+
+A node prunes its own store and nobody prunes anyone else's. A sighting that
+nobody ever asks for still expires. \code{SIGHT\_TTL} defaults to a day and
+is overridable, because a 24-hour boundary that cannot be demonstrated
+without waiting 24 hours is a boundary nobody checks:
+
+\begin{repl}
+SIGHT_TTL=86400 -> seeded 7 sightings, 6 survive   (one was 25h old)
+SIGHT_TTL=600   -> seeded 7 sightings, 3 survive
+\end{repl}
+
+\subsection{Dedup by sequence, not by content}
+
+Each robot numbers its own sightings. A requestor remembers the highest
+sequence it has seen from each robot and sends those marks with the query, so
+the reply carries only what is new --- which also keeps it inside one
+datagram. Hashing the content instead would collide the moment two frames of
+the same quiet corridor looked alike, and a fleet would go blind exactly
+where nothing was happening.
+
+The watcher shows it: the first poll returns the backlog, and every poll
+after returns precisely one new row per node per reel tick, never a repeat.
+
+\begin{repl}
+** ALERT cat (0.91 confidence) seen 22.0 s ago -- r2-1
+8 new rows, 2 alerts
+2 new rows, 0 alerts
+2 new rows, 0 alerts
+** ALERT cat (0.86 confidence) seen 0.5 s ago -- r2-14
+2 new rows, 2 alerts
+\end{repl}
+
+\subsection{Prolog asks, Pop-11 holds}
+
+The store is mutable and expiring, which is exactly why Pop-11 owns it and
+Prolog reads it through a \code{define :prolog} predicate --- one heap, no
+marshalling, no serialisation boundary. Local store and remote fleet are
+reached the same way, so the rules cannot tell them apart:
+
+\begin{pop}
+sighting(Id,R,L,C,A) :- local_sighting(Id,R,L,C,A).
+sighting(Id,R,L,C,A) :- remote_sighting(Id,R,L,C,A).
+
+recently(Id,R,L,C,A) :- sighting(Id,R,L,C,A), A =< 300.
+today(Id,R,L,C,A)    :- sighting(Id,R,L,C,A), A =< 86400.
+\end{pop}
+
+Verified across three machines and three architectures, with macOS arm64
+asking and a Linux box and a Pi serving. A frame behind a sighting can be
+fetched too, in as many signed chunks as it takes --- the same mechanism
+\ghfile{deploy.p} uses for source, and byte-identical on arrival.
+
+\section{A classifier small enough to be honest}
+
+The labels above were canned. \ghfile{vision.p} makes them real, with a
+network trained in Pop-11 rather than imported from somewhere else --- and
+the interesting decision is how small it is.
+
+A $256 \rightarrow 16 \rightarrow 4$ network cannot tell a cat from a dog in
+a photograph. Nothing that size can, and a transformer over image patches
+would be slower and no better. What it \emph{can} do is recognise a small
+fixed vocabulary of markers under controlled conditions, which is what a
+fleet watching for painted signs actually needs. So the classes are shapes,
+and what a shape \emph{means} is left to Prolog, where it is data:
+
+\begin{pop}
+means(circle, cat).      means(triangle, hazard).
+alarming(cat).           alarming(hazard).
+
+suspicious(Id,R,M,A) :- recently(Id,R,Shape,C,A), C >= 0.8,
+                        means(Shape,M), alarming(M).
+\end{pop}
+
+\noindent A live fleet can be taught a new sign, or a new alarm, with
+\ghfile{deploy.p} and no restart. The accuracy below is real but easy by
+construction --- four well-separated shapes, jittered in position and size,
+with light sensor noise. Saying so is part of reporting it.
+
+\subsection{Train through the graph, infer without it}
+
+Two measurements decided the shape of this. Training runs through the scalar
+autograd of \ghfile{examples/microgpt/microgpt.p} --- a Pop-11 port of
+Karpathy's micrograd --- at 275 samples/second: fine for 240 samples,
+hopeless for anything real, so we train once, twelve epochs in ten seconds.
+
+Inference does not need the graph at all. A \code{Value} carries its
+children and their local derivatives so that \code{v\_backward} can walk
+them; none of that is wanted to answer ``what is this?''. Dropping it for
+plain floats measured a \textbf{30$\times$} speedup, with another 23\% from
+\code{fast\_subscrv}, which skips the bounds check:
+
+\begin{center}
+\footnotesize
+\begin{tabular}{lr}
+\toprule
+ & \textbf{classifications/sec}\\
+\midrule
+macOS arm64   & 9121\\
+Linux x86-64  & 7717\\
+Pi aarch64    & 3417\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent All three report 100\% held-out accuracy \emph{and identical
+confidences to six decimal places}. Same weights, same answers, three
+architectures --- which is the assurance that matters after a chapter's worth
+of arithmetic bugs.
+
+\begin{callout}{Weights are data, not code}
+The first version of the exporter wrote weights as Pop-11 source, making the
+compiler build a 4096-element literal to get 4096 numbers into a vector.
+That is the wrong mechanism on its own terms --- and on the Pi it also turned
+out to be a way to crash the engine with SIGILL, reproducibly, on files that
+macOS arm64 and Linux x86-64 compile without complaint.
+
+The failing set is non-monotonic: 500 floats pass, 550 through 2500 fail,
+3000 and above pass again. It moves when \code{popdprecision} changes. The
+same file crashes one program and not another. That looks more like
+heap-layout-dependent corruption than a code-generator threshold, but it is
+not diagnosed, and \ghfile{docs/bugs/aarch64-large-literal-sigill.md} says so
+rather than guessing in the reader's direction.
+
+Weights are now written as plain numbers and read back with
+\code{line\_repeater} and \code{strnumber}. That works everywhere, loads
+faster, and is what should have been done first.
+\end{callout}
+
+\subsection{What the fleet sees}
+
+With weights present, \code{sightnet.p}'s reel stops inventing labels: it
+renders a frame, classifies it, and records the network's answer. A fetch
+returns the frame that was actually classified, so a requestor can pull the
+evidence rather than take the label on trust.
+
+\begin{repl}
+[reel] r1 saw circle (drawn circle, 0.99 confidence), 1 held
+r1-5 / cat / 3.7          <- saw/4: shape resolved to meaning
+r1-3 / hazard / 11.8
+\end{repl}
+
+\noindent Which is the whole arrangement in three lines: a network says what
+shape it saw, Prolog says what that shape means, and the fleet decides
+whether to care --- each in the language that suits it, all in one process.
+
 \section{What this is really showing}
 
 Strip the theme away and the chapter makes one claim: \textbf{the unit of

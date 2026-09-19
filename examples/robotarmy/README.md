@@ -290,6 +290,178 @@ the coupling term never once fired and every robot free-ran while still
 producing plausible output.  See
 [docs/bugs/sys-input-waiting-blind-on-sockets.md](../../docs/bugs/sys-input-waiting-blind-on-sockets.md).
 
+## vision.p — a classifier small enough to be honest
+
+`sightnet.p` had canned labels.  This produces real ones, from real pixels,
+with a network trained here rather than imported.
+
+```sh
+./poplog basepop11 examples/robotarmy/vision.p --train 12    # ~10 seconds
+./poplog basepop11 examples/robotarmy/vision.p --check
+```
+
+```
+epoch 12: train 100%, test 100%  (10 s elapsed)
+done: 275 samples/sec through the graph
+held-out accuracy 100% of 80
+9121 classifications/sec over 2000
+```
+
+### The honesty is in the scope
+
+A 256→16→4 MLP cannot tell a cat from a dog in a photograph.  Nothing this
+size can, and a transformer over image patches would be slower and no better.
+What it *can* do is recognise a small fixed vocabulary of markers — which is
+what a robot army watching for painted signs actually needs.  So the classes
+are shapes, and what a shape **means** is left to Prolog, where it is data:
+
+```prolog
+means(circle, cat).      means(triangle, hazard).
+alarming(cat).           alarming(hazard).
+suspicious(Id,R,M,A) :- recently(Id,R,Shape,C,A), C >= 0.8,
+                        means(Shape,M), alarming(M).
+```
+
+A live fleet can be taught a new sign, or a new alarm, with `deploy.p` and no
+restart.  100% accuracy is real but easy by construction: four well-separated
+shapes with light noise, jittered in position and size.
+
+### Two measured facts shape the design
+
+**Training goes through the autograd graph** at 275 samples/sec — fine for
+240 samples, hopeless for anything real.  Train once.
+
+**Inference does not need the graph.**  Dropping it for plain floats is a 30×
+speedup.  So the exported weights are plain numbers and the forward pass is
+ordinary arithmetic, with `fast_subscrv` for another 23%.
+
+| | classifications/sec |
+| --- | ---: |
+| macOS arm64 | 9121 |
+| Linux x86-64 | 7717 |
+| Pi aarch64 | 3417 |
+
+All three give **100% held-out accuracy and identical confidences to six
+decimal places** — the same weights, the same answers, three architectures.
+
+### Weights are data, not code
+
+An earlier version emitted weights as Pop-11 source, making the compiler
+build a 4096-element literal.  That is the wrong mechanism — and on the Pi it
+is also a way to meet
+[a SIGILL](../../docs/bugs/aarch64-large-literal-sigill.md).  Weights are now
+written as plain numbers and read with `line_repeater`/`strnumber`, which
+works everywhere and loads faster.
+
+### Wired into the fleet
+
+With weights present, `sightnet.p`'s reel renders a frame, classifies it, and
+records the network's answer.  `--fetch` returns the actual frame that was
+classified, so a requestor can pull the evidence:
+
+```
+  [reel] r1 saw circle (drawn circle, 0.99 confidence), 1 held
+  r1-5 / cat / 3.7          <- saw/4, shape resolved to meaning
+  r1-3 / hazard / 11.8
+```
+
+## sightnet.p — what the fleet has seen lately
+
+`chainnet.p` distributes a relation that never changes.  This distributes one
+that is always changing: each robot records what its camera saw, records
+expire, and any robot can ask the fleet *"what has anyone seen in the last
+five minutes that I don't already know about?"*
+
+```sh
+# a node with canned sightings, plus a "reel" that keeps seeing things
+SIGHT_REEL=8 ./poplog basepop11 examples/robotarmy/sightnet.p \
+    --serve r1 9871 --seed
+
+# ask the fleet
+./poplog basepop11 examples/robotarmy/sightnet.p --ask r0 "$LNX:9871,$PI:9872" \
+    '(recently(Id,R,L,C,A), write(Id/L/C/A), nl, fail ; true)'
+
+# stand watch: poll, shout about anything alarming AND new
+./poplog basepop11 examples/robotarmy/sightnet.p --watch r0 "$LNX:9871" 600
+
+# fetch the frame behind a sighting (chunked)
+./poplog basepop11 examples/robotarmy/sightnet.p \
+    --fetch r0 $PI:9872 r2-11 /tmp/frame.pgm
+```
+
+### Three decisions, each a trap avoided
+
+**The wire carries ages, not timestamps.**  These machines don't agree about
+what time it is — the Pi runs with NTP inactive — so a timestamp from another
+node isn't comparable with ours.  An age is a *duration*: it needs agreement
+on the length of a second, which they have, not on an epoch, which they don't.
+Same correction `swarm.p` needed, one layer up.
+
+**Expiry is the owner's job.**  A node prunes its own store; nobody prunes
+anyone else's.  `SIGHT_TTL` defaults to 86400 and is overridable so the
+boundary can be demonstrated without waiting a day:
+
+```
+SIGHT_TTL=86400 -> seeded 7 sightings, 6 survive   (one was 25h old)
+SIGHT_TTL=600   -> seeded 7 sightings, 3 survive
+```
+
+**Dedup is by (robot, sequence), not by content.**  Each robot numbers its own
+sightings; a requestor remembers the highest sequence per robot and sends
+those marks with the query, so the reply carries only what's new — which also
+keeps it inside one datagram.  Content hashing would collide the moment two
+frames of the same quiet corridor looked alike.
+
+The watcher shows it working — first poll returns the backlog, then exactly
+one new row per node per reel tick, never a repeat:
+
+```
+  ** ALERT cat (0.91 confidence) seen 22.0 s ago -- r2-1
+  ** ALERT cat (0.91 confidence) seen 22.0 s ago -- r1-1
+  8 new rows, 2 alerts
+  2 new rows, 0 alerts
+  2 new rows, 0 alerts
+  ** ALERT cat (0.86 confidence) seen 0.5 s ago -- r2-14
+  2 new rows, 2 alerts
+```
+
+### The query language is Prolog, the store is Pop-11
+
+The store is mutable and expiring, which is exactly why Pop-11 owns it and
+Prolog reads it through a `define :prolog` predicate — one heap, no
+marshalling.  Both the local store and the remote fleet are reached the same
+way, so the rules can't tell them apart:
+
+```prolog
+sighting(Id,R,L,C,A) :- local_sighting(Id,R,L,C,A).
+sighting(Id,R,L,C,A) :- remote_sighting(Id,R,L,C,A).
+
+recently(Id,R,L,C,A)  :- sighting(Id,R,L,C,A), A =< 300.
+today(Id,R,L,C,A)     :- sighting(Id,R,L,C,A), A =< 86400.
+
+alarming(cat).
+suspicious(Id,R,L,A) :- recently(Id,R,L,C,A), C >= 0.8, alarming(L).
+```
+
+`alarming/1` is data, so a live fleet can be taught a new alarm with
+`deploy.p` without restarting anything.
+
+### Asset transfer
+
+A frame is a 32×32 ASCII PGM, ~3.7 KB — deliberately larger than one
+datagram, so fetching exercises the chunked path (`net_send_big` /
+`net_collect`) rather than the single-datagram path everything else uses.
+Verified byte-identical fetching from a Pi (aarch64) and a Linux box
+(x86-64) to macOS arm64.
+
+### Where the camera goes
+
+`sight_frame/1` generates a canned frame from a sequence number.  A real node
+replaces it with a read of the newest file in a common image directory —
+whatever platform-specific thing wrote it, in whatever format everyone
+agrees on.  Nothing above that function cares which it was, and the classifier
+result is the only thing that enters the knowledge base.
+
 ## chainnet.p — backtracking across machines
 
 `chain.pl` holds the whole org chart on one machine.  A real fleet doesn't:

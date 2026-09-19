@@ -1,6 +1,6 @@
 # Pop-11 and the Robot Army
 
-**Edition 1.7, September 2026** — David J. Kordsmeier and Claude.
+**Edition 1.8, September 2026** — David J. Kordsmeier and Claude.
 
 An introduction to Poplog and Pop-11 built around one running example: a
 fleet of robots commanded from a live Poplog session by an AI agent. It
@@ -74,6 +74,7 @@ and tag the commit `book-v<edition>`.
 | 1.5 | September 2026 | Fixes what 1.4 diagnosed. Robots now advance by measured elapsed time (`sys_microtime`) instead of a nominal tick, and broadcast their rate so a listener can extrapolate from its own arrival stamp — no shared epoch, no NTP. Across two machines with a 25% tick-rate difference, R goes from 0.665 (swinging 0.002–0.976) to 0.990 (spread 0.003). |
 | 1.6 | September 2026 | Confirms the 1.5 fix on the full fleet: six robots across three machines and three architectures hold R = 0.972 (spread 0.005), against 0.690 swinging 0.309–0.977 before. Over one 40 s run the machines completed 1601, 1942/1944 and 1978 ticks respectively and agreed anyway. |
 | 1.7 | September 2026 | Re-measures the single-machine swarm table under the clock-based code of 1.5, which no longer reproduces the old phase values, and re-cuts the figure from that run. Rows are now elapsed seconds rather than tick numbers, since a tick is not a fixed amount of time and so is not an axis. |
+| 1.8 | September 2026 | Adds §8.7, a knowledge base of sightings that expires, windows and dedups — ages on the wire rather than timestamps, expiry owned by each node, dedup by sequence. Adds §8.8, a classifier small enough to be honest: trained in Pop-11 at 275 samples/sec, inferring at 9121/sec without the autograd graph, identical to six decimals on three architectures. |
 
 ## Licence
 
