@@ -309,24 +309,30 @@ the order parameter $R$, where 0 is chaos and 1 is perfect lockstep:
 \footnotesize
 \begin{tabular}{rlr}
 \toprule
-\textbf{tick} & \textbf{phases} & \textbf{$R$}\\
+\textbf{elapsed} & \textbf{phases} & \textbf{$R$}\\
 \midrule
-0   & 0.05\ \ 1.77\ \ 3.48\ \ 5.20 & \textbf{0.096}\\
-60  & 3.72\ \ 3.90\ \ 3.98\ \ 4.13 & 0.990\\
-120 & 1.78\ \ 1.96\ \ 2.04\ \ 2.18 & 0.990\\
-239 & 4.11\ \ 4.29\ \ 4.37\ \ 4.51 & \textbf{0.990}\\
+0.00\,s & 0.00\ \ 1.70\ \ 3.40\ \ 5.10 & \textbf{0.085}\\
+0.75\,s & 0.59\ \ 2.29\ \ 5.12\ \ 0.48 & 0.422\\
+1.50\,s & 1.50\ \ 2.08\ \ 1.30\ \ 1.85 & 0.954\\
+3.00\,s & 3.76\ \ 3.88\ \ 3.99\ \ 4.13 & 0.991\\
+5.97\,s & 1.94\ \ 2.06\ \ 2.18\ \ 2.31 & \textbf{0.990}\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-They lock by tick 60 and \emph{stay} locked, holding a constant phase lag ---
-not identical phases, which is the right answer for oscillators with different
-natural frequencies. The staying is the whole signal. A rising $R$ proves
-nothing on its own: four uncoupled oscillators drift past one another and $R$
-climbs on the way past, purely by coincidence. Only a plateau is entrainment.
+The rows are seconds rather than tick numbers, for the reason
+\S\ref{sec:swarmfix} gets to:
+a tick is not a fixed amount of time, so it is not an axis. $R$ passes 0.985
+about 1.75\,s in and never drops below it again. They hold a constant phase
+\emph{lag} rather than identical phases, which is the right answer for
+oscillators with different natural frequencies.
+
+The staying is the whole signal. A rising $R$ proves nothing on its own: four
+uncoupled oscillators drift past one another and $R$ climbs on the way past,
+purely by coincidence. Only a plateau is entrainment.
 
 \begin{callout}{The measurement that was wrong for a week}
-This table used to read $0.096 \rightarrow 0.911$, and it was an artefact.
+This table used to end at $R = 0.911$, and it was an artefact.
 \code{net\_poll} was built on \code{sys\_input\_waiting}, which answers
 \code{false} forever on a datagram socket --- even with a datagram queued that
 a blocking \code{recv} returns at once. So \code{seen} was always 0, the
@@ -373,7 +379,7 @@ poll was silently producing.}
 
 \subsection{Across machines, the fleet locks in pieces}
 
-Everything above is six processes on one host. Spread the fleet across real
+Everything above is four processes on one host. Spread the fleet across real
 machines --- two robots each on macOS arm64, Linux x86-64 and a Raspberry Pi
 --- and it no longer locks as one. Each machine's pair holds at $0.97$ for the
 whole run; the fleet as a whole wanders between $0.32$ and $0.97$, mean
@@ -450,6 +456,7 @@ not. Coupling across a network is not the hard part --- agreeing what a
 unit of time \emph{is} turns out to be.
 
 \subsection{The fix: stop counting ticks}
+\label{sec:swarmfix}
 
 Two changes, neither of which needs the machines to agree about what time it
 is. The first is to advance by the time that actually passed:

@@ -262,15 +262,17 @@ wait
 Four separate OS processes, coupled only by signed datagrams.  Measured by
 the Kuramoto order parameter — 0 is chaos, 1 is perfect lockstep:
 
-| tick | phases | sync |
+| elapsed | phases | sync |
 | ---: | --- | ---: |
-| 0 | 0.05  1.77  3.48  5.20 | **0.096** |
-| 60 | 3.72  3.90  3.98  4.13 | 0.990 |
-| 120 | 1.78  1.96  2.04  2.18 | 0.990 |
-| 239 | 4.11  4.29  4.37  4.51 | **0.990** |
+| 0.00 s | 0.00  1.70  3.40  5.10 | **0.085** |
+| 0.75 s | 0.59  2.29  5.12  0.48 | 0.422 |
+| 1.50 s | 1.50  2.08  1.30  1.85 | 0.954 |
+| 3.00 s | 3.76  3.88  3.99  4.13 | 0.991 |
+| 5.97 s | 1.94  2.06  2.18  2.31 | **0.990** |
 
-They lock by tick 60 and *stay* locked, at a constant phase *lag* rather than
-identical phases — the correct behaviour for oscillators with different
+Rows are seconds, not tick numbers — a tick isn't a fixed amount of time, so
+it isn't an axis.  R passes 0.985 about 1.75 s in and never drops below it
+again, at a constant phase *lag* rather than identical phases — the correct behaviour for oscillators with different
 natural frequencies.  The staying is the signal: a merely *rising* order
 parameter proves nothing, because uncoupled oscillators drift past each other
 and the measure climbs on the way past.
