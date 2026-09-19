@@ -43,6 +43,21 @@ uses strutils;
 uses prolog;
 uses define_prolog;
 
+;;; The classifier is optional: without weights a node still serves, it just
+;;; has nothing of its own to see.  With them, the reel becomes real -- a
+;;; frame is rendered, classified, and the label that enters the knowledge
+;;; base is the network's answer rather than a canned string.
+vars vision_lib = true;
+vars sight_vision = false;
+;;; Declared up front because the load below happens at run time, after this
+;;; file is compiled -- without this the compiler invents them and warns.
+vars procedure (vis_load, vis_classify, vis_render);
+unless readable('examples/robotarmy/vision-weights.txt') == false then
+    load 'examples/robotarmy/vision.p';
+    vis_load('examples/robotarmy/vision-weights.txt');
+    true -> sight_vision;
+endunless;
+
 define lconstant envnum(name, dflt) -> v;
     lvars e = systranslate(name);
     if e and strnumber(e) then strnumber(e) else dflt endif -> v;
@@ -51,7 +66,7 @@ enddefine;
 vars sight_me    = 'r0';        ;;; this node's name; sequence numbers are its
 vars sight_peers = [];          ;;; list of 'host:port'
 vars sight_seq   = 0;           ;;; our own sighting counter
-vars sightings   = [];          ;;; newest first: [seq label conf microtime]
+vars sightings   = [];          ;;; newest first: {seq label conf microtime frameseed}
 vars sight_seen  = [];          ;;; dedup marks: [robot maxseq] we have received
 
 ;;; Seconds a sighting survives.  Overridable so the expiry can actually be
@@ -68,6 +83,9 @@ lconstant SIGHT_REPLY_MAX = 1000;
 ;;; for the camera: a real node would classify whatever appeared in the common
 ;;; image directory instead of inventing a label.
 lconstant SIGHT_REEL = envnum('SIGHT_REEL', 0);
+;;; which shape the watcher shouts about (circle means cat, see sight-rules.pl)
+lvars _a = systranslate('SIGHT_ALERT');
+lconstant SIGHT_ALERT = if _a then consword(_a) else "circle" endif;
 
 ;;; A disciplined clock can STEP, forwards or back, and ages are differences
 ;;; of wall-clock readings.  A backward step makes an age negative, which
@@ -92,15 +110,32 @@ enddefine;
 ;;; instead.  Nothing below cares which it was.
 
 define sight_frame(seq) -> text;
-    lvars x, y, v;
-    'P2\n32 32\n255\n' -> text;
-    for y from 0 to 31 do
-        for x from 0 to 31 do
-            ((x * 8 + y * 4 + seq * 16) mod 256) -> v;
-            text <> (v sys_>< '') <> ' ' -> text;
-        endfor;
-        text <> '\n' -> text;
+    lvars r, fseed = false, img, x, y, v;
+    for r in sightings do
+        if subscrv(1, r) == seq then subscrv(5, r) -> fseed; quitloop endif
     endfor;
+    if fseed and sight_vision then
+        ;;; the actual 16x16 frame this sighting was classified from
+        vis_render(subscrv(2, r), fseed) -> img;
+        'P2\n16 16\n255\n' -> text;
+        for y from 0 to 15 do
+            for x from 0 to 15 do
+                intof(subscrv(y * 16 + x + 1, img) * 255) -> v;
+                text <> (v sys_>< '') <> ' ' -> text;
+            endfor;
+            text <> '\n' -> text;
+        endfor;
+    else
+        ;;; no classifier: a deterministic stand-in, still big enough to chunk
+        'P2\n32 32\n255\n' -> text;
+        for y from 0 to 31 do
+            for x from 0 to 31 do
+                ((x * 8 + y * 4 + seq * 16) mod 256) -> v;
+                text <> (v sys_>< '') <> ' ' -> text;
+            endfor;
+            text <> '\n' -> text;
+        endfor;
+    endif;
 enddefine;
 
 ;;; ------------------------------------------------------------ local store
@@ -116,9 +151,9 @@ define sight_prune();
     rev(keep) -> sightings;         ;;; sightings stay newest-first
 enddefine;
 
-define sight_record(label, conf);
+define sight_record(label, conf, frameseed);
     sight_seq + 1 -> sight_seq;
-    conspair({% sight_seq, label, conf, sys_microtime() %}, sightings)
+    conspair({% sight_seq, label, conf, sys_microtime(), frameseed %}, sightings)
         -> sightings;
     sight_prune();
 enddefine;
@@ -223,10 +258,24 @@ define sight_serve(port);
         and (sys_microtime() - reel_at) / 1000000.0 >= SIGHT_REEL then
             sys_microtime() -> reel_at;
             reel_i + 1 -> reel_i;
-            sight_record(subscrv(((reel_i - 1) mod 6) + 1, {cat dog car cat car dog}),
-                         0.7 + (random0(30) / 100.0));
-            printf('  [reel] %p now holds %p sightings\n',
-                   [% sight_me, length(sightings) %]);
+            lvars fseed = 90000 + reel_i * 7919;
+            if sight_vision then
+                ;;; a real frame, a real classification
+                lvars shown = subscrv(((reel_i - 1) mod 4) + 1,
+                                      {circle square triangle cross});
+                lvars lbl, cf;
+                vis_classify(vis_render(shown, fseed)) -> (lbl, cf);
+                sight_record(lbl, cf, fseed);
+                printf('  [reel] %p saw %p (drawn %p, %p confidence), %p held\n',
+                       [% sight_me, lbl, shown, intof(cf * 100) / 100.0,
+                          length(sightings) %]);
+            else
+                sight_record(subscrv(((reel_i - 1) mod 4) + 1,
+                                     {circle square triangle cross}),
+                             0.7, fseed);
+                printf('  [reel] %p now holds %p sightings (no classifier)\n',
+                       [% sight_me, length(sightings) %]);
+            endif;
             sysflush(popdevout);
         endif;
         unless net_ready(s) then syssleep(10); nextloop endunless;
@@ -365,7 +414,8 @@ define sight_seed();
     do
         sight_seq + 1 -> sight_seq;
         conspair({% sight_seq, hd(spec), hd(tl(spec)),
-                    now - intof(hd(tl(tl(spec))) * 1000000) %}, sightings)
+                    now - intof(hd(tl(tl(spec))) * 1000000),
+                    40000 + sight_seq * 7919 %}, sightings)
             -> sightings;
     endfor;
     rev(sightings) -> sightings;
@@ -405,7 +455,9 @@ define sight_watch(window);
         sight_ask(window) -> rows;      ;;; marks make this new-rows-only
         0 -> shouted;
         for r in rows do
-            if subscrv(2, r) == "cat" and subscrv(3, r) >= 0.8 then
+            ;;; The watcher alerts on a SHAPE; what that shape means lives in
+            ;;; sight-rules.pl, where it is data the fleet can be retaught.
+            if subscrv(2, r) == SIGHT_ALERT and subscrv(3, r) >= 0.8 then
                 printf('  ** ALERT %p (%p confidence) seen %p s ago -- %p\n',
                        [% subscrv(2, r), subscrv(3, r),
                           subscrv(4, r), subscrv(1, r) %]);
