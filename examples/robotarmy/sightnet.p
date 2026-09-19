@@ -69,6 +69,18 @@ lconstant SIGHT_REPLY_MAX = 1000;
 ;;; image directory instead of inventing a label.
 lconstant SIGHT_REEL = envnum('SIGHT_REEL', 0);
 
+;;; A disciplined clock can STEP, forwards or back, and ages are differences
+;;; of wall-clock readings.  A backward step makes an age negative, which
+;;; sails straight through an "older than the window?" test and reports a
+;;; sighting from the future; a forward step ages the whole store out at
+;;; once.  Neither is hypothetical now that the fleet runs NTP.  Clamp at
+;;; zero and treat an implausible age as "just now" rather than inventing
+;;; either a prophecy or a mass expiry.
+define lconstant sane_age(secs) -> a;
+    if secs < 0.0 then 0.0 elseif secs > SIGHT_TTL * 2 then 0.0
+    else secs endif -> a;
+enddefine;
+
 ;;; ------------------------------------------------------- the frame itself
 ;;; Canned stand-in for a camera frame: a 32x32 ASCII PGM, deterministic from
 ;;; the sequence number so a fetch can be checked byte for byte.  It is about
@@ -97,7 +109,7 @@ define sight_prune();
     lvars now = sys_microtime(), keep = [], r, n = 0;
     for r in sightings do
         quitif(n >= SIGHT_CAP);
-        nextif((now - subscrv(4, r)) / 1000000.0 > SIGHT_TTL);
+        nextif(sane_age((now - subscrv(4, r)) / 1000000.0) > SIGHT_TTL);
         conspair(r, keep) -> keep;
         n + 1 -> n;
     endfor;
@@ -118,7 +130,7 @@ define sight_local(max_age, since_seq) -> rows;
     sight_prune();
     [] -> rows;
     for r in sightings do
-        (now - subscrv(4, r)) / 1000000.0 -> age;
+        sane_age((now - subscrv(4, r)) / 1000000.0) -> age;
         nextif(age > max_age);
         nextif(subscrv(1, r) <= since_seq);
         conspair({% sight_me sys_>< '-' sys_>< subscrv(1, r),
