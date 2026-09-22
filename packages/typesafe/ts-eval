@@ -1,0 +1,32 @@
+#!/bin/sh
+# ts-eval -- ask the TypeSafe API a typed question from the shell.
+#
+#   ts-eval noul   "Is this a greeting?" "Hello there"
+#   ts-eval choice "What register?" formal,casual "Hey, what's up"
+#   ts-eval score  "How urgent?" low,medium,high -   < notes.txt
+#
+# Needs TYPESAFE_API_KEY.  Finds Poplog by walking up from this script, so
+# it works from an installed copy as well as from a checkout.
+set -e
+
+here="$(cd "$(dirname "$0")" && pwd)"
+
+# POPLOG_ROOT wins if set; otherwise walk up looking for a launcher, which
+# covers running from inside a checkout.  Only complain when neither works.
+root=""
+if [ -n "$POPLOG_ROOT" ] && [ -x "$POPLOG_ROOT/poplog" ]; then
+    root="$POPLOG_ROOT"
+else
+    d="$here"
+    while [ "$d" != "/" ]; do
+        if [ -x "$d/poplog" ] && [ -d "$d/pop" ]; then root="$d"; break; fi
+        d="$(dirname "$d")"
+    done
+fi
+if [ -z "$root" ]; then
+    echo "ts-eval: no Poplog found above $here" >&2
+    echo "         set POPLOG_ROOT=/path/to/poplog, or run from a checkout" >&2
+    exit 2
+fi
+
+exec "$root/poplog" "$root/target/pop/basepop11" "$here/cli.p" "$@"

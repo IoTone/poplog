@@ -60,11 +60,90 @@ extend_searchlist('packages/typesafe', popuseslist) -> popuseslist;
 uses typesafe;
 ```
 
+To take the command line with you, copy `ts-eval`, `cli.p` and `typesafe.p`
+into the same directory anywhere. It finds Poplog by walking up from its own
+location, so inside a checkout it needs nothing; outside one, point it:
+
+```sh
+POPLOG_ROOT=/path/to/poplog /somewhere/ts-eval noul "Is this a greeting?" "Good morning"
+```
+
 The key comes from the environment, because an API key in a source file is
 an API key in a git history:
 
 ```sh
 export TYPESAFE_API_KEY=apikey_...
+```
+
+## Try it from the shell
+
+`ts-eval` is a small front end for one-off questions. It needs
+`TYPESAFE_API_KEY` and nothing else — it finds Poplog by walking up from its
+own location, so it works from a checkout or an installed copy.
+
+```sh
+export TYPESAFE_API_KEY=$(cat ~/.typesafe-key)
+
+./packages/typesafe/ts-eval noul   "Is this a greeting?" "Hello there, how are you?"
+./packages/typesafe/ts-eval choice "What register is this?" formal,casual "Hey, what's up"
+./packages/typesafe/ts-eval score  "How urgent is this?" low,medium,high "The server room is on fire"
+```
+
+Real output, live against `jev-1.13.0`:
+
+```
+$ ts-eval noul "Is this a greeting?" "Hello there, how are you?"
+0.99   (yes)
+;;; jev-1.13.0, 296 tokens in / 20 out
+
+$ ts-eval choice "What register is this?" formal,casual "Hey, what's up"
+casual   (confidence 1.0)
+```
+
+`-` reads the text from stdin, which is the useful case — no shell quoting
+to fight with:
+
+```sh
+$ printf 'The server room is on fire and the backups failed.\n' \
+    | ts-eval score "How urgent is this?" low,medium,high -
+2.0    (confidence 1.0)
+
+$ printf 'Reminder: the coffee machine needs descaling sometime.\n' \
+    | ts-eval score "How urgent is this?" low,medium,high -
+0.11   (confidence 0.83)
+```
+
+## Several questions, one call
+
+The CLI asks one question at a time, which is fine once and wasteful in a
+loop: the text is re-sent and re-read every time. The API takes a *map* of
+questions, so `examples/triage.p` judges one message on four axes in a
+single request:
+
+```sh
+TYPESAFE_API_KEY=$(cat ~/.typesafe-key) \
+    ./poplog basepop11 packages/typesafe/examples/triage.p
+```
+
+```
+  urgency  : 2.14 / 3   (confidence 0.54)
+  area     : infra      (confidence 0.98)
+  blocked  : 0.78
+  deadline : 0.94
+
+  jev-1.13.0, 499 tokens in / 87 out -- for four questions
+```
+
+Four questions cost 499 input tokens together. Asked one at a time they cost
+about 300 each, so roughly 1200 — the text is what you pay for, and you pay
+for it once. The questions are independent, though: they do not see each
+other's answers, so this is parallel classification rather than a chain of
+reasoning.
+
+Pass a file to judge your own text:
+
+```sh
+... examples/triage.p /path/to/message.txt
 ```
 
 ## Use
