@@ -64,7 +64,7 @@ The key comes from the environment, because an API key in a source file is
 an API key in a git history:
 
 ```sh
-export TYPESAFE_API_KEY=sk-...
+export TYPESAFE_API_KEY=apikey_...
 ```
 
 ## Use
@@ -102,12 +102,17 @@ Question ids and choice keys may be words or strings — `[[safety ^q]]` and
 
 | variable | default |
 | --- | --- |
-| `ts_api_key` | `$TYPESAFE_API_KEY` |
+| `ts_api_key` | `$TYPESAFE_API_KEY` (keys look like `apikey_...`) |
 | `ts_model` | `'jev-latest'` |
 | `ts_base_url` | `'https://api.typesafe.ai/v1'` |
 | `ts_timeout` | 60 seconds |
 | `ts_max_retries` | 4 |
 | `ts_transport` | `http_request` |
+
+A key that does not start with `apikey_` gets a warning, not a refusal —
+it is almost always the wrong variable rather than a wrong key, and saying
+so beats spending a round trip to be told 401. The prefix is an observation
+about today's keys, not a rule the server promised, so it does not block.
 
 `429` and `529` are retried with exponential backoff from 0.25s, as the API
 docs require. `401` and `422` are not retried — a bad key stays bad — and
@@ -137,18 +142,30 @@ looked like a server problem:
   a word is truthy — so a null criterion silently became a non-null one. The
   library now treats both as null.
 
-## Not covered by the tests
+## Validated against the live API
 
-Whether the server agrees with our reading of its schema. The tests pin the
-request shape and the decoding of a documented response; they cannot tell you
-that `noul` really is the field name on a live answer. That needs a key:
+The offline suite cannot tell you that `noul` really is the field name on a
+live answer, or that `usage` really spells it `input_tokens` — only the
+server can say that. `tests/smoke_live.p` asks it, in one request with one
+question of each type, and checks the 17 schema assumptions this client
+depends on individually so a failure names itself:
 
-```pop11
-uses typesafe;
-lvars a = ts_eval('hello',
-                  [[q ^(ts_noul('Is this a greeting?', 'a greeting',
-                                'not a greeting'))]]);
-a('q') =>
+```sh
+TYPESAFE_API_KEY=$(cat ~/.typesafe-key) \
+    ./poplog basepop11 packages/typesafe/tests/smoke_live.p
 ```
 
-Run that once against the real endpoint before trusting this in anything.
+Run 2026-09-21 against `api.typesafe.ai/v1` with `jev-latest`
+(answered by `jev-1.13.0`): **all 17 hold.** The envelope, the question ids
+coming back as sent, and all three answer shapes are as documented.
+
+```
+greeting : 0.99                        "Hello there, how are you today?"
+register : casual (confidence 1.0)
+length   : 0.01 (confidence 0.99)      0..2 over [very short, medium, long]
+tokens   : 399 in, 66 out
+```
+
+It dumps the raw response body on any failure, because a schema mismatch you
+cannot see is one you cannot fix, and it never prints the key. Re-run it when
+the API version moves.

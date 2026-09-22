@@ -179,6 +179,14 @@ define ts_eval(state, questions) -> answers;
     unless ts_api_key then
         mishap(0, 'typesafe: no API key -- set TYPESAFE_API_KEY or ts_api_key')
     endunless;
+    ;;; Keys look like apikey_...  A wrong-looking key is usually a wrong
+    ;;; variable rather than a wrong key, and saying so beats spending a
+    ;;; round trip to be told 401.  A warning, not a refusal: the prefix is
+    ;;; an observation about today's keys, not a rule the server promised.
+    unless isstartstring('apikey_', ts_api_key) then
+        printf(';;; typesafe: key does not start with apikey_ -- wrong variable?\n',
+               [])
+    endunless;
     lvars url = ts_base_url <> '/systemone';
     ;;; [% ... %], not [ ... ]: a list literal does NOT evaluate its items,
     ;;; so the bracket form builds a list containing the word `<>` and the
