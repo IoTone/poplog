@@ -1,4 +1,8 @@
-;;; smoke_live.p -- one real call, to check the server agrees with us.
+;;; smoke_live.p -- real calls, to check the server agrees with us.
+;;; test-timeout: 300
+;;;
+;;; 300 rather than the 120s default: this makes three network round trips,
+;;; and ts_timeout alone is 60s before any retry with backoff on top.
 ;;;
 ;;; The offline suite pins the request shape and decodes a response copied
 ;;; from the docs.  Neither can tell you that `noul` is really the field
