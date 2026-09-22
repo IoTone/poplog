@@ -99,12 +99,53 @@ claim('score has a legend object',        c and isproperty(c('legend')));
 claim('score has probabilities object',   c and isproperty(c('probabilities')));
 claim('score has numeric confidence',     c and isnum(c('confidence')));
 
+;;; --- the resolved model, which is the version worth recording
+claim('resolved model captured', ts_last_model and true);
+claim('resolved model is a jev build',
+      ts_last_model and isstartstring('jev-', ts_last_model));
+claim('resolved model is more specific than what we asked',
+      ts_last_model and ts_last_model /= ts_model);
+
+;;; --- state may be an object, not just a string (the docs say so; we had
+;;; --- only ever sent strings, which is not the same as knowing)
+lvars st = newmapping([], 8, false, true);
+'Hello there, how are you today?' -> st('body');
+'a greeting'                      -> st('note');
+lvars objans = ts_eval(st, [[greeting ^q_noul]]);
+claim('object state is accepted',
+      isproperty(objans) and isproperty(objans('greeting')));
+claim('object state still answers noul',
+      isnum(objans('greeting')('noul')));
+
+;;; --- a bad key must really be a 401, not something we mapped optimistically
+vars bad_key_rejected = false;
+
+;;; exitfrom needs a procedure to leave, not a number -- the first version
+;;; of this said exitfrom(0) and died inside its own handler.
+define try_bad_key();
+    dlocal prmishap =
+        procedure(m, c);
+            true -> bad_key_rejected;
+            exitfrom(try_bad_key);
+        endprocedure;
+    ts_eval('hi', [[greeting ^q_noul]]) -> ;
+enddefine;
+
+lvars good_key = ts_api_key;
+'apikey_definitely_not_a_real_key' -> ts_api_key;
+try_bad_key();
+good_key -> ts_api_key;
+claim('a bad key is rejected, not retried forever', bad_key_rejected);
+
 printf('\nwhat the server actually said:\n', []);
 printf('  greeting : %p\n', [% a and a('noul') %]);
 printf('  register : %p (confidence %p)\n', [% b and b('choice'), b and b('confidence') %]);
 printf('  length   : %p (confidence %p)\n', [% c and c('score'), c and c('confidence') %]);
 printf('  tokens   : %p in, %p out\n',
        [% ts_last_usage('input_tokens'), ts_last_usage('output_tokens') %]);
+printf('  model    : asked %p, answered %p\n', [% ts_model, ts_last_model %]);
+printf('  api      : %p\n', [% ts_base_url %]);
+printf('  client   : poplog-typesafe/%p\n', [% ts_version %]);
 
 if fails > 0 then
     printf('\n%p assumption(s) failed.  Raw response body:\n%p\n', [% fails, raw %]);

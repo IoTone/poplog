@@ -156,15 +156,35 @@ TYPESAFE_API_KEY=$(cat ~/.typesafe-key) \
 ```
 
 Run 2026-09-21 against `api.typesafe.ai/v1` with `jev-latest`
-(answered by `jev-1.13.0`): **all 17 hold.** The envelope, the question ids
-coming back as sent, and all three answer shapes are as documented.
+(answered by `jev-1.13.0`): **all 23 hold.** The envelope, the question ids
+coming back as sent, all three answer shapes, an object-valued `state`, and
+a bad key being rejected rather than retried.
 
 ```
 greeting : 0.99                        "Hello there, how are you today?"
 register : casual (confidence 1.0)
 length   : 0.01 (confidence 0.99)      0..2 over [very short, medium, long]
-tokens   : 399 in, 66 out
+model    : asked jev-latest, answered jev-1.13.0
 ```
+
+## Versions
+
+Three versions travel with a call and they are not the same thing:
+
+| | where | why it matters |
+| --- | --- | --- |
+| **API** | `/v1` in `ts_base_url` | pinned by you; change the URL to move |
+| **model** | `ts_last_model` | you ask for `jev-latest`, the server *resolves* it to e.g. `jev-1.13.0`. This is the one to record beside any result you intend to reproduce — and it arrives free in every response |
+| **client** | `ts_version`, `'0.1.0'` | this library's own, sent as `User-Agent: poplog-typesafe/0.1.0 (Pop-11)` |
+
+The client version deliberately tracks nothing upstream. This is an
+independent client, not a port of anyone's SDK, so matching their numbering
+would imply a correspondence that does not exist. The docs mention "our
+client SDKs" but publish no version for them.
+
+Note that `ts_decode` returns `(answers, usage, model)` — the resolved model
+used to be discarded, which meant a stored result could not say what
+produced it.
 
 It dumps the raw response body on any failure, because a schema mismatch you
 cannot see is one you cannot fix, and it never prints the key. Re-run it when

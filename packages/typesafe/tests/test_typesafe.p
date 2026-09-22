@@ -62,7 +62,8 @@ lconstant SAMPLE = '{"model":"jev-1.13.0",'
     <>   '"probabilities":{"0":0.95,"1":0.05},"confidence":0.92}},'
     <> '"usage":{"input_tokens":12,"output_tokens":34}}';
 
-lvars (ans, usage) = ts_decode(SAMPLE);
+lvars (ans, usage, model) = ts_decode(SAMPLE);
+check('decode returns the resolved model', model, 'jev-1.13.0');
 check('noul answer',        ans('safety')('noul'),        0.95);
 check('choice answer',      ans('colour')('choice'),      'red');
 check('choice confidence',  ans('colour')('confidence'),  0.81);
@@ -98,6 +99,10 @@ lvars a = ts_eval('s', [[safety ^q1]]);
 check('one call when it works', calls, 1);
 check('answers come back',      a('safety')('noul'), 0.95);
 check('usage recorded',         ts_last_usage('input_tokens'), 12);
+check('resolved model recorded', ts_last_model, 'jev-1.13.0');
+check('sends a User-Agent',
+      member('User-Agent: poplog-typesafe/' <> ts_version <> ' (Pop-11)',
+             seen_headers) and true, true);
 
 ;;; the Authorization header must actually be sent, and as a Bearer token
 check('sends bearer auth',
@@ -150,6 +155,6 @@ check('nothing was sent without a key', calls, 0);
 
 ;;; a non-JSON body is a mishap, not a wrong answer
 check_mishaps('garbage response mishaps',
-              procedure; ts_decode('not json at all') -> ; -> ; endprocedure);
+              procedure; ts_decode('not json at all') -> ; -> ; -> ; endprocedure);
 
 test_summary();

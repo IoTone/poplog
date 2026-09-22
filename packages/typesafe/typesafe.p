@@ -31,7 +31,7 @@ uses json;
 section $-typesafe
     http_request json_parse json_generate json_null
 =>
-    ts_eval ts_request ts_decode
+    ts_eval ts_request ts_decode ts_version ts_last_model
     ts_noul ts_choice ts_score
     ts_api_key ts_model ts_base_url ts_timeout ts_max_retries ts_transport
     ts_last_usage
@@ -40,6 +40,17 @@ section $-typesafe
 ;;; ------------------------------------------------------------- settings
 ;;; The key is read from the environment at load time, because an API key
 ;;; in a source file is an API key in a git history.
+
+;;; Three different versions travel with a call, and they are not the same
+;;; thing:
+;;;   * the API version, pinned in ts_base_url ('/v1')
+;;;   * the model: we ASK for jev-latest and the server RESOLVES it, so the
+;;;     answer says jev-1.13.0.  That is the one you need to reproduce a
+;;;     result, and it arrives free in every response -- worth keeping
+;;;     rather than discarding
+;;;   * this client's own version, which tracks nothing upstream: it is an
+;;;     independent client, not a port of anyone's SDK
+constant ts_version = '0.1.0';   ;;; lconstant is lexical and cannot be exported
 
 vars ts_api_key   = systranslate('TYPESAFE_API_KEY') or false;
 vars ts_model     = 'jev-latest';
@@ -51,6 +62,10 @@ vars ts_max_retries = 4;
 ;;; 'output_tokens'.  Kept separate so ts_eval can return just the answers
 ;;; for the common case.
 vars ts_last_usage = false;
+
+;;; The model that actually answered, e.g. 'jev-1.13.0' when 'jev-latest'
+;;; was asked for.  Record it beside any result you intend to keep.
+vars ts_last_model = false;
 
 ;;; The transport is injectable so the retry and decode paths can be tested
 ;;; without a network or a key.  Signature is http_request's:
@@ -140,13 +155,14 @@ enddefine;
 ;;; from question id to the answer property; the caller reads 'type' and
 ;;; then the field named by it.
 
-define ts_decode(body) -> (answers, usage);
+define ts_decode(body) -> (answers, usage, model);
     lvars v = json_parse(body);
     unless isproperty(v) then
         mishap(body, 1, 'typesafe: response is not a JSON object')
     endunless;
     v('answers') -> answers;
     v('usage')   -> usage;
+    v('model')   -> model;
     unless answers then
         mishap(body, 1, 'typesafe: response has no "answers"')
     endunless;
@@ -193,7 +209,9 @@ define ts_eval(state, questions) -> answers;
     ;;; header never says Bearer anything.  Every live call would have come
     ;;; back 401 with a perfectly plausible-looking request in the log.
     lvars headers = [% 'Authorization: Bearer ' <> ts_api_key,
-                       'Content-Type: application/json' %];
+                       'Content-Type: application/json',
+                       'User-Agent: poplog-typesafe/' <> ts_version
+                           <> ' (Pop-11)' %];
     repeat
         ts_transport('POST', url, body, headers, ts_timeout)
             -> (resp, hdrs, status);
@@ -205,8 +223,10 @@ define ts_eval(state, questions) -> answers;
         wait * 2 -> wait;
         tries + 1 -> tries;
     endrepeat;
-    ts_decode(resp) -> (answers, usage);
+    lvars model;
+    ts_decode(resp) -> (answers, usage, model);
     usage -> ts_last_usage;
+    model -> ts_last_model;
 enddefine;
 
 endsection;
