@@ -21,6 +21,24 @@
 # cannot rescue a wedged engine, which is the case that matters; and there
 # is no portable `timeout(1)` to lean on -- macOS ships neither it nor
 # gtimeout.
+#
+# A suite may spawn children (test_swank starts a second process), so the
+# watchdog kills a process GROUP, not a process.  Getting an isolated group
+# portably is the awkward part:
+#
+#   set -m        looks right and is a trap.  Under dash with no controlling
+#                 tty -- i.e. CI -- it prints "can't access tty; job control
+#                 turned off" and silently leaves the job in the parent's
+#                 group, so the group kill does nothing.  Works in a
+#                 terminal, fails exactly where it matters.
+#   setsid(1)     util-linux; absent on macOS.
+#   perl          present on all four of our platforms, and `setpgrp(0,0)`
+#                 then exec is all it takes.  Verified to isolate the group
+#                 on macOS and on dash-without-a-tty.
+#
+# Without perl we fall back to killing the single process, which is the
+# previous behaviour and may orphan children -- so say so rather than
+# pretend.
 set -e
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -51,20 +69,38 @@ fi
 : "${TEST_TIMEOUT:=120}"
 
 # run_suite <seconds> <suite> -- output on stdout, 124 if it had to be killed
+if command -v perl >/dev/null 2>&1; then
+    _pgroup=yes
+else
+    _pgroup=no
+    echo "test-libs: no perl -- a timed-out suite may orphan child processes" >&2
+fi
+
 run_suite() {
     _secs=$1; _suite=$2
     _tmp=$(mktemp) || return 2
     # shellcheck disable=SC2086  # $engine may be "wrapper binary"
-    $engine "$_suite" >"$_tmp" 2>&1 &
+    if [ "$_pgroup" = yes ]; then
+        perl -e 'setpgrp(0,0); exec @ARGV' $engine "$_suite" >"$_tmp" 2>&1 &
+    else
+        $engine "$_suite" >"$_tmp" 2>&1 &
+    fi
     _pid=$!
     _waited=0
     while kill -0 "$_pid" 2>/dev/null; do
         if [ "$_waited" -ge "$_secs" ]; then
             # a kill that finds the process already gone returns 1, and under
-            # set -e that aborts the subshell before we can report the timeout
-            kill -TERM "$_pid" 2>/dev/null || true
-            sleep 2
-            kill -KILL "$_pid" 2>/dev/null || true
+            # set -e that aborts the subshell before we can report the timeout.
+            # The leading - makes the target the process GROUP.
+            if [ "$_pgroup" = yes ]; then
+                kill -TERM -"$_pid" 2>/dev/null || true
+                sleep 2
+                kill -KILL -"$_pid" 2>/dev/null || true
+            else
+                kill -TERM "$_pid" 2>/dev/null || true
+                sleep 2
+                kill -KILL "$_pid" 2>/dev/null || true
+            fi
             wait "$_pid" 2>/dev/null || true
             cat "$_tmp"; rm -f "$_tmp"
             return 124
