@@ -1,0 +1,102 @@
+[
+  {
+    "checkpoint": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16",
+    "state": "I was billed twice. Please refund the duplicate.",
+    "options": 3,
+    "orderings": 6,
+    "picks": [
+      "billing"
+    ],
+    "orderings_agreeing_with_written_order": 6,
+    "max_probability_spread": 0.0379
+  },
+  {
+    "checkpoint": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16",
+    "state": "The app crashes when I upload a photo, and I'd also like a quote for 50 seats.",
+    "options": 5,
+    "orderings": 120,
+    "picks": [
+      "technical"
+    ],
+    "orderings_agreeing_with_written_order": 120,
+    "max_probability_spread": 0.1056
+  },
+  {
+    "checkpoint": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16",
+    "state": "Can you tell me more about pricing tiers?",
+    "options": 5,
+    "orderings": 120,
+    "picks": [
+      "billing"
+    ],
+    "orderings_agreeing_with_written_order": 120,
+    "max_probability_spread": 0.2782
+  },
+  {
+    "checkpoint": "aac6fef/laya-multilingual-mlx@f2b4faf51023039425946074e2cf1361d2db11d5 float16",
+    "state": "I was billed twice. Please refund the duplicate.",
+    "options": 3,
+    "orderings": 6,
+    "picks": [
+      "billing",
+      "sales"
+    ],
+    "orderings_agreeing_with_written_order": 1,
+    "max_probability_spread": 0.5402
+  },
+  {
+    "checkpoint": "aac6fef/laya-multilingual-mlx@f2b4faf51023039425946074e2cf1361d2db11d5 float16",
+    "state": "The app crashes when I upload a photo, and I'd also like a quote for 50 seats.",
+    "options": 5,
+    "orderings": 120,
+    "picks": [
+      "technical"
+    ],
+    "orderings_agreeing_with_written_order": 120,
+    "max_probability_spread": 0.3844
+  },
+  {
+    "checkpoint": "aac6fef/laya-multilingual-mlx@f2b4faf51023039425946074e2cf1361d2db11d5 float16",
+    "state": "Can you tell me more about pricing tiers?",
+    "options": 5,
+    "orderings": 120,
+    "picks": [
+      "billing"
+    ],
+    "orderings_agreeing_with_written_order": 120,
+    "max_probability_spread": 0.1557
+  },
+  {
+    "checkpoint": "aac6fef/laya-typed-decisions-mlx@f9e501c2080cc57c13d6887820329758f5351125 float16",
+    "state": "I was billed twice. Please refund the duplicate.",
+    "options": 3,
+    "orderings": 6,
+    "picks": [
+      "billing"
+    ],
+    "orderings_agreeing_with_written_order": 6,
+    "max_probability_spread": 0.0699
+  },
+  {
+    "checkpoint": "aac6fef/laya-typed-decisions-mlx@f9e501c2080cc57c13d6887820329758f5351125 float16",
+    "state": "The app crashes when I upload a photo, and I'd also like a quote for 50 seats.",
+    "options": 5,
+    "orderings": 120,
+    "picks": [
+      "technical"
+    ],
+    "orderings_agreeing_with_written_order": 120,
+    "max_probability_spread": 0.0682
+  },
+  {
+    "checkpoint": "aac6fef/laya-typed-decisions-mlx@f9e501c2080cc57c13d6887820329758f5351125 float16",
+    "state": "Can you tell me more about pricing tiers?",
+    "options": 5,
+    "orderings": 120,
+    "picks": [
+      "billing"
+    ],
+    "orderings_agreeing_with_written_order": 120,
+    "max_probability_spread": 0.1042
+  }
+]

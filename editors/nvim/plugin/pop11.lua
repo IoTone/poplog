@@ -20,33 +20,80 @@ local function looks_like_pop11(bufnr)
   return false
 end
 
+-- `.pop11` and `.ph` are ours outright.
 vim.filetype.add {
   extension = {
     pop11 = 'pop11',
     ph = 'pop11',
-    p = function(path, bufnr)
-      if looks_like_pop11(bufnr) then
-        return 'pop11'
-      end
-      -- fall through to Vim's default for .p (pascal)
-    end,
   },
 }
 
+-- `.p` is NOT claimed through vim.filetype.add.  An extension function
+-- there that returns nil does not fall through to Neovim's own detection,
+-- whatever one might hope: it means "no filetype at all", so registering
+-- one broke Pascal.  Measured -- stock Neovim calls a Pascal .p `pascal`,
+-- and with the extension function it came out empty.
+--
+-- Instead let Neovim detect first and only UPGRADE when the content is
+-- recognisably Pop-11.  Pascal and Progress files keep the filetype
+-- Neovim gave them; a .p that Neovim could not place is still considered.
+vim.api.nvim_create_autocmd({ 'BufReadPost', 'BufNewFile' }, {
+  pattern = '*.p',
+  callback = function(args)
+    local ft = vim.bo[args.buf].filetype
+    -- never override a filetype the user set deliberately
+    if ft == 'pop11' then return end
+    if looks_like_pop11(args.buf) then
+      vim.bo[args.buf].filetype = 'pop11'
+    end
+  end,
+})
+
 -- Register the grammar with nvim-treesitter until it is upstreamed.
 -- After this loads:  :TSInstall pop11
+--
+-- nvim-treesitter has two incompatible APIs in the wild and `main` is now
+-- the default branch you get from a fresh clone:
+--
+--   master  parsers.get_parser_configs()[lang] = { install_info = {url, files, branch} }
+--   main    parsers[lang]                      = { install_info = {url, revision}, tier }
+--
+-- Registering only the master form meant `:TSInstall pop11` answered
+-- "skipping unsupported language: pop11" on a current install -- and the
+-- pcall guard hid it, so it failed silently rather than complaining.
+local GRAMMAR_URL = 'https://github.com/IoTone/tree-sitter-pop11'
+-- same commit the Zed extension pins, so both editors parse identically
+local GRAMMAR_REV = 'cc2666a0d3162031dc63e634c3bf45afd00ee890'
+
 local ok, parsers = pcall(require, 'nvim-treesitter.parsers')
-if ok and parsers.get_parser_configs then
-  local parser_config = parsers.get_parser_configs()
-  if not parser_config.pop11 then
-    parser_config.pop11 = {
-      install_info = {
-        url = 'https://github.com/IoTone/tree-sitter-pop11',
-        files = { 'src/parser.c', 'src/scanner.c' },
-        branch = 'main',
-      },
-      filetype = 'pop11',
-      maintainers = { '@IoTone' },
+if ok and type(parsers) == 'table' then
+  if type(parsers.get_parser_configs) == 'function' then
+    local cfg = parsers.get_parser_configs()
+    if not cfg.pop11 then
+      cfg.pop11 = {
+        install_info = {
+          url = GRAMMAR_URL,
+          files = { 'src/parser.c', 'src/scanner.c' },
+          branch = 'main',
+          -- pinned, like the Zed extension: an unpinned branch means two
+          -- editors can end up parsing with different grammars, and the
+          -- queries are only guaranteed against this one
+          revision = GRAMMAR_REV,
+        },
+        filetype = 'pop11',
+        maintainers = { '@IoTone' },
+      }
+    end
+  elseif not parsers.pop11 then
+    -- nvim-treesitter `main`.  This registration is correct but does not
+    -- survive: install.lua clears package.loaded['nvim-treesitter.parsers']
+    -- before installing, which discards anything registered at run time,
+    -- so `:TSInstall pop11` still reports "skipping unsupported language".
+    -- Left in place because it costs nothing and becomes correct the day
+    -- that reload stops happening; use the master branch until then.
+    parsers.pop11 = {
+      install_info = { url = GRAMMAR_URL, revision = GRAMMAR_REV },
+      tier = 2,
     }
   end
 end

@@ -18,11 +18,36 @@ checkout:
 ```
 
 then install the grammar (registered automatically from
-[IoTone/tree-sitter-pop11](https://github.com/IoTone/tree-sitter-pop11)):
+[IoTone/tree-sitter-pop11](https://github.com/IoTone/tree-sitter-pop11),
+pinned to the same commit the Zed extension uses so both editors parse
+identically):
 
 ```vim
 :TSInstall pop11
 ```
+
+### nvim-treesitter must be the `master` branch
+
+`main` is now what a fresh `git clone` of nvim-treesitter gives you, and
+`:TSInstall pop11` fails there with
+
+```
+[nvim-treesitter] warning: skipping unsupported language: pop11
+```
+
+Not for want of registering: `install.lua` clears
+`package.loaded['nvim-treesitter.parsers']` before installing, which throws
+away any parser added at run time, so no third-party grammar registered this
+way can survive. The plugin registers in both the `master` and `main` formats
+already; until that reload changes, pin the branch:
+
+```lua
+{ 'nvim-treesitter/nvim-treesitter', branch = 'master' }
+```
+
+Verified on Neovim 0.12.5 with nvim-treesitter master: the parser compiles,
+and the highlight query returns the expected captures (`@comment` on
+`line_comment`, `@keyword` on `define`, `@function` on the definition name).
 
 The `queries/pop11/` directory here is vendored from the grammar repo
 (its `queries/` are the source of truth); it rides Neovim's runtimepath

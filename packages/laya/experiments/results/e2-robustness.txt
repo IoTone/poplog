@@ -1,0 +1,13 @@
+Thu Oct  1 02:42:57 PDT 2026
+ 2:42  up 23 days,  8:27, 38 users, load averages: 3.87 5.11 5.19
+sequential calls ok: 10000
+sequential calls malformed: 0
+same child throughout: <true>
+malformed question mishaps: <true>
+child survives a malformed question: <true>
+killed mid-call mishaps: <true>
+killed child forgotten: <true>
+next call answers: billing
+with a new child: <true>
+ROBUST-DONE
+no leaked laya_serve.py servers

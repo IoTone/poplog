@@ -44,12 +44,38 @@ json_null
     distinct from false, which represents JSON false.  Compare with
     ==, e.g.   if x == json_null then ...
 
+json_object() -> OBJ
+    A new, empty object that remembers insertion order: json_generate
+    writes its members in the order they were first assigned.  It is
+    applied like a property -- OBJ(KEY) reads (false if absent), and
+    VALUE -> OBJ(KEY) assigns (an existing key keeps its place) -- so
+    code that builds objects changes only its constructor.  Use it
+    when the receiver reads meaning into member order, e.g. a list of
+    options shown to a model.  Lookup is linear in the member count.
+
+isjson_object(ITEM) -> BOOL
+    True if ITEM was made by json_object.  Note that isproperty is
+    false for it.
+
+json_object_app(OBJ, PROC)
+    Applies PROC(KEY, VALUE) to each member: in insertion order for a
+    json_object, in hash order for a property -- so a reader need not
+    care which kind it was handed.
+
+json_ordered_objects
+    A variable, default false.  When true, json_parse builds objects
+    with json_object rather than newmapping, so parse-then-generate
+    keeps member order.  Off by default because existing callers test
+    isproperty() on what json_parse returns.  Typically dlocal'd.
+
 -- Data mapping -------------------------------------------------------
 
     JSON             parses to                generated from
     ------           ----------               --------------
-    object           property (newmapping,    property
-                     = on keys)
+    object           property (newmapping,    property or json_object
+                     = on keys), or
+                     json_object (see
+                     json_ordered_objects)
     array            vector                   vector or list
     string           string (UTF-8 bytes)     string
     number           integer/biginteger,      integer, biginteger,
@@ -86,9 +112,11 @@ json_null
     difference matters, test membership before use, or copy into a
     property with a different default.
 
-  * Object member order is not preserved (properties are hash
-    tables); RFC 8259 makes no ordering promise.  Duplicate keys
-    keep the last value.
+  * Member order is not preserved for properties (they are hash
+    tables); RFC 8259 makes no ordering promise.  Where order
+    matters, build with json_object, and parse with
+    json_ordered_objects true.  Duplicate keys keep the last value
+    (in a json_object, at the first key's place).
 
   * Strings are byte strings: length() counts UTF-8 bytes, not
     characters.
@@ -106,7 +134,7 @@ json_null
     TEACH * JSON     how this library was designed and built — a
                      walkthrough for writing your own libraries
     LIB   * JSON     the source, pop/lib/lib/json.p
-    tools/test-json.sh   the acceptance suite (43 cases)
+    tools/test-json.sh   the acceptance suite (52 cases)
     HELP  * NEWMAPPING   the property constructor used for objects
 
 --- pop/help/json

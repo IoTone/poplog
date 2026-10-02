@@ -1,0 +1,35 @@
+{
+  "embeddings": {
+    "shape": [
+      1,
+      96,
+      1024
+    ],
+    "max_abs_error": 0.0,
+    "max_abs_value": 13.188345909118652,
+    "max_rel_error": 0.0,
+    "bit_identical": true
+  },
+  "layer0": {
+    "shape": [
+      1,
+      96,
+      1024
+    ],
+    "max_abs_error": 0.00229644775390625,
+    "max_abs_value": 41.10475540161133,
+    "max_rel_error": 2.034008502960205,
+    "bit_identical": false
+  },
+  "layer1": {
+    "shape": [
+      1,
+      96,
+      1024
+    ],
+    "max_abs_error": 0.0040130615234375,
+    "max_abs_value": 57.646324157714844,
+    "max_rel_error": 12.347627737226277,
+    "bit_identical": false
+  }
+}

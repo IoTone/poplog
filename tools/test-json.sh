@@ -74,6 +74,27 @@ check('object member', obj('a'), 1);
 check('object nested', obj('b')(2), json_null);
 check('empty object keys', mishaps(procedure; json_parse('{}')('x').erase endprocedure), false);
 
+;;; --- ordered objects ---
+;;; json_object keeps insertion order on output; a property does not
+vars oo = json_object();
+3 -> oo('zeta'); 1 -> oo('alpha'); json_null -> oo('mid'); 2 -> oo('alpha');
+check('ordered object order', json_generate(oo), '{"zeta":3,"alpha":2,"mid":null}');
+check('ordered object lookup', oo('alpha'), 2);
+check('ordered object absent key', oo('nope'), false);
+check('ordered object is not a property', isproperty(oo), false);
+check('isjson_object', isjson_object(oo), true);
+vars seen = [];
+json_object_app(oo, procedure(k, v); [^^seen ^k] -> seen endprocedure);
+check('json_object_app in order', seen, ['zeta' 'alpha' 'mid']);
+check('parse still gives properties', isproperty(json_parse('{"a":1}')), true);
+true -> json_ordered_objects;
+check('ordered parse round trip',
+      json_generate(json_parse('{"z":1,"a":{"y":2,"b":[{"k2":1,"k1":2}]}}')),
+      '{"z":1,"a":{"y":2,"b":[{"k2":1,"k1":2}]}}');
+check('ordered parse duplicate keeps first place, last value',
+      json_generate(json_parse('{"a":1,"b":2,"a":3}')), '{"a":3,"b":2}');
+false -> json_ordered_objects;
+
 ;;; --- strings and escapes ---
 check('escapes', json_parse('"a\\nb\\tc\\"d\\\\e"'),
       consstring(`a`, 10, `b`, 9, `c`, `"`, `d`, `\\`, `e`, 9));

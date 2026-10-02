@@ -17,11 +17,77 @@
  */
 compile_mode :pop11 +strict;
 
-section $-json => json_null json_parse json_generate json_print;
+section $-json => json_null json_parse json_generate json_print
+                  json_object isjson_object json_object_app json_ordered_objects;
 
 ;;; JSON null must be distinguishable from JSON false, so it cannot map
 ;;; to <false>; a word compares by identity and prints readably.
 constant json_null = "json_null";
+
+;;; --- ordered objects ---------------------------------------------------
+;;; A property is a hash table, so an object built from one is written in
+;;; hash order.  RFC 8259 promises no order, and usually nothing cares --
+;;; but some receivers read meaning into it.  A list of options shown to a
+;;; model in a different order is a different question, and can get a
+;;; different answer.
+;;;
+;;; json_object() remembers insertion order.  It is applied like a
+;;; property -- obj(key) and val -> obj(key) -- so code that builds an
+;;; object changes only its constructor.  Lookup is linear, which is the
+;;; right trade for the small objects where order matters.
+
+defclass lconstant jsonobj {jo_pairs};      ;;; [key|val] pairs, oldest first
+
+define lconstant jo_find(key, obj);
+    lvars p;
+    for p in jo_pairs(obj) do
+        if front(p) = key then return(p) endif;
+    endfor;
+    false
+enddefine;
+
+;;; an absent key gives false, as it does for a newmapping
+define lconstant jo_get(key, obj);
+    lvars p = jo_find(key, obj);
+    if p then back(p) else false endif
+enddefine;
+
+;;; assigning to an existing key keeps its position; duplicate keys in
+;;; parsed input therefore keep the first position and the last value
+define updaterof jo_get(val, key, obj);
+    lvars p = jo_find(key, obj);
+    if p then
+        val -> back(p)
+    else
+        jo_pairs(obj) <> [% conspair(key, val) %] -> jo_pairs(obj)
+    endif;
+enddefine;
+
+jo_get -> class_apply(jsonobj_key);
+
+define json_object() -> obj;
+    consjsonobj([]) -> obj;
+enddefine;
+
+define isjson_object(x);
+    isjsonobj(x)
+enddefine;
+
+;;; PROC(key, val) for each member: insertion order for a json_object,
+;;; hash order for a property -- so a reader need not care which it got
+define json_object_app(obj, proc);
+    lvars p;
+    if isjsonobj(obj) then
+        for p in jo_pairs(obj) do proc(front(p), back(p)) endfor
+    else
+        appproperty(obj, proc)
+    endif;
+enddefine;
+
+;;; true: json_parse builds json_objects, so a parse-then-generate round
+;;; trip keeps member order.  Off by default because existing callers
+;;; test isproperty() on what json_parse returns.
+vars json_ordered_objects = false;
 
 ;;; parser state, dynamically localised by json_parse so the parser is
 ;;; re-entrant and resets on abnormal exit
@@ -189,7 +255,11 @@ enddefine;
 
 define lconstant parse_object() -> obj;
     lvars key, val;
-    newmapping([], 8, false, true) -> obj;
+    if json_ordered_objects then
+        json_object() -> obj
+    else
+        newmapping([], 8, false, true) -> obj
+    endif;
     advance();                          ;;; {
     skipwhite();
     if cur() == `}` then advance(); return endif;
@@ -293,7 +363,7 @@ enddefine;
 define lconstant genobject(p, out);
     lvars first = true;
     out(`{`);
-    appproperty(p,
+    json_object_app(p,
         procedure(key, val);
             unless first then out(`,`) endunless;
             false -> first;
@@ -314,7 +384,7 @@ define lconstant gen_value(x, out);
     elseif isstring(x) then genstring(x, out)
     elseif isintegral(x) or isdecimal(x) then appdata(x sys_>< nullstring, out)
     elseif isvector(x) then genarray(x, out)
-    elseif isproperty(x) then genobject(x, out)
+    elseif isproperty(x) or isjsonobj(x) then genobject(x, out)
     elseif ispair(x) or x == [] then genlist(x, out)
     else mishap(x, 1, 'json_generate: unsupported item')
     endif

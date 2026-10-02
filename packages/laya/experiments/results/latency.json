@@ -1,0 +1,237 @@
+{
+  "created_at": "2026-10-01T02:45:02-0700",
+  "machine": "macOS-26.4-arm64-arm-64bit-Mach-O",
+  "model": "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16",
+  "workload": "fixtures/latency-request.json: laya-mlx workload(1), one question",
+  "n": 300,
+  "warmup": 20,
+  "rounds": [
+    {
+      "python": {
+        "n": 300,
+        "p50_ms": 8.254,
+        "p95_ms": 8.713,
+        "mean_ms": 8.293
+      },
+      "stdio": {
+        "n": 300,
+        "p50_ms": 8.393,
+        "p95_ms": 9.004,
+        "mean_ms": 8.467
+      },
+      "stdio-server": {
+        "n": 300,
+        "p50_ms": 8.289,
+        "p95_ms": 8.874,
+        "mean_ms": 8.358
+      },
+      "stdio-overhead": {
+        "n": 300,
+        "p50_ms": 0.107,
+        "p95_ms": 0.131,
+        "mean_ms": 0.109
+      },
+      "encode": {
+        "n": 300,
+        "p50_ms": 0.011,
+        "p95_ms": 0.014,
+        "mean_ms": 0.012
+      },
+      "decode": {
+        "n": 300,
+        "p50_ms": 0.013,
+        "p95_ms": 0.017,
+        "mean_ms": 0.014
+      },
+      "py-http": {
+        "n": 300,
+        "p50_ms": 8.69,
+        "p95_ms": 9.046,
+        "mean_ms": 8.712
+      },
+      "py-http-overhead": {
+        "n": 300,
+        "p50_ms": 0.365,
+        "p95_ms": 0.428,
+        "mean_ms": 0.36
+      },
+      "http": {
+        "n": 300,
+        "p50_ms": 8.858,
+        "p95_ms": 9.446,
+        "mean_ms": 8.906
+      },
+      "http-server": {
+        "n": 300,
+        "p50_ms": 8.434,
+        "p95_ms": 9.008,
+        "mean_ms": 8.492
+      },
+      "http-overhead": {
+        "n": 300,
+        "p50_ms": 0.413,
+        "p95_ms": 0.493,
+        "mean_ms": 0.415
+      }
+    },
+    {
+      "python": {
+        "n": 300,
+        "p50_ms": 8.265,
+        "p95_ms": 8.789,
+        "mean_ms": 8.316
+      },
+      "stdio": {
+        "n": 300,
+        "p50_ms": 8.582,
+        "p95_ms": 9.073,
+        "mean_ms": 8.628
+      },
+      "stdio-server": {
+        "n": 300,
+        "p50_ms": 8.465,
+        "p95_ms": 8.963,
+        "mean_ms": 8.516
+      },
+      "stdio-overhead": {
+        "n": 300,
+        "p50_ms": 0.11,
+        "p95_ms": 0.129,
+        "mean_ms": 0.111
+      },
+      "encode": {
+        "n": 300,
+        "p50_ms": 0.011,
+        "p95_ms": 0.015,
+        "mean_ms": 0.011
+      },
+      "decode": {
+        "n": 300,
+        "p50_ms": 0.013,
+        "p95_ms": 0.019,
+        "mean_ms": 0.014
+      },
+      "py-http": {
+        "n": 300,
+        "p50_ms": 8.932,
+        "p95_ms": 9.611,
+        "mean_ms": 8.973
+      },
+      "py-http-overhead": {
+        "n": 300,
+        "p50_ms": 0.411,
+        "p95_ms": 0.494,
+        "mean_ms": 0.413
+      },
+      "http": {
+        "n": 300,
+        "p50_ms": 9.918,
+        "p95_ms": 11.074,
+        "mean_ms": 9.863
+      },
+      "http-server": {
+        "n": 300,
+        "p50_ms": 9.376,
+        "p95_ms": 10.376,
+        "mean_ms": 9.317
+      },
+      "http-overhead": {
+        "n": 300,
+        "p50_ms": 0.524,
+        "p95_ms": 0.7,
+        "mean_ms": 0.545
+      }
+    },
+    {
+      "python": {
+        "n": 300,
+        "p50_ms": 8.304,
+        "p95_ms": 9.065,
+        "mean_ms": 8.399
+      },
+      "stdio": {
+        "n": 300,
+        "p50_ms": 8.563,
+        "p95_ms": 8.901,
+        "mean_ms": 8.594
+      },
+      "stdio-server": {
+        "n": 300,
+        "p50_ms": 8.457,
+        "p95_ms": 8.788,
+        "mean_ms": 8.491
+      },
+      "stdio-overhead": {
+        "n": 300,
+        "p50_ms": 0.102,
+        "p95_ms": 0.123,
+        "mean_ms": 0.103
+      },
+      "encode": {
+        "n": 300,
+        "p50_ms": 0.01,
+        "p95_ms": 0.014,
+        "mean_ms": 0.011
+      },
+      "decode": {
+        "n": 300,
+        "p50_ms": 0.012,
+        "p95_ms": 0.017,
+        "mean_ms": 0.013
+      },
+      "py-http": {
+        "n": 300,
+        "p50_ms": 8.939,
+        "p95_ms": 9.52,
+        "mean_ms": 8.996
+      },
+      "py-http-overhead": {
+        "n": 300,
+        "p50_ms": 0.365,
+        "p95_ms": 0.449,
+        "mean_ms": 0.363
+      },
+      "http": {
+        "n": 300,
+        "p50_ms": 8.932,
+        "p95_ms": 9.459,
+        "mean_ms": 8.98
+      },
+      "http-server": {
+        "n": 300,
+        "p50_ms": 8.544,
+        "p95_ms": 8.962,
+        "mean_ms": 8.587
+      },
+      "http-overhead": {
+        "n": 300,
+        "p50_ms": 0.382,
+        "p95_ms": 0.466,
+        "mean_ms": 0.393
+      }
+    }
+  ],
+  "load_average_at_end": [
+    3.73388671875,
+    4.56591796875,
+    4.9580078125
+  ],
+  "paired_overhead_ms_median_of_rounds": {
+    "stdio": {
+      "p50": 0.107,
+      "p95": 0.129
+    },
+    "http": {
+      "p50": 0.413,
+      "p95": 0.493
+    },
+    "py-http": {
+      "p50": 0.365,
+      "p95": 0.449
+    }
+  },
+  "pop11_json_ms_median_of_rounds": {
+    "encode": 0.011,
+    "decode": 0.013
+  }
+}

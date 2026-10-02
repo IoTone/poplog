@@ -1,0 +1,14 @@
+{
+  "embeddings": {
+    "python_gpu_vs_python_cpu_max_abs": 1.9073486328125e-06,
+    "pop11_gpu_vs_python_gpu_max_abs": 0.0
+  },
+  "layer0": {
+    "python_gpu_vs_python_cpu_max_abs": 0.03804779052734375,
+    "pop11_gpu_vs_python_gpu_max_abs": 0.00229644775390625
+  },
+  "layer1": {
+    "python_gpu_vs_python_cpu_max_abs": 0.059139251708984375,
+    "pop11_gpu_vs_python_gpu_max_abs": 0.0040130615234375
+  }
+}
