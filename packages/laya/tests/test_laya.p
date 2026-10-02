@@ -63,6 +63,38 @@ ts_eval('again', [[refund ^q_noul]]) -> a;
 check('the next call restarts it', a('refund')('noul'), 0.75);
 check('with a new process', laya_pid() /== first_pid, true);
 
+;;; -------------------------------------------------------------- timeouts
+
+;;; a call that outlives ts_timeout fails -- and its child is killed, not
+;;; reused, because a late answer would be read as the reply to the next call
+lvars saved_timeout = ts_timeout, slow_pid, t0;
+2 -> ts_timeout;
+ts_eval('warm', [[refund ^q_noul]]) -> ;
+laya_pid() -> slow_pid;
+sys_real_time() -> t0;
+check_mishaps('a call past ts_timeout mishaps',
+              procedure; ts_eval('SLOW', [[refund ^q_noul]]) -> ; endprocedure);
+check('it gave up within ts_timeout', sys_real_time() - t0 <= 3, true);
+check('the late child is forgotten', laya_running(), false);
+check('and killed, not left running', sys_send_signal(slow_pid, 0), false);
+ts_eval('again', [[refund ^q_noul]]) -> a;
+check('the next call answers', a('refund')('noul'), 0.75);
+0 -> ts_timeout;
+ts_eval('no limit', [[refund ^q_noul]]) -> a;
+check('a timeout of 0 means no limit, as for http_request', a('refund')('noul'), 0.75);
+saved_timeout -> ts_timeout;
+
+;;; laya_start_timeout bounds the model load the same way
+laya_stop();
+2 -> laya_start_timeout;
+['--health-delay' '30'] -> laya_extra_args;
+sys_real_time() -> t0;
+check_mishaps('a load past laya_start_timeout mishaps', laya_start);
+check('startup gave up in time', sys_real_time() - t0 <= 3, true);
+check('and left nothing running', laya_running(), false);
+[] -> laya_extra_args;
+false -> laya_start_timeout;
+
 ;;; -------------------------------------------------------------- lifecycle
 
 laya_stop();

@@ -40,7 +40,7 @@ Building it found three bugs that would have given Pop-11 users wrong or unrepro
 | `json_object()`: an object that keeps insertion order and is applied like a property; also `isjson_object`, `json_object_app`, `json_ordered_objects` (ordered parsing) | `pop/lib/lib/json.p`, `pop/help/json`, `tools/test-json.sh` (+9 cases) |
 | `ts_choice` options and `ts_request` questions go out in the order written | `packages/typesafe/typesafe.p` |
 | `ts_require_key`, and a loopback `ts_base_url`, mean no key is needed and no `Authorization` header is sent | same, plus README and tests (+6 checks) |
-| `lib laya`: stdio transport, lazy start (`uv sync --frozen`, then `laya_home/.venv/bin/python laya_serve.py`), crash recovery, `laya_install`/`laya_uninstall`, `laya_health` | `packages/laya/laya.p`, `README.md` |
+| `lib laya`: stdio transport, per-call `ts_timeout` (a select on the pipe; a late child is killed, never reused), lazy start (`uv sync --frozen`, then `laya_home/.venv/bin/python laya_serve.py`), crash recovery, `laya_install`/`laya_uninstall`, `laya_health` | `packages/laya/laya.p`, `README.md` |
 | Offline tests against a stand-in server: 26 checks | `packages/laya/tests/test_laya.p` |
 
 Every Poplog library suite still passes (`tools/test-libs.sh`), as does the JSON acceptance suite (52 cases).
@@ -154,7 +154,7 @@ The options from the first version of this document, now settled by measurement:
 
 - **laya-mlx is used, not changed.** Upgrading means bumping `laya-mlx` (and `mlx` to match its range) in `pyproject.toml`, `uv lock`, then rerunning E1. E1 is what shows a new version still answers identically through Pop-11. `checkpoint(agent)` reads `model_id`, `model_dir` and `dtype` from `Agent`, so a release that renames those breaks it loudly in the tests.
 - **`run_unix_program` can clone Poplog.** If exec fails in its child, the child mishaps, and a mishap handler further up the stack (anyone's) can catch it there. The child then runs on as a second Poplog reading the same input. `lib laya` avoids this by finding the command before forking. The library itself (`pop/lib/auto/run_unix_program.p`) could exit the child on any exec failure; that fix is not made here.
-- `lib laya` has **no timeout**: a call blocks until the model answers. Adding one means reading the pipe with `sys_input_waiting` and a deadline, then deciding what to do with a late answer (kill the child, most likely).
+- ~~`lib laya` has no timeout~~ Done (2026-10-01): each call is bounded by `ts_timeout`, and startup by `laya_start_timeout`. A child that misses its deadline is killed, not waited for. Waiting is `sys_device_wait` (select) on the pipe, so stdio overhead is unchanged (0.105 ms P50).
 - `--router` is tested by a unit test and one live run (Chinese → multilingual, English → English), not by E1.
   - It loads upstream `convaiinnovations/laya`, not the `aac6fef` conversions.
   - Its `health` reports `laya-router`, because no single checkpoint applies.
