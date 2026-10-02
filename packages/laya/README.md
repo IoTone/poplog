@@ -93,6 +93,7 @@ so typesafe pointed at `http://127.0.0.1:8765/v1` works with no key.
 | `laya_router` | `false` | `true`: choose a checkpoint per call by language, keeping all three loaded |
 | `laya_dtype` | `'float16'` | `'float32'` for closer agreement with the reference |
 | `laya_extra_args` | `[]` | passed to `laya_serve.py`, e.g. `['--device' 'cpu']` |
+| `laya_start_timeout` | `false` | seconds allowed for the server to load the model; `false` is no limit, because a first run downloads ~0.9 GB with its progress on stderr |
 
 Settings are read when the child starts. To change them, call `laya_stop()`, then the
 next call starts a new child.
@@ -116,7 +117,13 @@ next call starts a new child.
   checkpoint reordering three options changed the pick in 5 of 6 orderings. `ts_choice`
   therefore sends options in the order you wrote them, and `ts_request` keeps question
   order too. This needed `json_object` in `LIB JSON`, which keeps insertion order.
-* **No timeout.** A call blocks until the model answers. `ts_timeout` does not apply.
+* **Timeouts kill, they don't wait.** Each call is bounded by `ts_timeout` (60 s; `0` or
+  `false` for none, as with `http_request`). A call that runs out fails with 504, which
+  `ts_eval` doesn't retry. The child is killed rather than reused, because its late
+  answer would otherwise be read as the reply to the next question. The next call starts
+  a fresh one, and pays the model load again. Waiting is a `select` on the pipe, not a
+  poll, so it adds nothing measurable (stdio overhead stayed 0.11 ms). Deadlines are
+  kept in whole seconds, so a limit of T fires after T−1 to T seconds.
 
 ## Tests
 
@@ -124,13 +131,15 @@ next call starts a new child.
 sh tools/test-libs.sh packages/laya/tests/test_laya.p
 ```
 
-26 checks, with no model and no MLX. `tests/fake_laya_server.py` speaks the same
+35 checks, with no model and no MLX. `tests/fake_laya_server.py` speaks the same
 protocol with canned answers, and can be told to fail. The checks cover:
 
 * answers through `ts_eval`
 * options arriving in written order
 * a 422 that keeps the child
 * a crash mid-call that forgets it and restarts on the next call
+* a call past `ts_timeout`, which is killed in time, with the next call answering; and a
+  load past `laya_start_timeout`
 * install and uninstall
 * a missing command, which fails before forking. When exec fails in
   `run_unix_program`'s child, a caller's mishap handler can catch it there, and the child

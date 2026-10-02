@@ -33,10 +33,11 @@ uses json;
 uses run_unix_program;
 
 section $-laya
-    ts_transport ts_require_key ts_model http_request
+    ts_transport ts_require_key ts_model ts_timeout http_request
     json_parse json_generate
 =>
     laya_home laya_command laya_model laya_router laya_dtype laya_extra_args
+    laya_start_timeout
     laya_start laya_stop laya_running laya_pid laya_health
     laya_transport laya_install laya_uninstall
 ;
@@ -65,12 +66,21 @@ vars laya_router     = false;   ;;; true: route by language over all three
 vars laya_dtype      = 'float16';
 vars laya_extra_args = [];      ;;; e.g. ['--device' 'cpu']
 
+;;; Seconds to wait for the server to load the model, or false for no limit.
+;;; No limit by default: a first run downloads the checkpoint (about 0.9 GB),
+;;; and its progress shows on stderr, so a slow start is visible, not silent.
+;;; Each question is limited by ts_timeout instead (see laya_transport).
+vars laya_start_timeout = false;
+
 ;;; ---------------------------------------------------------------- child
 
 lvars indev = false, outdev = false, child = false, next_id = 0;
 
 lconstant BUFSIZE = 65536;
 lvars buf = inits(BUFSIZE), bufpos = 1, buflen = 0;
+
+;;; sys_real_time() by which the current response must be complete, or false
+lvars deadline = false;
 
 define laya_running();
     child and true
@@ -89,9 +99,37 @@ define lconstant forget();
     1 -> bufpos; 0 -> buflen;
 enddefine;
 
+;;; A child that missed its deadline may be stuck anywhere, and may still
+;;; answer later -- and a late answer would be read as the reply to the NEXT
+;;; question.  So it is killed, not reused.
+define lconstant abandon();
+    if child then syskill(child) -> endif;
+    forget();
+enddefine;
+
+;;; True once outdev has something to read (data, or end of file) -- false if
+;;; the deadline passes first.  A select(2) via sys_device_wait, not a poll:
+;;; while the model works we sleep in the kernel, and an answer is read the
+;;; moment it arrives.  Only reached with the buffer empty, so a response
+;;; already read costs nothing.  sys_real_time is in whole seconds, so a
+;;; timeout of T fires after between T-1 and T seconds.
+define lconstant response_ready() -> ok;
+    lvars left, ready;
+    returnunless(deadline) (true -> ok);
+    repeat
+        returnif(sys_input_waiting(outdev)) (true -> ok);
+        deadline - sys_real_time() -> left;
+        returnif(left <= 0) (false -> ok);
+        sys_device_wait(outdev, [], [], intof(left * 1000000)) -> (ready, , );
+        returnif(ready) (true -> ok);
+    endrepeat;
+enddefine;
+
+;;; next byte; termin at end of file; "timeout" if the deadline passed
 define lconstant getc() -> c;
     lvars n;
     if bufpos > buflen then
+        unless response_ready() then "timeout" -> c; return endunless;
         sysread(outdev, buf, BUFSIZE) -> n;
         if n == 0 then termin -> c; return endif;
         n -> buflen;
@@ -101,12 +139,17 @@ define lconstant getc() -> c;
     bufpos + 1 -> bufpos;
 enddefine;
 
-;;; One response line without its newline; termin if the child has gone.
+;;; One response line without its newline; termin if the child has gone,
+;;; "timeout" if it did not finish the line in time.
 define lconstant read_line() -> line;
     lvars c, n = 0;
     repeat
         getc() -> c;
-        if c == termin then
+        if c == "timeout" then
+            erasenum(n);
+            "timeout" -> line;
+            return
+        elseif c == termin then
             if n == 0 then termin -> line; return endif;
             quitloop
         endif;
@@ -117,8 +160,11 @@ define lconstant read_line() -> line;
 enddefine;
 
 ;;; Send PARAMS_JSON (already-encoded JSON, or false for none) as METHOD
-;;; and return the parsed response, or termin if the child has gone.
-define lconstant call(method, params_json) -> msg;
+;;; and return the parsed response; termin if the child has gone, "timeout"
+;;; if no complete response came within SECS seconds.  false or 0 mean no
+;;; limit, as 0 does for http_request (libcurl), which this stands in for.
+define lconstant call(method, params_json, secs) -> msg;
+    dlocal deadline = secs and secs > 0 and sys_real_time() + secs;
     lvars line, id;
     next_id + 1 ->> next_id -> id;
     lvars req = '{"jsonrpc":"2.0","id":' sys_>< id
@@ -130,7 +176,7 @@ define lconstant call(method, params_json) -> msg;
     ;;; the request back and both sides wait forever
     sysflush(indev);
     read_line() -> line;
-    if line == termin then termin -> msg; return endif;
+    if line == termin or line == "timeout" then line -> msg; return endif;
     json_parse(line) -> msg;
     unless msg('id') = id then
         mishap(line, 1, 'laya: response id does not match request ' sys_>< id)
@@ -193,11 +239,15 @@ define laya_start();
     ;;; The first answer waits for the model to load -- seconds, more on a
     ;;; first download -- so ask for it here, where a failure to start is
     ;;; reported as one rather than as a failed question.
-    lvars msg = call('health', false);
+    lvars msg = call('health', false, laya_start_timeout);
     if msg == termin then
         forget();
         mishap(program, 1,
                'laya: server exited while starting (see its output above)')
+    elseif msg == "timeout" then
+        abandon();
+        mishap(laya_start_timeout, 1,
+               'laya: server not ready within laya_start_timeout seconds')
     endif;
 enddefine;
 
@@ -208,10 +258,13 @@ enddefine;
 ;;; property with 'status' and 'model' -- the checkpoint that will answer
 define laya_health() -> p;
     laya_start();
-    lvars msg = call('health', false);
+    lvars msg = call('health', false, ts_timeout);
     if msg == termin then
         forget();
         mishap(0, 'laya: server exited')
+    elseif msg == "timeout" then
+        abandon();
+        mishap(ts_timeout, 1, 'laya: no health answer within ts_timeout seconds')
     endif;
     msg('result') -> p;
 enddefine;
@@ -219,16 +272,24 @@ enddefine;
 ;;; ------------------------------------------------------------ transport
 ;;; http_request's signature, so it can stand in for it as ts_transport:
 ;;;     (method, url, body, headers, timeout) -> (body, headers, status)
-;;; METHOD, URL, HEADERS and TIMEOUT mean nothing to a pipe.  There is no
-;;; timeout: a call blocks until the model answers.
+;;; METHOD, URL and HEADERS mean nothing to a pipe.  TIMEOUT (ts_eval passes
+;;; ts_timeout) bounds each call, in seconds; false or 0 mean no limit.
 
 define laya_transport(method, url, body, headers, timeout)
                                             -> (rbody, rheaders, status);
     lvars msg, err;
     newmapping([], 4, false, true) -> rheaders;
     laya_start();
-    call('systemone', body) -> msg;
-    if msg == termin then
+    call('systemone', body, timeout) -> msg;
+    if msg == "timeout" then
+        ;;; Killed rather than waited for (see abandon).  504, like a gateway
+        ;;; timeout: ts_eval does not retry it, and the next call starts a
+        ;;; fresh child -- paying the model load again, which is the price of
+        ;;; never reading a stale answer.
+        abandon();
+        'laya server did not answer within ' sys_>< timeout sys_>< ' seconds' -> rbody;
+        504 -> status;
+    elseif msg == termin then
         ;;; The child died mid-call.  Forget it so the next call starts a
         ;;; new one, and fail this call cleanly: 503 is not retried by
         ;;; ts_eval, because a model that crashes on a request will very
