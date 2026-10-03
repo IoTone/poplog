@@ -1,0 +1,88 @@
+{
+  "model": "aac6fef/laya-mlx",
+  "dtype": "float16 unless the row says otherwise",
+  "max_len": 512,
+  "pool_size": 12,
+  "trials": 200,
+  "request_sizes": "2-24 questions, drawn with replacement, random order",
+  "compared": "every answer field at laya-mlx's 4-decimal rounding, vs asked alone",
+  "rows": [
+    {
+      "config": "default",
+      "answers_compared": 2529,
+      "answers_differing_from_alone": 1269,
+      "fraction_differing": 0.5018,
+      "choice_picks_changed": 0,
+      "max_abs_difference": 0.0021,
+      "1_question_ms": 9.49,
+      "16_question_ms": 96.04,
+      "dtype": "mlx.core.float16"
+    },
+    {
+      "config": "pad64",
+      "answers_compared": 2529,
+      "answers_differing_from_alone": 1416,
+      "fraction_differing": 0.5599,
+      "choice_picks_changed": 0,
+      "max_abs_difference": 0.0021,
+      "1_question_ms": 9.52,
+      "16_question_ms": 117.66,
+      "dtype": "mlx.core.float16"
+    },
+    {
+      "config": "fixed",
+      "answers_compared": 2529,
+      "answers_differing_from_alone": 1658,
+      "fraction_differing": 0.6556,
+      "choice_picks_changed": 0,
+      "max_abs_difference": 0.0021,
+      "1_question_ms": 24.69,
+      "16_question_ms": 364.83,
+      "dtype": "mlx.core.float16"
+    },
+    {
+      "config": "fixed-shape",
+      "answers_compared": 2529,
+      "answers_differing_from_alone": 0,
+      "fraction_differing": 0.0,
+      "choice_picks_changed": 0,
+      "max_abs_difference": 0.0,
+      "1_question_ms": 480.42,
+      "16_question_ms": 474.27,
+      "dtype": "mlx.core.float16"
+    },
+    {
+      "config": "alone",
+      "answers_compared": 2529,
+      "answers_differing_from_alone": 0,
+      "fraction_differing": 0.0,
+      "choice_picks_changed": 0,
+      "max_abs_difference": 0.0,
+      "1_question_ms": 9.73,
+      "16_question_ms": 163.99,
+      "dtype": "mlx.core.float16"
+    },
+    {
+      "config": "default-fp32",
+      "answers_compared": 2529,
+      "answers_differing_from_alone": 1270,
+      "fraction_differing": 0.5022,
+      "choice_picks_changed": 0,
+      "max_abs_difference": 0.0008,
+      "1_question_ms": 11.62,
+      "16_question_ms": 106.97,
+      "dtype": "mlx.core.float32"
+    },
+    {
+      "config": "cpu-fp32",
+      "answers_compared": 2529,
+      "answers_differing_from_alone": 0,
+      "fraction_differing": 0.0,
+      "choice_picks_changed": 0,
+      "max_abs_difference": 0.0,
+      "1_question_ms": 96.82,
+      "16_question_ms": 1780.58,
+      "dtype": "mlx.core.float32"
+    }
+  ]
+}
