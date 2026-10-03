@@ -146,10 +146,7 @@ define global ptyfork(file,args,env);
                 sys_io_control_check(popdevin,TIOCSLTC,pty_ltchars);
                 /* now copy to other devices */
                 popdevin ->> popdevout -> popdeverr;
-                sysexecute(file,args,env);
-                /* just in case something goes wrong */
-                sysclose(slave);
-                sysexit();
+                sysexecute_or_exit(file,args,env);
             endif;
         endif;
     else
@@ -161,6 +158,9 @@ endsection;
 
 
 /* --- Revision History ---------------------------------------------------
+--- D.Kordsmeier (@truedat101) and Claude (@claude), Oct 3 2026
+        Exec via sysexecute_or_exit: a failed exec ends the child instead of
+        letting a handler in the copied call stack resume the parent's code.
 --- John Gibson, Apr 21 1994
         Uses new sys_fork etc
 --- Robert John Duncan, Jun 29 1992

@@ -50,8 +50,7 @@ define pipein(command, args, flag) -> result;
         sysclose(din);
         dout -> popdevout;
         dout -> popdeverr;          ;;; ensure you get error messages
-        sysexecute(command, args, false);
-        mishap(command, args, 2, 'pipein: COMMAND NOT FOUND ??');
+        sysexecute_or_exit(command, args, false);
     endif
 enddefine;
 
@@ -59,6 +58,9 @@ endsection;
 
 
 /* --- Revision History ---------------------------------------------------
+--- D.Kordsmeier (@truedat101) and Claude (@claude), Oct 3 2026
+        Exec via sysexecute_or_exit: a failed exec ends the child instead of
+        letting a handler in the copied call stack resume the parent's code.
 --- John Gibson, Apr 21 1994
         Now uses new sys_vfork(false) which makes a wait for the child
         unnecessary. Hence removed p*ipein_child_pid.

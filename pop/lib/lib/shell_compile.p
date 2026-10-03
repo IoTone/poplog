@@ -139,7 +139,7 @@ define lconstant send_process_proc(prompt_id, fixed_prompt_id, proc_id,
         shell_in_pipe -> popdevin;
         shell_out_pipe -> popdevout;
         shell_out_pipe -> popdeverr;
-        sysexecute(exec_file, exec_args, false);
+        sysexecute_or_exit(exec_file, exec_args, false);
     endif;
     sysclose(pop_in_pipe);
     sysclose(pop_out_pipe);
@@ -196,6 +196,9 @@ endsection;
 
 
 /* --- Revision History ---------------------------------------------------
+--- D.Kordsmeier (@truedat101) and Claude (@claude), Oct 3 2026
+        Exec via sysexecute_or_exit: a failed exec ends the child instead of
+        letting a handler in the copied call stack resume the parent's code.
 --- John Gibson, May 22 1996
         Changed section to $-lib
 --- John Gibson, Apr 21 1994
