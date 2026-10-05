@@ -52,10 +52,7 @@ define pipeout(src, command, args, wait);
             din -> popdevin;
             ;;; prevent attempts to read from or write to terminal
             nulldev ->> poprawdevin -> poprawdevout;
-            ;;; Should never return from this:
-            sysexecute(command, args, false);
-            ;;; but just in case we do ...
-            fast_sysexit();
+            sysexecute_or_exit(command, args, false);
         endif;
     enddefine;
 
@@ -97,6 +94,9 @@ endsection;
 
 
 /*  --- Revision History ---------------------------------------------------
+--- D.Kordsmeier (@truedat101) and Claude (@claude), Oct 3 2026
+        Exec via sysexecute_or_exit: a failed exec ends the child instead of
+        letting a handler in the copied call stack resume the parent's code.
 --- John Gibson, Jul 29 1995
         Guarded vedscr_flush_output() with test for poprawdevout being
         a device
