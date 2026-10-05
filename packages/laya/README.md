@@ -117,6 +117,12 @@ next call starts a new child.
   checkpoint reordering three options changed the pick in 5 of 6 orderings. `ts_choice`
   therefore sends options in the order you wrote them, and `ts_request` keeps question
   order too. This needed `json_object` in `LIB JSON`, which keeps insertion order.
+* **Answers depend slightly on their batch-mates.** On the GPU, a question's
+  probabilities can move in the 3rd–4th decimal with the other questions in the request.
+  Half of answers did in testing, the largest change was 0.002, and no pick changed. For
+  answers that are exactly reproducible whatever else is asked, use
+  `['--batch-size' '1'] -> laya_extra_args`. One question costs the same; 16 questions
+  in one request cost about 1.7×. See RESEARCH.md §3.2.
 * **Timeouts kill, they don't wait.** Each call is bounded by `ts_timeout` (60 s; `0` or
   `false` for none, as with `http_request`). A call that runs out fails with 504, which
   `ts_eval` doesn't retry. The child is killed rather than reused, because its late
