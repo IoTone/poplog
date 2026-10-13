@@ -99,11 +99,21 @@ run_prefix=''
 [ "$arch" = riscv64 ] && run_prefix='setarch -R '
 
 # ---- 2. sync tracked files ------------------------------------------------
+# pack-tree.sh/unpack-tree.sh, the same pair the Jenkins node route uses
+# over the agent channel, so both routes deliver a byte-identical tree.
+# Streamed rather than scp'd: one ssh channel, nothing left in /tmp.
 echo "== $host: syncing tree -> ~/$rdir =="
 ssh_ "mkdir -p '$rdir'"
-git ls-files -z | tar --null -T - -czf - | ssh_ "tar -xzf - -C '$rdir'" || {
+sh tools/ci/pack-tree.sh - | ssh_ "cat > '$rdir/poplog-src.tar.gz'" || {
     st=$?; die_if_transport "$st"
-    echo "build-remote: syncing the tree to $host failed" >&2; exit 2; }
+    echo "build-remote: sending the tree to $host failed" >&2; exit 2; }
+# The unpacker rides inside the archive, so pull it out first and then let
+# it do the real extraction: it also prunes sources this tree no longer has,
+# which plain `tar -xzf` into a reused directory would silently keep.
+ssh_ "cd '$rdir' && tar -xzf poplog-src.tar.gz tools/ci/unpack-tree.sh && \
+      sh tools/ci/unpack-tree.sh poplog-src.tar.gz" || {
+    st=$?; die_if_transport "$st"
+    echo "build-remote: unpacking the tree on $host failed" >&2; exit 2; }
 
 # ---- 2b. prerequisites on the remote -------------------------------------
 # After the sync, because the script it runs arrived with it.  Seconds, and

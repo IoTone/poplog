@@ -32,10 +32,10 @@ case "$(uname -s)/$(uname -m)" in
 esac
 
 # ---- tools ----------------------------------------------------------------
-# git is here because a Jenkins node with its own workspace checks the tree
-# out itself; the ssh path gets the tree by tar and does not need it, but
-# demanding it everywhere keeps one list rather than two.
-for tool in cc make curl tar git; do
+# No git: a build platform receives a packed tree (tools/ci/pack-tree.sh)
+# and never talks to the remote, which is why a node needs no credential.
+# The commit it was built from rides along in .ci-commit instead.
+for tool in cc make curl tar; do
     command -v "$tool" >/dev/null 2>&1 || note "no $tool on PATH"
 done
 
@@ -59,7 +59,7 @@ fi
 
 if [ "$missing" = 1 ]; then
     case "$(uname -s)" in
-        Linux) echo "probe: Debian/Ubuntu: apt install build-essential git curl \\
+        Linux) echo "probe: Debian/Ubuntu: apt install build-essential curl \\
          libcurl4-openssl-dev libsqlite3-dev libncurses-dev" >&2 ;;
         Darwin) echo "probe: macOS: xcode-select --install" >&2 ;;
     esac

@@ -1,20 +1,27 @@
 /* Jenkinsfile — CI for the pop11 Claude-skill tarballs.
  *
+ * ONE machine checks the tree out: the builder. Every platform is then sent
+ * a packed tree (tools/ci/pack-tree.sh — tracked files only, no .git), and
+ * nothing but the builder ever talks to GitHub. A build node therefore
+ * needs no SCM credential, no ssh key and no git at all, and does not
+ * accumulate 61 MB of history to compile a tree that never reads it.
+ *
  * Topology: a platform is either a Jenkins NODE or an SSH TARGET, and each
  * platform picks one.
  *
- *   node    — the agent runs on the machine, Jenkins checks the tree out
- *             there itself, and the tarball comes back by stash/unstash.
- *             This is the better arrangement when the board can hold a
- *             JVM: real per-platform logs, a persistent workspace (so the
- *             engine is reused instead of rebuilt from seed), and no
- *             dependence on one builder's ssh config.
+ *   node    — the agent runs on the machine; the tree goes out and the
+ *             tarball comes back by stash/unstash, over the agent channel
+ *             that is already connected and authenticated. Real
+ *             per-platform logs, a persistent workspace (so the engine is
+ *             reused instead of rebuilt from seed), and no dependence on
+ *             one builder's ssh config.
  *   ssh     — the x86_64 builder ssh'es in (tools/ci/build-remote.sh),
  *             syncs the tracked tree by tar and copies the tarball back.
  *             The board needs no agent, no JVM and no inbound connection
  *             from the controller — just sshd, cc, make, curl and tar.
  *             This is what a cloud VM or a board too small for an agent
- *             gets.
+ *             gets. Same two scripts for the tree, so both routes deliver
+ *             a byte-identical source directory.
  *
  * Per platform, the node wins if its *_NODE parameter is set, and the ssh
  * route is the fallback. Today: linux-x86_64 and linux-arm64 (the Pi 5,
@@ -23,6 +30,12 @@
  * the other without the build changing underneath it.
  *
  * What it does
+ *   Source:  checkout + tools/ci/pack-tree.sh, once, on the builder. The
+ *            archive carries .ci-manifest and .ci-commit: the manifest lets
+ *            a reused workspace drop sources the tree no longer has (plain
+ *            tar is additive, and a stale pop/lib/*.p is still found by
+ *            `uses` — this project's oldest bug shape), and the commit is
+ *            how a platform with no .git still knows what it built.
  *   Probe:   tools/ci/probe-prereqs.sh — every tool and header the build
  *            and the smoke tests need, checked in seconds. A missing
  *            <sqlite3.h> otherwise surfaces an hour in, when the installer
@@ -44,10 +57,10 @@
  *     Prerequisites: whatever probe-prereqs.sh asks for, plus ssh/scp for
  *     the ssh-route platforms. The gh CLI is needed only for PUBLISH.
  *   - arm64 node: "dietpi5-kordshom", a Raspberry Pi 5 running DietPi,
- *     agent connected outbound (remoting.jar, workDir ~/jenkins). It needs
- *     a JDK for the agent and git for the checkout; probe-prereqs.sh
- *     covers the rest. Clear its workspace to force a from-seed build, or
- *     set FORCE_ENGINE_REBUILD.
+ *     agent connected outbound (remoting.jar, workDir ~/jenkins). A JDK for
+ *     the agent, plus what probe-prereqs.sh asks for. No git, no GitHub
+ *     credential, no .git directory. Clear its workspace to force a
+ *     from-seed build, or set FORCE_ENGINE_REBUILD.
  *   - ssh targets: the builder's own ~/.ssh/config and keys decide what
  *     "riscv-cloud" means. Hostnames, IPs, ports and users stay on the
  *     builder, never in the repo; the REMOTE_* parameters take only the
@@ -67,6 +80,10 @@ pipeline {
      * would fail at the first ssh stage. */
     agent { label 'nix' }
     options {
+        /* No implicit per-stage checkout. The builder checks out once in
+         * Source and every other platform is sent the packed tree, which
+         * is what keeps SCM credentials off the nodes. */
+        skipDefaultCheckout()
         timestamps()
         disableConcurrentBuilds()
         /* a from-seed riscv64 build is slow; this covers all platforms */
@@ -103,6 +120,17 @@ pipeline {
         FORCE_ENGINE_REBUILD = "${params.FORCE_ENGINE_REBUILD ? 1 : 0}"
     }
     stages {
+        stage('Source') {
+            steps {
+                checkout scm
+                sh 'sh tools/ci/pack-tree.sh poplog-src.tar.gz'
+                /* The unpacker travels inside the archive, but stashing it
+                 * alongside means a node needs nothing of its own to get
+                 * started. */
+                stash name: 'source',
+                      includes: 'poplog-src.tar.gz,tools/ci/unpack-tree.sh'
+            }
+        }
         stage('Package') {
             parallel {
                 stage('linux-x86_64') {
@@ -120,13 +148,15 @@ pipeline {
                         beforeAgent true
                         expression { params.ARM64_NODE?.trim() }
                     }
-                    /* Declarative gives a stage agent its own workspace and
-                     * checks the tree out there, so the Pi builds from git
-                     * rather than from a hand-synced tree that drifts. The
-                     * workspace persists between builds, which is the point:
-                     * target/pop/basepop11 survives and the engine is reused. */
                     agent { label "${params.ARM64_NODE}" }
                     steps {
+                        /* The workspace persists between builds, which is
+                         * the point: target/pop/basepop11 survives and the
+                         * engine is reused rather than re-seeded. unpack
+                         * leaves build products alone and prunes only the
+                         * sources this tree has dropped. */
+                        unstash 'source'
+                        sh 'sh tools/ci/unpack-tree.sh poplog-src.tar.gz'
                         sh 'sh tools/ci/probe-prereqs.sh'
                         sh 'sh tools/ci/build-and-verify.sh dist'
                         /* back to the builder for Collect: the two machines
