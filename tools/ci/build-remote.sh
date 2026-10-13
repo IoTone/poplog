@@ -79,20 +79,10 @@ uname="$(ssh_ 'uname -s; uname -m' | tr '\n' '/')" || {
 uname="${uname%/}"
 arch="${uname#*/}"
 echo "build-remote: $host is $uname"
-for tool in cc make curl tar; do
-    ssh_ "command -v $tool >/dev/null" || { st=$?; die_if_transport "$st"
-        echo "build-remote: $host lacks $tool" >&2; exit 2; }
-done
-# the installer smoke test builds the popcurl and popsqlite shims, so the
-# dev headers are a prerequisite too -- catch that here rather than an hour
-# later at step 4
-for hdr in curl/curl.h sqlite3.h; do
-    ssh_ "printf '#include <$hdr>\nint main(void){return 0;}\n' | \
-          cc -fsyntax-only -x c - 2>/dev/null" || { st=$?; die_if_transport "$st"
-        echo "build-remote: $host lacks <$hdr>" >&2
-        echo "  (Debian/Ubuntu: apt install libcurl4-openssl-dev libsqlite3-dev)" >&2
-        exit 2; }
-done
+
+# The tool and header checks live in tools/ci/probe-prereqs.sh, which runs
+# on the remote after the sync (step 2b) -- one list of prerequisites for
+# both CI routes rather than a copy here that drifts from it.
 
 # same platform table as build-and-verify.sh, resolved before the build so
 # a typo'd host fails in seconds rather than an hour in
@@ -114,6 +104,15 @@ ssh_ "mkdir -p '$rdir'"
 git ls-files -z | tar --null -T - -czf - | ssh_ "tar -xzf - -C '$rdir'" || {
     st=$?; die_if_transport "$st"
     echo "build-remote: syncing the tree to $host failed" >&2; exit 2; }
+
+# ---- 2b. prerequisites on the remote -------------------------------------
+# After the sync, because the script it runs arrived with it.  Seconds, and
+# it saves an hour: the engine builds happily without <sqlite3.h> and then
+# step 4 fails when the installer compiles the popsqlite shim.
+echo "== $host: prerequisites =="
+ssh_ "cd '$rdir' && sh tools/ci/probe-prereqs.sh" || { st=$?; die_if_transport "$st"
+    echo "build-remote: $host is missing build prerequisites (see above)" >&2
+    exit 2; }
 
 # ---- 3. build on the remote ----------------------------------------------
 echo "== $host: build + verify =="
