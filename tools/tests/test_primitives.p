@@ -1,5 +1,13 @@
 ;;; test_primitives.p — core VM/arithmetic primitives (run via tools/test-libs.sh)
 ;;;
+;;; test-timeout: 600
+;;;
+;;; Ten minutes, not the runner's default 120s.  This suite compiles literal
+;;; vectors up to 3000 elements and builds 600-frozval closures, and it now
+;;; runs in CI on the riscv64 board, which is an order of magnitude slower
+;;; than the x86_64 builder the default was sized for.  A timeout here would
+;;; read as a broken engine.
+;;;
 ;;; The layer below the libraries: the hand-written helpers in
 ;;; pop/src/<arch>/aarith.s and the Pop-11 they support.  Nothing else in
 ;;; the tree tests these, which is how a mis-ported _posword_mul_high shipped
