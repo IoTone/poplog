@@ -42,6 +42,7 @@
 #
 # Exit: 0 built and collected      2 remote is unusable (missing tool/header,
 #       3 the ssh link failed        unsupported platform, sync/copy trouble)
+#       4 another build holds the remote tree (see REMOTE_LOCK_WAIT)
 #       other  the remote build's own status, passed through
 set -e
 
@@ -57,8 +58,17 @@ case "$host" in
 esac
 : "${rdir:=poplog-ci}"
 
+# Keepalives and a connect timeout by default, ahead of the caller's
+# SSH_OPTS so either can be overridden.  A build holds one channel open for
+# many minutes; without these a dead link is indistinguishable from a slow
+# board and the stage hangs until the pipeline timeout.
 # shellcheck disable=SC2086  # SSH_OPTS is a deliberate word list
-ssh_() { ssh $SSH_OPTS "$host" "$@"; }
+SSH_DEFAULTS='-o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8'
+ssh_()  { ssh $SSH_DEFAULTS $SSH_OPTS "$host" "$@"; }
+# -n for every call that does not need stdin, which is all of them but the
+# tree stream.  An ssh that inherits the script's stdin can block on it, and
+# inside a Jenkins `sh` step that is a stage that never ends.
+ssh_n() { ssh -n $SSH_DEFAULTS $SSH_OPTS "$host" "$@"; }
 
 # ssh(1) exits 255 for its own failures -- connect, auth, or a link that
 # drops mid-session -- which is otherwise indistinguishable from the remote
@@ -74,7 +84,7 @@ die_if_transport() {
 
 # ---- 1. probe -------------------------------------------------------------
 echo "== $host: probing =="
-uname="$(ssh_ 'uname -s; uname -m' | tr '\n' '/')" || {
+uname="$(ssh_n 'uname -s; uname -m' | tr '\n' '/')" || {
     echo "build-remote: cannot ssh to $host" >&2; exit 2; }
 uname="${uname%/}"
 arch="${uname#*/}"
@@ -98,19 +108,89 @@ esac
 run_prefix=''
 [ "$arch" = riscv64 ] && run_prefix='setarch -R '
 
+# ---- 1b. claim the remote tree -------------------------------------------
+# One directory on one board, and more than one thing wants it.  Two
+# different Jenkins BRANCH jobs each ran this script against the same
+# riscv-cloud:~/poplog-ci and interleaved two tar streams into it; both
+# wedged with the remote tar waiting forever for bytes that never came, at
+# zero load and zero I/O, until the pipeline timeout.  disableConcurrentBuilds()
+# does not help: it guards a job against itself, not two branch jobs against
+# one shared remote.
+#
+# So the remote tree is claimed before it is touched.  `mkdir` is the lock
+# because it is atomic over NFS and everything else: it either creates the
+# directory or it does not.
+#
+# Env: REMOTE_LOCK_WAIT    seconds to wait for a held lock (default 300; 0
+#                          fails immediately)
+#      REMOTE_LOCK_STALE   seconds after which a lock is assumed abandoned
+#                          and stolen (default 10800 = the pipeline timeout)
+lockdir="$rdir.lock"
+lock_wait="${REMOTE_LOCK_WAIT:-300}"
+lock_stale="${REMOTE_LOCK_STALE:-10800}"
+have_lock=0
+
+release_lock() {
+    [ "$have_lock" = 1 ] || return 0
+    have_lock=0
+    ssh_n "rm -rf '$lockdir'" >/dev/null 2>&1 || \
+        echo "build-remote: warning: could not release $host:$lockdir" >&2
+}
+# Released on every exit path, including the ones die_if_transport takes.
+trap 'release_lock' EXIT HUP INT TERM
+
+lock_owner="$(hostname 2>/dev/null || echo '?') pid $$${JOB_NAME:+ job $JOB_NAME}\
+${BUILD_NUMBER:+ #$BUILD_NUMBER} $(date -u +%FT%TZ)"
+
+echo "== $host: claiming $rdir =="
+waited=0
+while :; do
+    # The epoch is written by the REMOTE date(1) and compared against the
+    # remote clock, so the age is right even when the two machines disagree
+    # about the time -- and it avoids stat(1), whose -c is GNU-only and
+    # would have made every lock look fresh forever on the macOS target.
+    if ssh_n "mkdir '$lockdir' 2>/dev/null && \
+              date +%s > '$lockdir/epoch' && \
+              echo '$lock_owner' > '$lockdir/owner'"; then
+        have_lock=1
+        break
+    fi
+    owner="$(ssh_n "cat '$lockdir/owner' 2>/dev/null" || true)"
+    age="$(ssh_n "echo \$(( \$(date +%s) - \$(cat '$lockdir/epoch' 2>/dev/null \
+                               || date +%s) ))" 2>/dev/null || echo 0)"
+    case "$age" in ''|*[!0-9]*) age=0 ;; esac
+    if [ "$age" -gt "$lock_stale" ]; then
+        echo "build-remote: $host:$lockdir is ${age}s old -- assuming it was" >&2
+        echo "  abandoned (held by: ${owner:-unknown}) and taking it" >&2
+        ssh_n "rm -rf '$lockdir'" || true
+        continue
+    fi
+    if [ "$waited" -ge "$lock_wait" ]; then
+        echo "build-remote: $host:$rdir is in use by another build; giving up" >&2
+        echo "  lock: $lockdir, held ${age}s by ${owner:-unknown}" >&2
+        echo "  (REMOTE_LOCK_WAIT raises the wait; a per-platform remote dir --" >&2
+        echo "   pass the host as '$host:${rdir}-\$JOB_NAME' -- avoids the" >&2
+        echo "   contention entirely at the cost of a second tree on the board)" >&2
+        exit 4
+    fi
+    [ "$waited" = 0 ] && echo "build-remote: waiting for $host:$rdir (held ${age}s)"
+    sleep 15
+    waited=$((waited + 15))
+done
+
 # ---- 2. sync tracked files ------------------------------------------------
 # pack-tree.sh/unpack-tree.sh, the same pair the Jenkins node route uses
 # over the agent channel, so both routes deliver a byte-identical tree.
 # Streamed rather than scp'd: one ssh channel, nothing left in /tmp.
 echo "== $host: syncing tree -> ~/$rdir =="
-ssh_ "mkdir -p '$rdir'"
+ssh_n "mkdir -p '$rdir'"
 sh tools/ci/pack-tree.sh - | ssh_ "cat > '$rdir/poplog-src.tar.gz'" || {
     st=$?; die_if_transport "$st"
     echo "build-remote: sending the tree to $host failed" >&2; exit 2; }
 # The unpacker rides inside the archive, so pull it out first and then let
 # it do the real extraction: it also prunes sources this tree no longer has,
 # which plain `tar -xzf` into a reused directory would silently keep.
-ssh_ "cd '$rdir' && tar -xzf poplog-src.tar.gz tools/ci/unpack-tree.sh && \
+ssh_n "cd '$rdir' && tar -xzf poplog-src.tar.gz tools/ci/unpack-tree.sh && \
       sh tools/ci/unpack-tree.sh poplog-src.tar.gz" || {
     st=$?; die_if_transport "$st"
     echo "build-remote: unpacking the tree on $host failed" >&2; exit 2; }
@@ -120,13 +200,13 @@ ssh_ "cd '$rdir' && tar -xzf poplog-src.tar.gz tools/ci/unpack-tree.sh && \
 # it saves an hour: the engine builds happily without <sqlite3.h> and then
 # step 4 fails when the installer compiles the popsqlite shim.
 echo "== $host: prerequisites =="
-ssh_ "cd '$rdir' && sh tools/ci/probe-prereqs.sh" || { st=$?; die_if_transport "$st"
+ssh_n "cd '$rdir' && sh tools/ci/probe-prereqs.sh" || { st=$?; die_if_transport "$st"
     echo "build-remote: $host is missing build prerequisites (see above)" >&2
     exit 2; }
 
 # ---- 3. build on the remote ----------------------------------------------
 echo "== $host: build + verify =="
-ssh_ "cd '$rdir' && \
+ssh_n "cd '$rdir' && \
       FORCE_ENGINE_REBUILD='${FORCE_ENGINE_REBUILD:-0}' \
       ${POP11_SEED_BASE_URL:+POP11_SEED_BASE_URL='$POP11_SEED_BASE_URL'} \
       ${run_prefix}sh tools/ci/build-and-verify.sh dist" || {

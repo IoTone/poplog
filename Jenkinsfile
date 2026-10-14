@@ -110,6 +110,16 @@ pipeline {
             description: 'ssh alias of a riscv64 Linux host; empty = skip')
         string(name: 'REMOTE_MACOS', defaultValue: '',
             description: 'ssh alias of a macOS arm64 host; empty = skip')
+        /* The boards are shared and there is one of each. In a multibranch
+         * job every branch push builds, so without a gate here N branches
+         * queue for one riscv board -- and before the remote lock existed,
+         * two of them ran at once and wedged it. Feature branches get the
+         * builder's own platform; the boards are for the integration
+         * branches unless you ask. */
+        string(name: 'PLATFORM_BRANCHES', defaultValue: 'dev master',
+            description: 'Branches allowed to build on the shared boards (space separated)')
+        booleanParam(name: 'FORCE_ALL_PLATFORMS', defaultValue: false,
+            description: 'Use the shared boards regardless of branch')
         /* Deliberately empty by default and deliberately not an address in
          * the repo: set it on the job (or in a folder default) so the
          * notification target is Jenkins config, not a committed file. */
@@ -134,6 +144,10 @@ pipeline {
         stage('Package') {
             parallel {
                 stage('linux-x86_64') {
+                    /* The builder's own platform always builds: it needs no
+                     * shared resource and it is the one that must not be
+                     * allowed to regress unnoticed. */
+                    options { timeout(time: 60, unit: 'MINUTES') }
                     steps {
                         sh 'sh tools/ci/probe-prereqs.sh'
                         sh 'sh tools/ci/build-and-verify.sh dist'
@@ -146,8 +160,16 @@ pipeline {
                      * stage would claim an executor on the way past. */
                     when {
                         beforeAgent true
-                        expression { params.ARM64_NODE?.trim() }
+                        allOf {
+                            expression { params.ARM64_NODE?.trim() }
+                            expression { sharedBoardsWanted() }
+                        }
                     }
+                    /* Per-stage, not just the pipeline-wide 180: a wedged
+                     * board should cost one stage a bounded wait, not hold
+                     * the whole build for three hours. That is exactly what
+                     * happened on riscv-cloud. */
+                    options { timeout(time: 60, unit: 'MINUTES') }
                     agent { label "${params.ARM64_NODE}" }
                     steps {
                         /* The workspace persists between builds, which is
@@ -167,22 +189,40 @@ pipeline {
                 }
                 stage('linux-arm64 (ssh)') {
                     when {
-                        expression {
-                            !params.ARM64_NODE?.trim() && params.REMOTE_ARM64?.trim()
+                        allOf {
+                            expression {
+                                !params.ARM64_NODE?.trim() && params.REMOTE_ARM64?.trim()
+                            }
+                            expression { sharedBoardsWanted() }
                         }
                     }
+                    options { timeout(time: 60, unit: 'MINUTES') }
                     steps {
                         sh "sh tools/ci/build-remote.sh '${params.REMOTE_ARM64}' dist"
                     }
                 }
                 stage('linux-riscv64') {
-                    when { expression { params.REMOTE_RISCV64?.trim() } }
+                    when {
+                        allOf {
+                            expression { params.REMOTE_RISCV64?.trim() }
+                            expression { sharedBoardsWanted() }
+                        }
+                    }
+                    /* The slow one: a from-seed riscv64 build is the reason
+                     * the pipeline timeout is 180 minutes. */
+                    options { timeout(time: 120, unit: 'MINUTES') }
                     steps {
                         sh "sh tools/ci/build-remote.sh '${params.REMOTE_RISCV64}' dist"
                     }
                 }
                 stage('macos-arm64') {
-                    when { expression { params.REMOTE_MACOS?.trim() } }
+                    when {
+                        allOf {
+                            expression { params.REMOTE_MACOS?.trim() }
+                            expression { sharedBoardsWanted() }
+                        }
+                    }
+                    options { timeout(time: 60, unit: 'MINUTES') }
                     steps {
                         sh "sh tools/ci/build-remote.sh '${params.REMOTE_MACOS}' dist"
                     }
@@ -197,7 +237,9 @@ pipeline {
                  * error, so it is conditional on the same parameter as the
                  * stage that made it. */
                 script {
-                    if (params.ARM64_NODE?.trim()) { unstash 'tarball-linux-arm64' }
+                    if (params.ARM64_NODE?.trim() && sharedBoardsWanted()) {
+                        unstash 'tarball-linux-arm64'
+                    }
                 }
                 sh 'ls -l dist/pop11-skill-*.tar.gz'
                 archiveArtifacts artifacts: 'dist/pop11-skill-*.tar.gz',
@@ -251,4 +293,16 @@ pipeline {
             }
         }
     }
+}
+
+/* Whether this build may use the shared boards.
+ *
+ * A job that is not multibranch has no BRANCH_NAME, and there the gate
+ * would otherwise skip every platform and quietly build nothing but
+ * x86_64 -- so no branch name means no gate. */
+def sharedBoardsWanted() {
+    if (params.FORCE_ALL_PLATFORMS) { return true }
+    def branch = env.BRANCH_NAME
+    if (!branch) { return true }
+    return (params.PLATFORM_BRANCHES ?: '').trim().split(/\s+/).contains(branch)
 }
