@@ -29,6 +29,9 @@
 #
 # Env: FORCE_ENGINE_REBUILD=1   rebuild the engine even if present
 #      POP11_CI_SUITES          suites for the self-test gate (see step 1b)
+#
+# Any rebuild is a CLEAN rebuild; FORCE_ENGINE_REBUILD only forces the
+# decision, it does not change how the build is done.
 #      POP11_SEED_BASE_URL      corepop seed source (default: this repo's
 #                               latest GitHub release)
 #
@@ -95,17 +98,26 @@ fi
 
 if [ "$rebuild" = 1 ]; then
     echo "ci: building engine for $plat"
-    if [ "${FORCE_ENGINE_REBUILD:-0}" = 1 ]; then
-        # A forced rebuild must be CLEAN: incremental make over stale
-        # popc-compiled objects does not reliably pick up .ph/.s source
-        # changes (field-learned twice). Keep only the corepop seed.
-        echo "ci: forced rebuild — clearing build products"
-        if [ -x target/pop/corepop ]; then
-            mv target/pop/corepop /tmp/ci-corepop.$$
-        fi
-        rm -rf target stamp_* Makefile poplog
-        mkdir -p target/pop
-        [ -f /tmp/ci-corepop.$$ ] && mv /tmp/ci-corepop.$$ target/pop/corepop
+    # EVERY rebuild is clean, not just a forced one.  Incremental make over
+    # stale popc-compiled objects does not reliably pick up .ph/.s source
+    # changes (field-learned twice) -- and those are exactly the changes the
+    # fingerprint above detects, so rebuilding incrementally here would spot
+    # the staleness and then fail to cure it.  Keep only the corepop seed.
+    echo "ci: clearing build products"
+    saved=
+    if [ -x target/pop/corepop ]; then
+        # In the tree, not /tmp: rm -rf below does not reach the repo root,
+        # and a shared board's /tmp is somebody else's disk.
+        saved="./.ci-corepop.$$"
+        mv target/pop/corepop "$saved"
+    fi
+    rm -rf target stamp_* Makefile poplog
+    mkdir -p target/pop
+    # if/then, not `[ ... ] && mv`: a false test is a non-zero statement and
+    # under set -e that exits the script -- silently, on exactly the fresh
+    # workspace where there is no seed to restore.
+    if [ -n "$saved" ]; then
+        mv "$saved" target/pop/corepop
     fi
     if [ ! -x target/pop/corepop ]; then
         mkdir -p target/pop
