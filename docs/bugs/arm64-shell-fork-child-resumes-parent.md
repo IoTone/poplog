@@ -20,9 +20,10 @@ printf('ALL DONE\n');
 
 | platform | trials | hung |
 | --- | --- | --- |
-| Pi 5, DietPi aarch64 | 5 | **4** |
+| Pi 5, DietPi aarch64, 16K pages | 5 | **4** |
 | Pi 5, DietPi aarch64 (output to a pipe) | 2 | 1 |
-| macOS arm64 (same tree, same suites) | 3 | 0 |
+| macOS arm64 (same tree, same library) | 3 | 0 |
+| riscv64 Linux (`machine1`, same tree) | 3 | 0 |
 
 A 60-call loop survives about one run in five, so a single `shell_run` has
 roughly a 2-3% chance of wedging.  That makes `tools/tests/test_shell.p`
@@ -80,9 +81,16 @@ PARENT'S code in the child" -- except that `shell.p` *does* call
     The hang persists on an engine with that fixed.
   * **Unflushed buffered stdout at fork time.**  One `shell_run` with 200
     buffered bytes pending completes normally.
-  * **Being an arm64 CPU bug as such.**  macOS arm64 runs the same
-    library over 180 forks without a miss.  Shared aarch64 code generation
-    is therefore not obviously implicated; the Linux fork/exec path is.
+  * **Being an arm64 bug as such, and being a Linux bug as such.**  macOS
+    arm64 runs the same library over 180 forks without a miss, and so does
+    riscv64 Linux -- which shares this tree's generic Linux fork/exec path
+    *and* its `ARM64_LINUX` headers.  Only the two together fail, which
+    leaves the aarch64-Linux-specific parts: `pop/src/arm64/*.s`, the
+    signal and timer handling `sys_fork`/`sysexecute` touch on that
+    platform, and the board's **16K page size** (the one configuration
+    detail no other platform here shares -- and the arm64 code generator
+    has had a page-boundary bug before, see
+    `aarch64-large-literal-sigill.md`).
 
 ## Why CI is unaffected
 
