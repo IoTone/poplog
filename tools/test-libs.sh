@@ -4,9 +4,9 @@
 #   tools/test-libs.sh [engine-command] [suite ...]
 #
 # Each suite is a tools/tests/test_<name>.p file using LIB * POPTEST;
-# a suite passes when it prints 'SUMMARY: ALL PASS'.  With no suite
-# arguments, all suites run.  Exit status is the number of failing
-# suites (0 = all green).
+# a suite passes when it prints 'SUMMARY: ALL PASS' *and* the engine
+# exits 0 (see EXIT STATUS below).  With no suite arguments, all suites
+# run.  Exit status is the number of failing suites (0 = all green).
 #
 # TIMEOUTS.  Every suite runs under a watchdog, because a suite that hangs
 # otherwise hangs the whole run -- and a test run that can hang is a test
@@ -68,7 +68,25 @@ fi
 
 : "${TEST_TIMEOUT:=120}"
 
-# run_suite <seconds> <suite> -- output on stdout, 124 if it had to be killed
+# EXIT STATUS.  A suite's verdict is its SUMMARY line AND the engine's exit
+# status, because neither alone is enough.  The SUMMARY is printed by
+# test_summary() at the end of the file, so an engine that dies AFTER
+# printing it -- on a later line, inside an atexit, while saving an image --
+# left behind a green-looking transcript, and this runner read the last
+# SUMMARY and believed it.  That is the shape of the riscv64 defect in
+# docs/bugs/riscv64-mkimage-restore-broken.md.  Measured on all four
+# platforms over all 16 suites: a passing suite exits 0 and a failing one
+# exits with the number of failed checks, so the status is a reliable
+# second opinion.  That status comes from `pop_exit_ok`, which
+# test_summary() sets -- so an explicit sysexit(n) after it does NOT
+# change the status, and a negative test for this check has to make the
+# engine actually die (a mishap gives 1, a signal 128+n).  Conversely the status alone cannot replace the SUMMARY:
+# a suite that never reaches test_summary() can still exit 0.
+#
+# run_suite <seconds> <suite> -- output on stdout, 124 if it had to be
+# killed.  The engine's own status goes to $_status_file: run_suite is
+# called in a command substitution, so a variable set inside it would not
+# survive the subshell.
 if command -v perl >/dev/null 2>&1; then
     _pgroup=yes
 else
@@ -108,10 +126,15 @@ run_suite() {
         sleep 1
         _waited=$((_waited + 1))
     done
-    wait "$_pid" 2>/dev/null || true
+    _st=0
+    wait "$_pid" 2>/dev/null || _st=$?
+    printf '%s\n' "$_st" > "$_status_file"
     cat "$_tmp"; rm -f "$_tmp"
     return 0
 }
+
+_status_file=$(mktemp) || exit 2
+trap 'rm -f "$_status_file"' EXIT HUP INT TERM
 
 bad=0
 for s in $suites; do
@@ -132,8 +155,16 @@ for s in $suites; do
         continue
     fi
     line=$(printf '%s\n' "$out" | grep -o 'SUMMARY: .*' | tail -1)
-    if printf '%s' "$line" | grep -q 'ALL PASS'; then
+    est=$(cat "$_status_file" 2>/dev/null || echo 0)
+    case "$est" in ''|*[!0-9]*) est=0 ;; esac
+    if printf '%s' "$line" | grep -q 'ALL PASS' && [ "$est" -eq 0 ]; then
         echo "PASS  $name  ($line)"
+    elif printf '%s' "$line" | grep -q 'ALL PASS'; then
+        # green transcript, dead engine: the interesting case, and the one
+        # this runner used to call a pass
+        echo "FAIL  $name  (exit $est after printing '$line')"
+        printf '%s\n' "$out" | tail -15
+        bad=$((bad+1))
     else
         echo "FAIL  $name"
         printf '%s\n' "$out" | grep -E '^\*\*|MISHAP|;;;' | tail -25

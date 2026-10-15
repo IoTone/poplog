@@ -25,7 +25,12 @@ ledger="$repo/docs/release-sizes.md"
 mode="${1:-append}"
 
 date_today="$(date +%Y-%m-%d)"
-commit="$(cd "$repo" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# A CI platform gets a packed tree with no .git (tools/ci/pack-tree.sh), so
+# ask git first and fall back to the commit the packer recorded -- a sizes
+# row reading "unknown" is a row that cannot be traced back to a build.
+commit="$(cd "$repo" && git rev-parse --short HEAD 2>/dev/null \
+          || cat "$repo/.ci-commit" 2>/dev/null \
+          || echo unknown)"
 
 # One row per platform found in dist/.
 rows=""

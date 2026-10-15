@@ -113,6 +113,34 @@ substring(i, n, 'ERROR 42 happened') =>              ;;; ** ERROR 42
 Case-insensitive: \code{regexp\_compile(s, 1, false)}, or \code{@i} in the
 pattern. \code{p} is a compiled procedure --- define it once, reuse it.
 
+\section{Datagrams}
+
+What Chapter 8 is built on.  \code{`i`} is the internet domain and
+\code{`D`} a datagram socket; an address is a list, with \code{*} for
+\code{INADDR\_ANY}.
+
+\begin{pop}
+uses unix_sockets;
+vars sock = sys_socket(`i`, `D`, false);
+[* 9951] -> sys_socket_name(sock);                 ;;; bind
+sys_socket_send(sock, msg, length(msg), 0, ['127.0.0.1' 9952]);
+vars buf = inits(2048);
+sys_socket_recv(sock, buf, 2048, 0, true) -> (n, sender);
+substring(1, n, buf) =>                            ;;; the payload
+\end{pop}
+
+To poll, use \code{sys\_device\_wait} and \emph{not}
+\code{sys\_input\_waiting}, which answers \code{false} forever on a
+datagram socket even with a datagram queued --- a deaf poll that raises no
+error, because nothing arriving is also what a quiet network looks like
+(\code{docs/bugs/sys-input-waiting-blind-on-sockets.md}).
+
+\begin{pop}
+vars rd;
+sys_device_wait([^sock], [], [], 0) -> (rd, , );    ;;; 0 = don't block
+if rd /== [] then ... endif;
+\end{pop}
+
 \section{The Robot Army examples}
 
 All at \href{\ghbase}{\code{examples/robotarmy/}}; each runs from the
@@ -130,6 +158,16 @@ repository root.
 \code{chain.pl} & 5 & The chain of command in Prolog\\
 \code{patrol.fth} & 5 & Robot control words in Forth, with an early \code{leave}\\
 \code{signed\_orders.p} & 7 & HMAC-signed orders through \code{lib crypto}\\
+\midrule
+\code{fleetnet.p} & 8 & The UDP transport under everything networked: \code{net\_open}/\code{net\_send}/\code{net\_recv}/\code{net\_poll}, signed with HMAC-SHA256\\
+\code{orders.p} & 8 & The fleet takes orders over the network --- the \emph{same} \code{obey} and registry, driven from another machine\\
+\code{fthwire.p} & 8 & Forth over the wire: a robot is taught a word it has never seen, in one datagram, and runs it natively\\
+\code{deploy.p} & 8 & Pop-11 source over the wire: signed, chunked, \code{pop11\_compile}d into a running robot --- including redefining a procedure already in use\\
+\code{plant.p} & 8 & VM specs over the wire: \code{sysPROCEDURE}/\code{sysPUSHQ}/\code{sysCALL}, so one datagram becomes arm64 on one machine and x86-64 on another\\
+\code{swarm.p} & 8 & Robots that fall into step: each broadcasts its phase and pulls towards the others, with no leader and no clock\\
+\code{chainnet.p} & 8 & Backtracking across machines: the org chart split across nodes, put back together by Prolog's own backtracking\\
+\code{sightnet.p} & 8 & What the fleet has seen lately: sightings that expire, windowed and deduplicated, held by no one node\\
+\code{vision.p} & 8 & A classifier small enough to be honest: trained in Pop-11 on real pixels, identical to six decimals on three architectures\\
 \bottomrule
 \end{tabular}
 \end{center}

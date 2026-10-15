@@ -311,7 +311,18 @@ struct STATB
     int     ST_PAD1;
 #_ENDIF
     ino_t   ST_INO;
-#_IF DEF ARM_LINUX or DEF ARM64_LINUX or (DEF X86_LINUX and WORD_BITS = 32)
+#_IF DEF ARM64_LINUX
+    /*  aarch64's asm-generic/stat.h keeps st_nlink 32 bits wide (it sits
+        at @20, packed against st_mode/st_uid/st_gid in one 16-byte run),
+        where x86_64 widened it to a word.  nlink_t is a word, so using it
+        here consumed @20-27 and shifted EVERY later field by 8: file_size
+        returned st_blksize (16384 on a 16K-page Pi 5) and file_mtime
+        returned the mtime NANOSECONDS.  Both answers look like plausible
+        integers, which is why this survived -- only a known-size file
+        catches it (tools/tests/test_fileutils.p).                      */
+    mode_t  ST_MODE;
+    int     ST_NLINK;
+#_ELSEIF DEF ARM_LINUX or (DEF X86_LINUX and WORD_BITS = 32)
     mode_t  ST_MODE;
     nlink_t ST_NLINK;
 #_ELSEIF DEF X86_LINUX

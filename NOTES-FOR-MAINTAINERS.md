@@ -219,6 +219,22 @@ stamps a build date into every image, so the checksum moves on every relink.
 Check for the code itself, or for a behavioural difference from a fresh
 engine.  See `docs/bugs/stale-olb-shadows-rebuild.md`.
 
+### Never `make` in a copied tree before re-running `./configure`
+
+`configure` bakes **absolute** paths into `Makefile` and `./poplog`.  So
+`cp -a tree tree2 && cd tree2 && make` does not build `tree2`: it deletes
+and rewrites files under the *original* `tree`, which is how a build
+intended to protect a verified tree damaged it instead (`target/obj/src.wlb`
+and `src.olb` removed from the wrong tree, 2026-10-14).  Run `./configure`
+in the copy first — `grep -c <copy-name> Makefile` is a two-second check
+that it took.
+
+On riscv64, drive `make` itself under `setarch -R`, not just the engine:
+the build runs `popc` and `poplink`, which are saved images, so a bare
+`make stamp_new_corepop` dies with "Segmentation fault (core dumped)" in
+the `popc -c -nosys` step and nothing says why.  See
+`PORTING-RISCV64-LINUX.md`.
+
 ## Build snapshots (poplog-builds)
 
 Built trees are archived in the public, versioned bucket `poplog-builds`
