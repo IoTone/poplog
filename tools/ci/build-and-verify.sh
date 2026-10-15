@@ -14,7 +14,7 @@
 #                below).  "Already has one" is not the same as "has a
 #                current one", and for two months on riscv64 it was not.
 #   1b. selftest — tools/test-libs.sh over $POP11_CI_SUITES (default
-#                tools/tests/test_primitives.p) against
+#                test_primitives.p + test_fileutils.p) against
 #                the engine just built, BEFORE anything is packaged.  The
 #                smoke tests below exercise sqlite, MCP and LSP; none of
 #                them touches the large-literal or large-closure paths, so
@@ -140,17 +140,30 @@ fi
 # Before packaging, not after: an engine that fails here must not become a
 # tarball.  The harness supplies the watchdog and reads the SUMMARY line, so
 # a hang is a failure rather than a stuck stage.
-# POP11_CI_SUITES widens the gate.  It is the engine suite alone by
-# default, deliberately: test_primitives.p is green on all four
-# architectures, while test_fileutils (1 of 11), test_http_client and
-# test_pcre fail on the arm64 board today.  Putting those behind the gate
-# now would turn CI red for reasons that have nothing to do with the
-# engine, and a red CI nobody can act on is how we got a two-month-old
-# broken engine in the first place.  Widen it as they are fixed:
+# POP11_CI_SUITES widens the gate.  Two suites by default, each for a
+# class of bug the other cannot see:
+#   test_primitives  the hand-written arithmetic, large literals and large
+#                    closures -- the paths an engine fails on while every
+#                    smoke test still passes (riscv64, two months).
+#   test_fileutils   the C struct layouts the engine reads through
+#                    _extern.  st_nlink was declared a word wide on arm64,
+#                    where it is 32 bits, so file_size answered with
+#                    st_blksize and file_mtime with nanoseconds, and
+#                    test_zmachine could not load a story file at all.
+#                    A field read from a neighbouring offset is still a
+#                    plausible integer, so nothing else noticed.
+#                    See docs/bugs/aarch64-stat-layout.md.
+# All 16 suites are green on x86_64, macOS arm64 and the Pi 5 as of
+# 2026-10-14, so the gate could be the whole set -- except that
+# test_http_client and test_pcre need their C shims built in the tree
+# first (tools/build-popcurl.sh, tools/build-poppcre.sh), and at this
+# point in the run only the installer sandbox below builds any.  Build
+# them here first and this can become:
 #     POP11_CI_SUITES=$(echo tools/tests/test_*.p)
 echo "ci: engine self-test"
 # shellcheck disable=SC2086  # a deliberate word list of suite paths
-sh tools/test-libs.sh ${POP11_CI_SUITES:-tools/tests/test_primitives.p}
+sh tools/test-libs.sh \
+    ${POP11_CI_SUITES:-tools/tests/test_primitives.p tools/tests/test_fileutils.p}
 
 # Recorded only now.  Fingerprinting a build that has not passed its own
 # self-test would mark a broken engine as current and skip rebuilding it.

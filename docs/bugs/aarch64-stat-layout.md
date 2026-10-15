@@ -1,9 +1,10 @@
 # sys_file_stat returns the wrong fields on aarch64 and riscv64 Linux
 
 Found 2026-08-19 while verifying the Emacs/swank work on `raspi5`
-(DietPi, Linux 6.18 aarch64).  **Not fixed** -- see "The fix that didn't
-take" below.  Pre-existing; nothing in the Emacs, swank or jsonrpc work
-touches this code.
+(DietPi, Linux 6.18 aarch64).  **Fixed** 2026-10-14 in `unixdefs.ph` --
+by the very patch "The fix that didn't take" below reports as ineffective.
+Nothing was wrong with that patch; see "Why it takes now".  Pre-existing;
+nothing in the Emacs, swank or jsonrpc work touches this code.
 
 ## Symptom
 
@@ -142,3 +143,58 @@ Reproduce the bug with:
     stat -c 'size=%s blksize=%o nlink=%h uid=%u' /tmp/sz12
     ;;; then, in Pop-11:
     sys_file_stat('/tmp/sz12', initv(8)) =>
+
+## Why it takes now
+
+The patch above was right.  What defeated it was `docs/bugs/stale-olb-shadows-rebuild.md`,
+found a month later on 2026-09-16: `popc` writes a `.w` and a `.o`,
+`poplibr` archives them into `src.wlb` and `src.olb`, and **`src.olb` was
+never cleaned**, so a rebuilt member joined the archive alongside the old
+one and the stale member won at link time.  That is precisely the reported
+symptom here -- the compile succeeds, the `.w` grows by the right amount,
+the fresh member is present, the engine relinks, and the behaviour does
+not change.  It explains the `cucharout` markers that never printed, and
+it explains why deleting `target/src/*.[ow]` did not help: the shadow was
+in `target/obj/src.olb`, which that step leaves alone.  The stale-olb note
+predicted this ("almost certainly the same wall hit in commit 68398fc"),
+and it was right.
+
+So the open question that section ends on -- "how base-system procedures
+actually get into `basepop11`" -- is answered, and not by anything exotic:
+they get in correctly, and an uncleaned archive was serving an older copy.
+
+Two things made the difference on 2026-10-14:
+
+  * the `Makefile.in` fix for the stale `.olb`, and
+  * CI now making **every** engine rebuild a clean rebuild (commit
+    `95eb77e`): `target`, `stamp_*`, `Makefile` and `./poplog` are removed
+    and the tree rebuilds from the corepop seed.  A content fingerprint over
+    `pop/src`/`pop/extern` plus `Makefile.in` and `configure` triggers it,
+    so editing a `.ph` -- exactly this fix -- forces the clean rebuild
+    rather than an incremental one.
+
+Verified on `dietpi5-kordshom` (Pi 5, DietPi, 16K pages) with a clean
+rebuild from the seed: all ten `sys_file_stat` fields agree with `stat(1)`,
+`test_fileutils` is 13/13, and `test_zmachine` loads its story file.
+
+## Still to confirm on riscv64
+
+The declaration is shared -- `pop/src/syscomp/riscv64/sysdefs.p` sets
+`ARM64_LINUX = true` on purpose -- so the one-line change covers riscv64 by
+construction, and the riscv64 numbers in this note have the same 8-byte
+shift.  It has not been *run* there: that host reaches the build only
+through CI (its address is a Jenkins parameter, never in this repo).  To
+make the next riscv64 CI run answer the question instead of leaving it
+open, `test_fileutils` was added to the default pre-packaging gate in
+`tools/ci/build-and-verify.sh` alongside `test_primitives`: a layout
+regression on any platform now fails the build before it can ship a
+tarball.
+
+## Lesson
+
+Both wrong answers were plausible integers -- a size that looks like a
+size, an mtime that looks like an mtime -- and the suite asserted only
+`isintegral` of the latter.  A test that cannot tell a field from its
+neighbour cannot catch a layout bug, so `test_fileutils` now uses a size
+that is a multiple of no block size and requires the mtime to fall in
+living memory rather than the 1970-2001 window a nanosecond count lands in.

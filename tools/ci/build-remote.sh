@@ -84,8 +84,13 @@ die_if_transport() {
 
 # ---- 1. probe -------------------------------------------------------------
 echo "== $host: probing =="
-uname="$(ssh_n 'uname -s; uname -m' | tr '\n' '/')" || {
+# Not `ssh ... | tr`: a pipeline reports tr's status, so ssh's 255 was
+# masked and an unreachable host came out as "unsupported remote platform
+# " two checks later -- the misdiagnosis die_if_transport exists to stop.
+uname="$(ssh_n 'uname -s; uname -m')" || {
+    st=$?; die_if_transport "$st"
     echo "build-remote: cannot ssh to $host" >&2; exit 2; }
+uname="$(printf '%s' "$uname" | tr '\n' '/')"
 uname="${uname%/}"
 arch="${uname#*/}"
 echo "build-remote: $host is $uname"
