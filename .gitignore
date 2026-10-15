@@ -59,3 +59,10 @@ pop/extern/poppcre/*.dylib
 # Release/CI build output (tarballs, docs site, sandboxes)
 /dist/
 __pycache__/
+
+# tools/ci/pack-tree.sh output and the metadata it embeds; the packer
+# removes the two dotfiles on exit, but a CI workspace that unpacked a
+# tree keeps them
+poplog-src.tar.gz
+.ci-manifest
+.ci-commit
