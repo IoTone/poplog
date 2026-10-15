@@ -348,8 +348,10 @@ published with checksums on this repository's releases page:
 
   https://github.com/IoTone/poplog/releases
 
-(e.g. `releases/latest/download/corepop-aarch64-linux`; the same seeds
-are vendored under `nix/seeds/` for the Nix flake build).  For the older
+(e.g. `releases/download/corepops-2026.10/corepop-aarch64-linux` -- seed
+URLs name their corepops tag rather than `latest`, which the skill
+releases also use; the same seeds are vendored under `nix/seeds/` for
+the Nix flake build).  For the older
 upstream platforms you can find bootstrap binaries at:
 
   https://poplog.fricas.org/corepops

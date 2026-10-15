@@ -115,12 +115,22 @@ The ladder to true one-command-from-nothing (in order):
       install.sh (config, skill link, popcurl, live smoke test).
       `POP11_SKILL_URL`/`POP11_SKILL_PREFIX` override for pinning/testing.
       Full chain validated locally via a `file://` URL in a sandbox $HOME.
-- [x] **Publish the assets** — done 2026-07-31: release `v160200-skill`
-      carries pop11-skill tarballs for macos-arm64 and linux-x86_64 (plus
-      corepop seeds and SHA256SUMS), and the curl one-liner is verified
-      end-to-end on both platforms. Remaining refinement: linux-aarch64 /
-      riscv64 tarballs, and a CI job per platform so every release ships
-      fresh assets instead of hand-built uploads.
+- [x] **Publish the assets** — `skill-2026.10` (2026-10-15) carries
+      tarballs for **all four** platforms — macos-arm64, linux-x86_64,
+      linux-aarch64, linux-riscv64 — each built on its own hardware from
+      `d6be806` through `tools/ci/build-and-verify.sh`, plus the three
+      editor artifacts and `SHA256SUMS.pop11-skill`. The curl one-liner is
+      verified end-to-end against it. Supersedes `v160200-skill`
+      (2026-07-31), which had only macos-arm64 and linux-x86_64.
+
+      Note on `latest`: there is one Latest slot and two release series
+      want it. The skill releases own it, because that is what
+      `install-skill.sh` fetches by default; the seeds are addressed by
+      their `corepops-YYYY.MM` tag, pinned in `build-and-verify.sh`. When
+      corepops-2026.08 held the slot (2026-08-09 to 2026-10-15) the
+      installer's default URL 404'd, so do not publish a corepops release
+      as `--latest`. Remaining refinement: a CI job per platform so every
+      release ships fresh assets instead of hand-built uploads.
 - [ ] **Nix path** (0.5–1 day) — teach `popsession` the Nix store layout
       (today it requires `./poplog` + `./target/pop/basepop11`; the flake's
       out-path differs), then `nix profile install github:IoTone/poplog#poplog`
