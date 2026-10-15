@@ -1359,21 +1359,26 @@ long pop_fork() {
 long read_popintr(int fd, char * buf, int nbyte)
     SYSCALL_POPINTR(read(fd, buf, nbyte))
 
-#if defined(__APPLE__)
 /* pause() has an unfixable race: if the wake-up signal's AST is processed
  * at a check point after the caller re-tested its wait condition but
  * before pause() parks, nothing is left to wake the process (observed as
  * sys_wait/syshibernate hanging in sigsuspend with the child long dead).
  * Bound the park at 100ms with poll(): a signal still interrupts it
  * immediately (EINTR), and a lost wake-up now costs one tick, after which
- * syshibernate's caller re-checks its condition. */
+ * syshibernate's caller re-checks its condition.
+ *
+ * Bounded on EVERY platform, not just Apple where it was found first.  The
+ * race is in sys_wait's `repeat ... syshibernate() endrepeat` loop
+ * (pop/src/syswait.p:100-124), which is platform-neutral, and it hangs
+ * shell_run on aarch64 Linux about 2-3% of calls -- a 60-call loop survived
+ * one run in five.  The child was a reaped-and-recorded zombie and the
+ * parent sat in pause() forever; see
+ * docs/bugs/shell-fork-hang-lost-sigchld.md.  Keeping bare pause()
+ * for "the platforms that have not been seen to hang" only means the race
+ * is rarer there, and a 100ms tick is cheaper than a wedged process. */
 #include <poll.h>
 long pause_popintr()
     SYSCALL_POPINTR(poll(NULL, 0, 100))
-#else
-long pause_popintr()
-    SYSCALL_POPINTR(pause())
-#endif
 
 
 /****************************************************************************
