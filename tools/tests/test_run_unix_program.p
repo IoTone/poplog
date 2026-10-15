@@ -22,7 +22,7 @@ check('and exits 0', status, 0);
 
 ;;; --- a missing program: the child reports and exits ---
 run_unix_program(missing, [], false, false, err, true) -> (, , , status, );
-check_true('a missing program fails', status /== 0);
+check('a missing program exits 127', (status >> 8) && 16:FF, 127);
 check_true('the reason reaches its stderr',
            issubstring(missing, file_to_string(err)) and true);
 

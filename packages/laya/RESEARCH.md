@@ -92,6 +92,22 @@ Differences are ~1e-4, and in these fixtures no choice pick changed. Two consequ
 - question order in a request is part of reproducibility;
 - upstream laya-mlx's own `test_all_primitives_empty_request_and_chunking` (batched vs one-by-one must be identical) fails on the GPU because of this effect. It passes on CPU, which is what its CI runs.
 
+**Measured, 2026-10-03** (`experiments/batch_independence.py`, saved in `experiments/results/batch-independence.json`). The setup is 12 questions and 200 random requests of 2–24 questions, giving 2,529 answers per configuration. Each answer is compared, field by field at laya-mlx's 4-decimal rounding, with the same question asked alone. English checkpoint, M5 Pro.
+
+| Configuration | Answers differing | Largest difference | 1 question | 16 questions |
+|---|---:|---:|---:|---:|
+| default (batch 16, padded to longest), FP16 | 50.2% | 0.0021 | 9.5 ms | 96 ms |
+| padded to a multiple of 64 | 56.0% | 0.0021 | 9.5 ms | 118 ms |
+| padded to the full context (512) | 65.6% | 0.0021 | 24.7 ms | 365 ms |
+| full context **and** every batch filled to 16 rows | **0%** | 0 | 480 ms | 474 ms |
+| **`batch_size=1`** | **0%** | 0 | 9.7 ms | 164 ms |
+| default, FP32 | 50.2% | 0.0008 | 11.6 ms | 107 ms |
+| default on the CPU, FP32 | 0% | 0 | 97 ms | 1,781 ms |
+
+- **The cause is the shape of the forward pass, not padding.** More padding makes it worse. Only identical shapes (fixed length *and* a fixed number of rows) remove it on the GPU, consistent with kernel selection by shape. The CPU is row-independent.
+- **No choice pick changed** in any configuration. The effect is in the 3rd–4th decimal of probabilities and confidence.
+- **The exact and practical option is `batch_size=1`.** A single question costs the same, and a 16-question request about 1.7×. With `lib laya`, set `['--batch-size' '1'] -> laya_extra_args`. Fixed shapes would cost ~480 ms per request.
+
 ### 3.3 Float32 matmul on this GPU is not IEEE float32 accurate
 
 The input is deliberately hard (512×512, values up to 2.6e5), on an Apple M5 Pro with MLX 0.32.2 (`gpu_matmul_precision.py`):
@@ -159,7 +175,7 @@ The options from the first version of this document, now settled by measurement:
   - It loads upstream `convaiinnovations/laya`, not the `aac6fef` conversions.
   - Its `health` reports `laya-router`, because no single checkpoint applies.
 - Jev's order sensitivity (G3/G4 on the hosted API) is unmeasured.
-- §3.2 suggests an option: run a request's questions in a canonical order or at a fixed padding length, so answers don't depend on batch-mates. `pad_to_multiple` already exists; whether it removes the effect is untested.
+- ~~§3.2: can padding make answers independent of batch-mates?~~ Measured (§3.2): padding alone makes it worse; `batch_size=1` makes answers exactly independent, at ~1.7× for 16-question requests. It is opt-in, and the default is unchanged.
 - If D is pursued, check the tokenizer first: it's the part with no C path and no parity oracle beyond token-by-token comparison.
 
 ## 7. Background (unchanged from the first version)

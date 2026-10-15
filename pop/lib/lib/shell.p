@@ -67,8 +67,7 @@ define lconstant spawn(cmd, errdest) -> (pid, outdev);
         elseif isstring(errdest) then
             syscreate(errdest, 1, false) -> popdeverr;
         endif;
-        sysexecute('/bin/sh', ['/bin/sh' '-c' ^cmd], false);
-        mishap(cmd, 1, 'shell: cannot execute /bin/sh');
+        sysexecute_or_exit('/bin/sh', ['/bin/sh' '-c' ^cmd], false);
     endif;
 enddefine;
 
