@@ -10,30 +10,6 @@ compile_mode :pop11 +strict;
 
 section;
 
-;;; Run in the forked child: exec NAME, and never return.  The child is a copy
-;;; of the whole parent Poplog -- its call stack, its dlocal'd prmishap, its
-;;; exitto targets.  If the exec fails, sysexecute mishaps, and a handler
-;;; further up the stack (a caller's prmishap that exits, LIB POPTEST's
-;;; check_mishaps, an interrupt handler) would resume the PARENT'S code in the
-;;; child, which then runs on as a second Poplog sharing the parent's input.
-;;; So any way out of here other than a successful exec ends the child: the
-;;; reason goes to the child's stderr (popdeverr, wherever errs pointed it),
-;;; and the exit status is 127, the shell's "command not found".
-define lconstant exec_or_die(name, args);
-    dlocal 0 %, if dlocal_context == 2 then fast_sysexit(127) endif %;
-    dlocal prmishap =
-        procedure(msg, culprits);
-            ;;; straight to the child's own stderr: cucharerr may still
-            ;;; point wherever the parent's errors go
-            lvars line = 'run_unix_program: ' <> name <> ': ' <> msg <> '\n';
-            syswrite(popdeverr, line, datalength(line));
-            sysflush(popdeverr);
-            fast_sysexit(127)
-        endprocedure;
-    sysexecute(consref(name), name :: args, false);
-    fast_sysexit(127)
-enddefine;
-
 define global run_unix_program(name, args, input, output, errs, wait);
     lvars child_deverr, child_devin, child_devout,
             parent_errs, parent_get, parent_send, pid, status;
@@ -105,7 +81,7 @@ define global run_unix_program(name, args, input, output, errs, wait);
         if errs == true then
             sysclose(parent_errs)
         endif;
-        exec_or_die(name, args)
+        sysexecute_or_exit(consref(name), name :: args, false)
     endif;
 
     /* Results (5) */
@@ -136,6 +112,9 @@ endsection;
 
 
 /* --- Revision History ---------------------------------------------------
+--- D.Kordsmeier (@truedat101) and Claude (@claude), Oct 3 2026
+        The exec-or-die logic moved to LIB * SYSEXECUTE_OR_EXIT, shared with
+        the other fork-and-exec sites.
 --- D.Kordsmeier (@truedat101) and Claude (@claude), Oct 1 2026
         A failed exec now always ends the child (status 127).  Before, the
         child's mishap could be caught by a handler in the copied call stack,

@@ -159,9 +159,7 @@ define global sys_popen(name, args) -> (parent_get, ref);
         sysclose(popdevin);
         child_devout ->> popdevout -> popdeverr;
         sysclose(parent_get);
-        sysexecute(path, args, false);
-        ;;; should never return from this, but just in case....
-        fast_sysexit()
+        sysexecute_or_exit(path, args, false)
     endif;
 
 enddefine;
@@ -169,6 +167,9 @@ enddefine;
 endsection;
 
 /* --- Revision History ---------------------------------------------------
+--- D.Kordsmeier (@truedat101) and Claude (@claude), Oct 3 2026
+        Exec via sysexecute_or_exit: a failed exec ends the child instead of
+        letting a handler in the copied call stack resume the parent's code.
 --- Aaron Sloman, Jan 15 2005
         Changed examples to work on linux
 --- Aaron Sloman, Feb 14 1999

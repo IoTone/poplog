@@ -199,7 +199,7 @@ define lconstant sendnews(cancelling);
                     ;;; just exit so that offspring has no parent
                 else
                     ;;; great-grandchild
-                    sysexecute(inews_prog, inews_args, false)
+                    sysexecute_or_exit(inews_prog, inews_args, false)
                 endif
             endif
         endif;
@@ -282,6 +282,9 @@ enddefine;
 endsection;
 
 /* --- Revision History ---------------------------------------------------
+--- D.Kordsmeier (@truedat101) and Claude (@claude), Oct 3 2026
+        Exec via sysexecute_or_exit: a failed exec ends the child instead of
+        letting a handler in the copied call stack resume the parent's code.
 --- John Gibson, Apr 21 1994
         Changed to use new sys_fork etc
 --- Robert John Duncan, Aug 11 1992
