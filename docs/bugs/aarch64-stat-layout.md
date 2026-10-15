@@ -209,3 +209,56 @@ size, an mtime that looks like an mtime -- and the suite asserted only
 neighbour cannot catch a layout bug, so `test_fileutils` now uses a size
 that is a multiple of no block size and requires the mtime to fall in
 living memory rather than the 1970-2001 window a nanosecond count lands in.
+
+## The seed kept the bug alive, and the engine fix never reached the librarian
+
+Found 2026-10-14 while deciding whether to re-bless the vendored seed
+corepops, and the reason that decision stopped being cosmetic.
+
+`popc`, `poplink` and `poplibr` are symlinks to `corepop`
+(`Makefile.in:151-152`), and `sys_file_stat` is a built-in of the running
+binary, not of the `.psv` image it loads.  The librarian therefore reads
+file dates through the *seed's* STATB layout no matter how correct the
+sources are.  `poplibr_main.p:50` stamps every library member's
+`WMH_DATE` from `stat_vec(2)` -- subscript 2 is MTIME (`pop/ref/sysio`)
+-- and `:286` decides a source has changed with `date < stat_vec(2)`.
+
+In a fully fixed tree, bootstrapped from the pre-fix seed:
+
+    $ ./poplog poplibr -ld target/obj/termcap.wlb
+    Fri Aug 23 13:54:19 PDT 1996  termcap.w          ;;; built that afternoon
+
+and on riscv64 the members of `xsrc.wlb` list as 1979, 1984, 1990, 1997
+and 1970 -- nanosecond counts read as epoch seconds, which land in
+1970-2001.  So every library built on these platforms carried junk dates
+and every staleness comparison against them was meaningless.  That is
+precisely the symptom "Why it takes now" attributes to a stale
+`src.olb`: correctness was being preserved only by the unconditional
+clean (`Makefile.in:193`, `tools/ci/build-and-verify.sh:101-105`), which
+throws the libraries away rather than trusting their dates.
+
+Seeds rebuilt from `424643f` fix it:
+
+    $ ./poplog poplibr -ld target/obj/termcap.wlb
+    Wed Oct 14 22:39:38 PDT 2026  termcap.w
+
+### All four vendored seeds were probed; three were wrong
+
+A 16777-byte file (a multiple of no block size) dated 2026-01-02:
+
+| vendored seed | size | mtime | uid | mode | verdict |
+| --- | --- | --- | --- | --- | --- |
+| `corepop-x86_64-linux` | 16777 | 1767323045 | 1000 | 0100644 | correct |
+| `corepop-aarch64-linux` | 16384 | 0 | 0 | 0100644 | size is `st_blksize`, mtime is the nanoseconds |
+| `corepop-riscv64-linux` | 16384 | 0 | 0 | 0100644 | same shift |
+| `corepop-aarch64-darwin` | 1767351845 | 1767351845 | 0 | 501 | **different** shift: size reads mtime, mode reads uid |
+
+macOS fails differently because Apple's 64-bit-inode layout puts 16-bit
+`mode`/`nlink` *before* the inode (`unixdefs.ph:357-372`); the sources
+have had that right since the offsets were commented, and a Sep-19
+`basepop11` reads all ten fields correctly.  Only the seed was stale.
+
+The shipped tarball contains no `corepop` and no `poplibr` (1,411
+entries, none matching), so this was never user-facing -- installed
+engines are built from fixed sources.  It is a maintainer-side defect
+about which builds can be trusted to be incremental.

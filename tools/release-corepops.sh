@@ -25,11 +25,11 @@ notes_for() {
         corepop-x86_64-linux)
             echo "x86-64 Linux (LP64, glibc); upstream backend" ;;
         corepop-aarch64-linux)
-            echo "AArch64 Linux, generic armv8-a; built on Raspberry Pi 5 (16 KB pages -- loads on 4 KB kernels too)" ;;
+            echo "AArch64 Linux, generic armv8-a; built on Raspberry Pi 5 (16 KB pages -- loads on 4 KB kernels too); re-blessed 2026-10 with the struct STATB layout fix" ;;
         corepop-aarch64-darwin)
-            echo "Apple Silicon macOS (Mach-O, MAP_JIT); needs the allow-jit entitlement path, see PORTING-ARM64-M-SILICON-OSX.md" ;;
+            echo "Apple Silicon macOS (Mach-O, MAP_JIT); needs the allow-jit entitlement path, see PORTING-ARM64-M-SILICON-OSX.md; re-blessed 2026-10 with the struct STATB layout fix" ;;
         corepop-riscv64-linux)
-            echo "RISC-V RV64GC Linux (lp64d); built on StarFive VisionFive" ;;
+            echo "RISC-V RV64GC Linux (lp64d); built on a Cloud-V riscv64 host; re-blessed 2026-10 with the struct STATB layout fix" ;;
         *)  echo "" ;;
     esac
 }
