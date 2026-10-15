@@ -120,6 +120,34 @@ refresh one, copy `target/pop/new_corepop` from a successful build.
 When release artifacts exist, replace the vendored files with
 `fetchurl` fixed-output derivations in `nix/poplog.nix` (`seed`).
 
+### Provenance
+
+Each seed is built from a clean checkout of the commit it is vendored
+in, bootstrapped from the seed it replaces, and accepted only after a
+full `tools/ci/build-and-verify.sh` from it passes.
+
+| seed | sha256 | from commit | built on | date |
+| --- | --- | --- | --- | --- |
+| `corepop-x86_64-linux` | `c3735331` | (upstream) | -- | -- |
+| `corepop-aarch64-linux` | `285286f6` | `424643f` | Raspberry Pi 5, DietPi | 2026-10-14 |
+| `corepop-riscv64-linux` | `f7ab20d5` | `424643f` tree | Cloud-V riscv64 host | 2026-10-14 |
+| `corepop-aarch64-darwin` | `491a744c` | `424643f` | Apple Silicon macOS | 2026-10-14 |
+
+The three non-x86 seeds were re-blessed together because each predated
+the `struct STATB` layout fix for its platform, and a stale seed is not
+merely old: `popc`, `poplink` and `poplibr` are symlinks to `corepop`
+(`Makefile.in:151-152`) and `sys_file_stat` is a built-in of the running
+binary, so the librarian stamps library members with dates read through
+the *seed's* layout.  With a pre-fix seed those dates were nanosecond
+counts -- members of a library built this afternoon listed as 1996 --
+which makes every incremental staleness decision meaningless.  See
+`docs/bugs/aarch64-stat-layout.md`.
+
+So when refreshing a seed, check it before vendoring it: `sys_file_stat`
+on a file whose size is a multiple of no block size must return that
+size and an mtime in living memory, and `poplibr -ld` on a freshly built
+library must list today.
+
 ## Notes
 
 * Hardening is disabled wholesale: Poplog generates and executes its
