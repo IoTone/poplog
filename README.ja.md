@@ -366,8 +366,10 @@ Apple Silicon macOS、RISC-V RV64GC Linux — 向けのブートストラップ
 
   https://github.com/IoTone/poplog/releases
 
-(例: `releases/latest/download/corepop-aarch64-linux`。同じシードは Nix
-flake ビルド用に `nix/seeds/` 以下にもベンダリングされています。)
+(例: `releases/download/corepops-2026.10/corepop-aarch64-linux`。シードの
+URL は `latest` ではなく corepops タグを指定します (`latest` は skill
+リリースが使用するため)。同じシードは Nix flake ビルド用に `nix/seeds/`
+以下にもベンダリングされています。)
 より古い上流プラットフォームのブートストラップバイナリはこちら:
 
   https://poplog.fricas.org/corepops

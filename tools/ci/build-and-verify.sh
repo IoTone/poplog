@@ -32,8 +32,8 @@
 #
 # Any rebuild is a CLEAN rebuild; FORCE_ENGINE_REBUILD only forces the
 # decision, it does not change how the build is done.
-#      POP11_SEED_BASE_URL      corepop seed source (default: this repo's
-#                               latest GitHub release)
+#      POP11_SEED_BASE_URL      corepop seed source (default: the pinned
+#                               corepops release, see `seeds=` below)
 #
 # No credentials are used or required: everything here is public.
 set -e
@@ -49,7 +49,12 @@ case "$(uname -s)/$(uname -m)" in
     Linux/riscv64) plat=riscv64-linux;  tarball=pop11-skill-linux-riscv64.tar.gz ;;
     *) echo "ci: unsupported platform $(uname -s)/$(uname -m)" >&2; exit 2 ;;
 esac
-seeds="${POP11_SEED_BASE_URL:-https://github.com/IoTone/poplog/releases/latest/download}"
+# Pinned to a corepops tag, not releases/latest: "latest" is one slot and
+# two release series compete for it (seeds and skill tarballs), so a skill
+# release would silently change which seed a fresh workspace bootstraps
+# from -- and a bootstrap seed is exactly the thing that should not float.
+# Bump this when a new corepops-YYYY.MM is published.
+seeds="${POP11_SEED_BASE_URL:-https://github.com/IoTone/poplog/releases/download/corepops-2026.10}"
 
 # riscv64 Poplog must run with ASLR off (PORTING-RISCV64-LINUX.md);
 # that includes popc during the engine build, so re-exec the whole
