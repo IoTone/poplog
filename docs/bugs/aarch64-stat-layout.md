@@ -1,7 +1,7 @@
 # sys_file_stat returns the wrong fields on aarch64 and riscv64 Linux
 
 Found 2026-08-19 while verifying the Emacs/swank work on `raspi5`
-(DietPi, Linux 6.18 aarch64).  **Fixed** 2026-10-14 in `unixdefs.ph` --
+(DietPi, Linux 6.18 aarch64).  **Fixed** 2026-10-14 in `unixdefs.ph`, on both affected architectures --
 by the very patch "The fix that didn't take" below reports as ineffective.
 Nothing was wrong with that patch; see "Why it takes now".  Pre-existing;
 nothing in the Emacs, swank or jsonrpc work touches this code.
@@ -177,18 +177,29 @@ Verified on `dietpi5-kordshom` (Pi 5, DietPi, 16K pages) with a clean
 rebuild from the seed: all ten `sys_file_stat` fields agree with `stat(1)`,
 `test_fileutils` is 13/13, and `test_zmachine` loads its story file.
 
-## Still to confirm on riscv64
+## Confirmed on riscv64 too
 
 The declaration is shared -- `pop/src/syscomp/riscv64/sysdefs.p` sets
 `ARM64_LINUX = true` on purpose -- so the one-line change covers riscv64 by
-construction, and the riscv64 numbers in this note have the same 8-byte
-shift.  It has not been *run* there: that host reaches the build only
-through CI (its address is a Jenkins parameter, never in this repo).  To
-make the next riscv64 CI run answer the question instead of leaving it
-open, `test_fileutils` was added to the default pre-packaging gate in
-`tools/ci/build-and-verify.sh` alongside `test_primitives`: a layout
+construction.  Verified there the same day on `machine1` (the board CI logs
+call `riscv-cloud`), with a clean rebuild from the seed:
+
+| element | means | before | after | `stat(1)` |
+| --- | --- | --- | --- | --- |
+| 1 | size | `4096` (the blksize) | `12` | 12 |
+| 2 | mtime | nanoseconds | `1792029605` | 1792029605 |
+| 3 | gid | -- | `10012` | 10012 |
+| 4 | uid | -- | `5047` | 5047 |
+| 6 | nlink | `43001212572599` | `1` | 1 |
+| 8 | inode | `369274` | `359052` | 359052 |
+
+`test_fileutils` passes 13/13 and the riscv64 skill tarball builds, installs
+and smoke-tests clean.
+
+`test_fileutils` was also added to the default pre-packaging gate in
+`tools/ci/build-and-verify.sh` alongside `test_primitives`, so a layout
 regression on any platform now fails the build before it can ship a
-tarball.
+tarball -- it ran as part of the verification above.
 
 ## Lesson
 
