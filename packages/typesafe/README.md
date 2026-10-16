@@ -180,7 +180,11 @@ Question ids and choice keys may be words or strings — `[[safety ^q]]` and
 Choice options and questions go out **in the order you wrote them**. A
 model reads the options as a sequence, so reordering them asks a different
 question. Measured on Laya, reordering three options changed the pick in 5
-of 6 orderings. A Pop-11 property is a hash table and would scramble them,
+of 6 orderings. The hosted Jev API is less sensitive but not insensitive:
+reordering options did not move it at all, while reordering *questions*
+shifted a `score` answer by up to 0.08 (no pick or band changed). Order is
+kept because that is the only behaviour correct for both. A Pop-11 property
+is a hash table and would scramble them,
 so the request is built with `json_object` (`LIB JSON`), which keeps
 insertion order. `q('criteria')('billing')` still reads as before.
 

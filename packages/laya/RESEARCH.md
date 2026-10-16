@@ -141,6 +141,8 @@ The first runs shared the machine with an unrelated process at 100% CPU, which i
 | E2 | Does the coprocess hold up? | **Yes.** 10,000 sequential calls on one child, all well-formed. A malformed question raised a mishap and the child kept serving. `kill -9` mid-call raised a mishap, and the next call started a new child and answered. No leaked processes. | `results/e2-robustness.txt`; `robustness.p` |
 | E3 | What does the transport cost? | Paired per call (client time minus the server's own time for that call), median of 3 rounds × 300 calls: **stdio 0.107 ms P50 / 0.129 ms P95**; HTTP from Pop-11 0.413 / 0.493; HTTP from Python 0.365 / 0.449. So most of the HTTP cost is the Python server, not libcurl or Pop-11. Pop-11 JSON: encode 0.011 ms, decode 0.013 ms. In-process inference for this request: 8.25–8.30 ms P50. (The first run, on a machine at load 4–11, measured 0.16 / 0.54 ms with ~10 ms inference: same conclusions.) | `results/latency.json`; `latency.py`, `latency.p`, `timed_serve.py` |
 | E4 | Can Pop-11 drive the model through mlx-c? | **Yes**, for the embeddings and layers 0–1 (global attention; then sliding-window attention with its attention norm), 96 tokens, FP32. The structure is written in Pop-11 over single-op C entry points. On CPU vs Python on CPU: embeddings **bit-identical**, layers within **1.9e-5** of values up to 58 (a few float32 ulps; the rest is MLX's compiled GELU). On GPU: within 0.0023 / 0.0040, **15× smaller** than Python's own GPU-vs-CPU spread (0.038 / 0.059). | `results/e4-*.json`; `encoder_ref.py`, `encoder_layers.p`, `mlx_shim/pm_ops.c` |
+| E6 | Does the **router** path get Python's answers too? | **Yes, exactly.** The same 16 cases through `ts_eval` → `lib laya` → `laya_serve.py --stdio --router`, FP16 and FP32: **956 / 956 answer fields identical** to in-process `Router.predict`, 44 / 44 choice picks, and every response named the checkpoint that actually answered it. Routing was the same at both precisions and is what the fixtures were built to exercise: 9 cases to `english`, 7 (zh, de, fr, es, hi, ja, ru) to `multilingual`. Added 2026-10-15. | `results/e6-router-parity.jsonl`, `results/e6-routing.json`; `router_cases.py`, `parity.p` with `LAYA_ROUTER=1`, `compare.py` |
+| E7 | Is the **hosted Jev API** order-sensitive, the way Laya is? | **Not to option order; yes, mildly, to question order — and only on `score`.** 39 calls to `jev-latest` (served by `jev-1.13.0`), measured 2026-10-15. **Control: exactly deterministic** — the identical request three times gave byte-identical answers for all three cases, spread 0.0. That is what makes the rest readable: the serving is deterministic, so any difference below is signal, not sampling noise. **Option order (G3): no effect at all.** All six orderings of three `ts_choice` options gave not just the same pick but the identical probability vector, in all three cases. **Question order (G4): the `score` answer moves.** Reordering the three questions left `choice` and `noul` answers completely unchanged, but shifted `urgency`'s score by up to 0.08 and its confidence by up to 0.12 (`crash`: score 1.25–1.33, confidence 0.47–0.59). No pick, label or band changed. The shift does not track the question's position — two orderings that place `urgency` third gave the two extreme values — so it is the identity of the neighbouring questions, not the distance down the list. | `results/e7-jev-order.json`, `results/e7-jev-order-report.json`; `jev_order.p`, `jev_order_report.py`. Rehearsal against Laya: `results/e7-dryrun-laya.json` |
 | E5 | Can MLX run inside Poplog? | **Yes.** `basepop11` (MAP_JIT, W^X) loaded mlx-c and ran matmuls on GPU and CPU. Doubles crossed the FFI correctly. GPU results print identically to Python MLX's. Afterwards Pop-11 still compiled code and garbage-collected. | `results/e5-mlx-inprocess.txt`; `mlx_inprocess.p`, `mlx_shim/pm_shim.c` |
 
 Reproduce E4/E5: build mlx-c (`main` at `a341b49`, which pins MLX v0.32.2) against this package's MLX:
@@ -171,10 +173,42 @@ The options from the first version of this document, now settled by measurement:
 - **laya-mlx is used, not changed.** Upgrading means bumping `laya-mlx` (and `mlx` to match its range) in `pyproject.toml`, `uv lock`, then rerunning E1. E1 is what shows a new version still answers identically through Pop-11. `checkpoint(agent)` reads `model_id`, `model_dir` and `dtype` from `Agent`, so a release that renames those breaks it loudly in the tests.
 - ~~`run_unix_program` can clone Poplog~~ Fixed in #35 (2026-10-01): a failed exec now always ends the child (status 127, reason on its own stderr), with a regression suite in `tools/tests/test_run_unix_program.p`. `lib laya` still checks for the command before forking, for a clearer error in the parent. The same fork-then-exec pattern in `pipein`, `pipeout`, `sys_popen`, LIB SHELL and `ptyfork` is unchanged.
 - ~~`lib laya` has no timeout~~ Done (2026-10-01): each call is bounded by `ts_timeout`, and startup by `laya_start_timeout`. A child that misses its deadline is killed, not waited for. Waiting is `sys_device_wait` (select) on the pipe, so stdio overhead is unchanged (0.105 ms P50).
-- `--router` is tested by a unit test and one live run (Chinese → multilingual, English → English), not by E1.
+- ~~`--router` is tested by a unit test and one live run, not by E1.~~ Covered by E6
+  (2026-10-15): the same 16 validation cases through the router, FP16 and FP32, 956/956
+  answer fields identical to Python and 44/44 choice picks, with each response naming
+  the checkpoint that answered it. The E1 fixtures already carried eight non-English
+  cases, so the only new thing needed was the predictor; `parity.p` takes `LAYA_ROUTER`
+  rather than there being a second copy of the harness.
   - It loads upstream `convaiinnovations/laya`, not the `aac6fef` conversions.
-  - Its `health` reports `laya-router`, because no single checkpoint applies.
-- Jev's order sensitivity (G3/G4 on the hosted API) is unmeasured.
+  - Its `health` reports `laya-router`, because no single checkpoint applies. A
+    *response* still names its own checkpoint, which is what E6 checks.
+  - `empty_state` routes to english by the "no letters detected" fallback rather than by
+    detection. Worth knowing if that default is ever changed: it is a routing decision
+    that no amount of non-English text would reach.
+- ~~Jev's order sensitivity (G3/G4 on the hosted API) is unmeasured.~~ Measured by E7
+  (2026-10-15), 39 calls to `jev-1.13.0`. The practical answer to the question that
+  prompted it — *are pre-fix results on the hosted path suspect?* — is **no for any
+  `choice` or `noul` answer, and marginally yes for `score`.** Option order had no
+  effect whatever; question order moved `urgency`'s score by up to 0.08 and its
+  confidence by up to 0.12 without changing any pick or band. So the G3/G4 client bug
+  could not have changed a hosted decision, only the number attached to one.
+  - The control is the part that makes this worth anything: three identical repeats per
+    case came back byte-identical, so Jev's serving is deterministic and a 0.12 move is
+    real. On a sampling backend the whole experiment would have been uninterpretable,
+    which is why the control runs first.
+  - Jev and Laya differ here, and in the direction that matters least for us: Laya
+    reorders on *options* (the pick itself changed in 5 of 6 orderings, §3.1), Jev does
+    not reorder on options at all and wobbles only on a continuous score. Sending what
+    the caller wrote is still the right client behaviour — it is the only behaviour that
+    is correct for both.
+- **E7's G3 null result is weaker than it looks, because the tickets were too easy.**
+  All three support tickets came back saturated: confidence 1.0 and a probability vector
+  of exactly 1/0/0. A case the model is certain about cannot show an ordering effect
+  whether or not one exists, so what G3 actually establishes is "option order does not
+  move Jev on unambiguous input". Re-running it with deliberately ambiguous tickets —
+  one that genuinely straddles two teams, e.g. a wrong charge *and* a crash on the
+  invoice page — is what would test the claim properly. G4's finding does not have this
+  problem: `urgency` was nowhere near saturated (0.47–0.9 confidence).
 - ~~§3.2: can padding make answers independent of batch-mates?~~ Measured (§3.2): padding alone makes it worse; `batch_size=1` makes answers exactly independent, at ~1.7× for 16-question requests. It is opt-in, and the default is unchanged.
 - If D is pursued, check the tokenizer first: it's the part with no C path and no parity oracle beyond token-by-token comparison.
 

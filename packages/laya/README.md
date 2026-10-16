@@ -155,15 +155,25 @@ The server's own tests use a tiny random checkpoint (15 tests: protocol, errors,
 the real script as a subprocess, checkpoint identity):
 
 ```sh
-uv run --project packages/laya pytest
+uv run --directory packages/laya pytest
 ```
 
-Against the real model, `experiments/` checks three things. Its scripts, inputs and
+`--directory`, not `--project`: pytest's `pythonpath` setting is relative to its rootdir,
+so running from the Poplog root puts the root on `sys.path` instead of this directory and
+the tests fail to import `laya_serve`. The experiment scripts do not have this problem —
+they insert their own path relative to `__file__` — which is why RESEARCH.md runs those
+from the root with `--project`.
+
+Against the real model, `experiments/` checks four things. Its scripts, inputs and
 saved outputs are all here, and [RESEARCH.md](RESEARCH.md) has the full write-up:
 
 * **Same answers as Python.** The validation fixtures through `ts_eval` match Python's
   `Agent.predict` field for field: 63 questions × 3 checkpoints × FP16/FP32, all 2,868
   fields identical.
+* **Same answers through the router.** The same fixtures with `true -> laya_router`
+  match Python's `Router.predict`: 956 fields across FP16/FP32, all identical, each
+  response naming the checkpoint that answered it. Nine cases route to `english` and
+  seven (zh, de, fr, es, hi, ja, ru) to `multilingual`.
 * **Robustness.** 10,000 sequential calls on one child; a malformed question; `kill -9`
   mid-call.
 * **Latency.** A paired measurement of the transport cost.
