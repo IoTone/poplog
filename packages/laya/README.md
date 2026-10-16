@@ -125,7 +125,9 @@ next call starts a new child.
   in one request cost about 1.7×. See RESEARCH.md §3.2.
 * **Timeouts kill, they don't wait.** Each call is bounded by `ts_timeout` (60 s; `0` or
   `false` for none, as with `http_request`). A call that runs out fails with 504, which
-  `ts_eval` doesn't retry. The child is killed rather than reused, because its late
+  `ts_eval` doesn't retry -- `laya_install` sets `[] -> ts_retry_statuses`, because
+  retrying a deadline that has already killed the child would just pay the model load
+  again for the same answer. The child is killed rather than reused, because its late
   answer would otherwise be read as the reply to the next question. The next call starts
   a fresh one, and pays the model load again. Waiting is a `select` on the pipe, not a
   poll, so it adds nothing measurable (stdio overhead stayed 0.11 ms). Deadlines are
@@ -137,7 +139,7 @@ next call starts a new child.
 sh tools/test-libs.sh packages/laya/tests/test_laya.p
 ```
 
-35 checks, with no model and no MLX. `tests/fake_laya_server.py` speaks the same
+37 checks, with no model and no MLX. `tests/fake_laya_server.py` speaks the same
 protocol with canned answers, and can be told to fail. The checks cover:
 
 * answers through `ts_eval`
