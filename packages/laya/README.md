@@ -155,8 +155,14 @@ The server's own tests use a tiny random checkpoint (15 tests: protocol, errors,
 the real script as a subprocess, checkpoint identity):
 
 ```sh
-uv run --project packages/laya pytest
+uv run --directory packages/laya pytest
 ```
+
+`--directory`, not `--project`: pytest's `pythonpath` setting is relative to its rootdir,
+so running from the Poplog root puts the root on `sys.path` instead of this directory and
+the tests fail to import `laya_serve`. The experiment scripts do not have this problem —
+they insert their own path relative to `__file__` — which is why RESEARCH.md runs those
+from the root with `--project`.
 
 Against the real model, `experiments/` checks three things. Its scripts, inputs and
 saved outputs are all here, and [RESEARCH.md](RESEARCH.md) has the full write-up:
