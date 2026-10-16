@@ -103,8 +103,12 @@ check('stop stops it', laya_running(), false);
 laya_uninstall();
 check('uninstall restores http_request', ts_transport == http_request, true);
 check('uninstall requires a key again',  ts_require_key, true);
+check('uninstall restores the retry policy', ts_retry_statuses, false);
 laya_install();
 check('install swaps the transport back', ts_transport == laya_transport, true);
+;;; A 504 here means the deadline passed and the child was already killed,
+;;; so retrying would pay the model load again for the same answer.
+check('install disables retrying', ts_retry_statuses, []);
 
 ;;; a command that does not exist fails at start, not on the first answer
 '/nonexistent/laya_serve' -> laya_command;

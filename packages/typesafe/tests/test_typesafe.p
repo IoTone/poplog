@@ -101,6 +101,11 @@ check('usage output tokens', usage('output_tokens'), 34);
 
 vars calls = 0, seen_headers = false, script = [];
 
+;;; Response headers the fake hands back, as [name value] pairs.  Empty by
+;;; default: a transport that reports no headers is the normal case, and
+;;; the client must survive it.
+vars resp_headers = [];
+
 define fake_transport(method, url, body, headers, timeout) -> (rb, rh, st);
     calls + 1 -> calls;
     headers -> seen_headers;
@@ -108,6 +113,8 @@ define fake_transport(method, url, body, headers, timeout) -> (rb, rh, st);
     tl(script) -> script;
     hd(tl(row)) -> rb;
     newmapping([], 4, false, true) -> rh;
+    lvars h;
+    for h in resp_headers do hd(tl(h)) -> rh(hd(h)) endfor;
     hd(row) -> st;
 enddefine;
 
@@ -204,5 +211,171 @@ true -> ts_require_key;
 ;;; a non-JSON body is a mishap, not a wrong answer
 check_mishaps('garbage response mishaps',
               procedure; ts_decode('not json at all') -> ; -> ; -> ; endprocedure);
+
+;;; ------------------------------------------- retry policy (v0.2.0)
+;;; The set used to be {429, 529}, so a 503 -- a deploy, a blip, the
+;;; ordinary weather of a hosted API -- failed the call outright.  One
+;;; check per status, because the point of the fix is the ones that
+;;; were missing, not the ones that already worked.
+
+lvars st;
+for st in [408 500 502 503 504 529] do
+    0 -> calls;
+    [% [% st; 'transient' %]; [% 200; SAMPLE %] %] -> script;
+    ts_eval('s', [[safety ^q1]]) -> ;
+    check(st sys_>< ' is retried', calls, 2);
+endfor;
+
+;;; ...and the boundaries hold: 4xx that are not 408 stay fatal, so a
+;;; widened set has not quietly become "retry everything".
+for st in [400 403 404] do
+    0 -> calls;
+    [% [% st; 'nope' %] %] -> script;
+    check_mishaps(st sys_>< ' is not retried',
+                  procedure; ts_eval('s', [[safety ^q1]]) -> ; endprocedure);
+    check(st sys_>< ' cost one call', calls, 1);
+endfor;
+
+;;; ts_retry_statuses replaces the policy outright, for a transport whose
+;;; statuses are its own invention -- `lib laya` sets [] because a local
+;;; pipe has no rate limit and its 504 means the child is already dead.
+[] -> ts_retry_statuses;
+0 -> calls;
+[[429 'slow down']] -> script;
+check_mishaps('[] disables retrying',
+              procedure; ts_eval('s', [[safety ^q1]]) -> ; endprocedure);
+check('nothing was retried', calls, 1);
+
+[503] -> ts_retry_statuses;
+0 -> calls;
+[[503 'down'] [200 ^SAMPLE]] -> script;
+ts_eval('s', [[safety ^q1]]) -> ;
+check('a named status is retried', calls, 2);
+0 -> calls;
+[[429 'slow down']] -> script;
+check_mishaps('an unnamed status is not',
+              procedure; ts_eval('s', [[safety ^q1]]) -> ; endprocedure);
+check('and cost one call', calls, 1);
+false -> ts_retry_statuses;
+
+;;; ------------------------------------------------- the request id
+;;; Captured on success, and still captured when the call fails -- which
+;;; is the case that matters, because that is the one you report.
+
+[['x-typesafe-request-id' 'req_abc123']] -> resp_headers;
+[[200 ^SAMPLE]] -> script;
+ts_eval('s', [[safety ^q1]]) -> ;
+check('request id recorded on success', ts_last_request_id, 'req_abc123');
+
+[['x-typesafe-request-id' 'req_fail99']] -> resp_headers;
+[[401 'unauthorized']] -> script;
+check_mishaps('failure still mishaps',
+              procedure; ts_eval('s', [[safety ^q1]]) -> ; endprocedure);
+check('request id recorded on failure', ts_last_request_id, 'req_fail99');
+
+;;; No header is not an error; it is false, not a stale value from before.
+[] -> resp_headers;
+[[200 ^SAMPLE]] -> script;
+ts_eval('s', [[safety ^q1]]) -> ;
+check('no request id header leaves false', ts_last_request_id, false);
+
+;;; -------------------------------------------- retry-after honoured
+;;; Measured in real time, because the whole point is how long we sleep.
+;;; Bounds are loose on the upper side (a loaded machine can always take
+;;; longer) and tight on the lower, which is the direction that proves
+;;; the header was read at all.
+
+define lconstant elapsed_ms(p) -> ms;
+    lvars t0 = sys_microtime();
+    p();
+    (sys_microtime() - t0) / 1000 -> ms;
+enddefine;
+
+lvars saved_jitter = ts_retry_jitter, saved_after_max = ts_retry_after_max,
+      saved_backoff_max = ts_retry_backoff_max;
+0 -> ts_retry_jitter;           ;;; so the lower bound is exact
+
+;;; retry-after-ms: 400 means wait 0.4 s, not our 0.25 s backoff
+[['retry-after-ms' '400']] -> resp_headers;
+[[429 'slow down'] [200 ^SAMPLE]] -> script;
+lvars ms = elapsed_ms(procedure; ts_eval('s', [[safety ^q1]]) -> ; endprocedure);
+check('retry-after-ms is obeyed', ms >= 380, true);
+
+;;; retry-after is in seconds, and wins nothing over retry-after-ms when
+;;; both arrive: the precise one is used, so this is 0.4 s, not 2 s.
+[['retry-after' '2'] ['retry-after-ms' '400']] -> resp_headers;
+[[429 'slow down'] [200 ^SAMPLE]] -> script;
+elapsed_ms(procedure; ts_eval('s', [[safety ^q1]]) -> ; endprocedure) -> ms;
+check('retry-after-ms wins over retry-after', ms < 1500, true);
+
+;;; A server that asks for an hour does not get one.  Without the cap a
+;;; single bad header parks the process indefinitely.
+5 -> ts_retry_after_max;        ;;; 0.05 s
+[['retry-after' '3600']] -> resp_headers;
+[[429 'slow down'] [200 ^SAMPLE]] -> script;
+elapsed_ms(procedure; ts_eval('s', [[safety ^q1]]) -> ; endprocedure) -> ms;
+check('retry-after is capped', ms < 1000, true);
+saved_after_max -> ts_retry_after_max;
+
+;;; Garbage in the header is not a delay and not a crash: the backoff
+;;; takes over.
+[['retry-after' 'tomorrow please']] -> resp_headers;
+[[429 'slow down'] [200 ^SAMPLE]] -> script;
+0 -> calls;
+ts_eval('s', [[safety ^q1]]) -> ;
+check('unparseable retry-after falls back to backoff', calls, 2);
+
+;;; Ignoring the header is a setting, for a transport that fakes them.
+false -> ts_respect_retry_after;
+[['retry-after' '3600']] -> resp_headers;
+[[429 'slow down'] [200 ^SAMPLE]] -> script;
+elapsed_ms(procedure; ts_eval('s', [[safety ^q1]]) -> ; endprocedure) -> ms;
+check('retry-after can be ignored', ms < 1000, true);
+true -> ts_respect_retry_after;
+[] -> resp_headers;
+
+;;; ------------------------------------------------ backoff is bounded
+;;; Four retries doubling from 0.25 s would be 3.75 s; capped at 0.05 s
+;;; it is nothing.  This is what stops a long max_retries from turning
+;;; into a long wall-clock stall.
+4 -> ts_max_retries;
+5 -> ts_retry_backoff_max;
+[[429 'a'] [429 'b'] [429 'c'] [429 'd'] [200 ^SAMPLE]] -> script;
+elapsed_ms(procedure; ts_eval('s', [[safety ^q1]]) -> ; endprocedure) -> ms;
+check('backoff is capped', ms < 1500, true);
+saved_backoff_max -> ts_retry_backoff_max;
+
+;;; Full jitter must not produce a negative sleep.  syssleep would mishap
+;;; on one, so this check is that the call completes at all.
+1.0 -> ts_retry_jitter;
+[[429 'slow down'] [200 ^SAMPLE]] -> script;
+0 -> calls;
+ts_eval('s', [[safety ^q1]]) -> ;
+check('full jitter still sleeps legally', calls, 2);
+saved_jitter -> ts_retry_jitter;
+1 -> ts_max_retries;
+
+;;; --------------------------------------- the schema's own limits
+;;; Caught here, at the call site that named them, rather than as a 422
+;;; whose path is `questions.<id>.criteria`.
+
+;;; distinct keys, so the count on the wire is the count asked for
+define lconstant many_options(n) -> l;
+    lvars i;
+    [% for i from 1 to n do [% i sys_>< ''; false %] endfor %] -> l;
+enddefine;
+
+check_mishaps('an empty choice is refused',
+              procedure; ts_choice('pick', []) -> ; endprocedure);
+check_mishaps('256 options are refused',
+              procedure; ts_choice('pick', many_options(256)) -> ; endprocedure);
+check_mishaps('an empty score rubric is refused',
+              procedure; ts_score('rate', []) -> ; endprocedure);
+check_mishaps('a request with no questions is refused',
+              procedure; ts_request('s', []) -> ; endprocedure);
+
+;;; 255 options is the limit, not an error
+check('255 options are allowed',
+      ts_choice('pick', many_options(255))('type'), 'choice');
 
 test_summary();
