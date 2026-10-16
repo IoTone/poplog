@@ -33,11 +33,17 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y libncurses-dev
 
+      # Pinned to the corepops tag, not releases/latest.  "Latest" is one
+      # slot and two release series compete for it; when skill-2026.10 took
+      # it, latest/download/corepop-x86_64-linux started returning 404 and
+      # this workflow stopped being able to build anything.  Same reasoning,
+      # and the same tag, as tools/ci/build-and-verify.sh -- bump both when
+      # a new corepops release is published.
       - name: Fetch seed corepop from the corepops release
         run: |
           mkdir -p target/pop
           curl -fL -o target/pop/corepop \
-            https://github.com/IoTone/poplog/releases/latest/download/corepop-x86_64-linux
+            https://github.com/IoTone/poplog/releases/download/corepops-2026.10/corepop-x86_64-linux
           chmod 755 target/pop/corepop
 
       - name: Build Poplog
