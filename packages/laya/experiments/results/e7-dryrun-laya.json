@@ -1,0 +1,119 @@
+{
+ "base_url": "http://127.0.0.1:8799/v1",
+ "model_asked": "jev-latest",
+ "model_reported": [
+  "aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16"
+ ],
+ "calls": 39,
+ "deterministic_on_repeat": true,
+ "control_noise": 0.0,
+ "option_order_matters": true,
+ "question_order_matters": false,
+ "control": {
+  "dup_charge": {
+   "repeats": 3,
+   "identical": true,
+   "max_numeric_spread": 0.0,
+   "worst_field": null,
+   "fields_that_changed_categorically": []
+  },
+  "crash": {
+   "repeats": 3,
+   "identical": true,
+   "max_numeric_spread": 0.0,
+   "worst_field": null,
+   "fields_that_changed_categorically": []
+  },
+  "pricing": {
+   "repeats": 3,
+   "identical": true,
+   "max_numeric_spread": 0.0,
+   "worst_field": null,
+   "fields_that_changed_categorically": []
+  }
+ },
+ "g3_option_order": {
+  "dup_charge": {
+   "orderings": 6,
+   "distinct_picks": [
+    "billing"
+   ],
+   "pick_changed": false,
+   "pick_in_written_order": "billing",
+   "max_numeric_spread": 0.030299999999999994,
+   "worst_field": "/confidence",
+   "above_control_noise": true
+  },
+  "crash": {
+   "orderings": 6,
+   "distinct_picks": [
+    "technical"
+   ],
+   "pick_changed": false,
+   "pick_in_written_order": "technical",
+   "max_numeric_spread": 0.05490000000000006,
+   "worst_field": "/confidence",
+   "above_control_noise": true
+  },
+  "pricing": {
+   "orderings": 6,
+   "distinct_picks": [
+    "sales"
+   ],
+   "pick_changed": false,
+   "pick_in_written_order": "sales",
+   "max_numeric_spread": 0.1507,
+   "worst_field": "/confidence",
+   "above_control_noise": true
+  }
+ },
+ "g4_question_order": {
+  "dup_charge": {
+   "refund": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   },
+   "team": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   },
+   "urgency": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   }
+  },
+  "crash": {
+   "refund": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   },
+   "team": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   },
+   "urgency": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   }
+  }
+ },
+ "problems": []
+}
