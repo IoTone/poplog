@@ -1,19 +1,25 @@
-# The intermittent suite hang: still open (and three dead hypotheses)
+# The intermittent suite hang: solved (and three dead hypotheses)
 
 Found 2026-10-17 by `.github/workflows/skill-release.yml` running all 16
 library suites on hosted runners for the first time.  The Jenkins gate ran
-2 suites, so it could not have seen this.  **STILL OPEN.**  Three hypotheses have been killed by measurement, the
-third after its fix was written and shipped to CI: a child-wait
-bookkeeping bug, a spin in the interval timer, and coalesced SIG_CHILD
-losing child-status asts.  The last of those is a real bug, fixed in
-`pop/src/signals.p` with a regression test (PR #57), and it changes this
-hang not at all:
+2 suites, so it could not have seen this.  **SOLVED, as two separate defects, neither of them the three mechanisms
+this investigation believed first.**
 
-| leg | before the fix | with the fix |
-| --- | --- | --- |
-| x86_64, 8 rounds | 7 hung | **8 hung** |
-| macOS arm64, 8 rounds | 1 | 2 |
-| aarch64, 8 rounds | 0 | 1 |
+  * The x86_64 spin: `read_pipe` treating a pipe at end of file as
+    "alive, nothing yet" for ever -- fixed in #59, write-up in
+    [`popen-drain-eof-spin.md`](popen-drain-eof-spin.md).  8 of 8
+    sampling rounds hung before, 0 of 8 twice after.
+  * The macOS/aarch64 park: a SIG_CHILD lost outright (the child can die
+    inside sys_fork's window before Add_os_process_entry lists it),
+    leaving an unreaped zombie no signal will ever announce -- fixed on
+    `syswait-rescan` by re-scanning the process list on every wake of
+    sys_wait's bounded park.
+  * Along the way, a third real bug: the SIG_CHILD dispatch reaped one
+    child per delivery though deliveries coalesce -- fixed in #57 with a
+    regression test, and measurably not the CI hang.
+
+The rest of this file is the investigation as it happened, kept because
+the refutations and the instruments are the durable part.
 
 What is solid: the symptom (below), the two shapes it takes, the
 reproduction rate, and the tooling.  What is not: any claim about cause.
