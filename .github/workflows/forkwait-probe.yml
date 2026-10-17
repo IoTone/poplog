@@ -1,0 +1,111 @@
+# Hunt the intermittent process-wait hang on hosted runners.
+#
+# Manual only.  This builds nothing for release and publishes nothing; it
+# exists because the hang reproduces on GitHub runners and nowhere we can
+# attach a debugger by hand.
+#
+# Background.  skill-release.yml runs all 16 library suites on hosted
+# runners for the first time (the Jenkins gate ran 2).  Three of nine
+# platform legs hung: test_http_server twice on macOS arm64,
+# test_sysexecute_or_exit once on x86_64 Linux.  Each had passed its
+# visible checks and then parked waiting for a child process.  23 local
+# runs, loaded and unloaded, were clean.
+#
+# Both failing suites keep a SECOND child alive while waiting on the
+# first, so the leading hypothesis is sys_wait bookkeeping rather than a
+# lost wake-up: pop/src/syswait.p loops `returnif(is_dead(pid));
+# syshibernate()`, and a pid whose exit status was already consumed by
+# another waiter can never satisfy is_dead -- which the 100ms bound from
+# #47 cannot rescue, since nothing is waiting to be woken.
+#
+# tools/debug/forkwait-probe.sh dumps the process tree, the signal masks
+# and the fd list BEFORE killing anything, which is what test-libs.sh's
+# watchdog destroys.  Read the STAT column of the dump first: a Z or
+# <defunct> child confirms the hypothesis; an S/R child refutes it and
+# moves the bug into the child.
+name: forkwait-probe
+
+on:
+  # workflow_dispatch is only offered for workflows on the default branch,
+  # and this one has to run before it is merged anywhere -- so pushing the
+  # probe branch is a trigger too.  Narrow on purpose: no other branch
+  # starts a 45-minute three-platform hunt by accident.
+  push:
+    branches: [forkwait-probe]
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: 'Rounds per suite (hang rate was ~1 in 3 whole-suite-set runs, so give it room)'
+        default: '40'
+      suites:
+        description: 'Suites to loop, space separated; empty means the two that hung'
+        required: false
+      patience:
+        description: 'Seconds of no exit before a round is called a hang'
+        default: '75'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            seed: corepop-x86_64-linux
+          - runner: ubuntu-24.04-arm
+            seed: corepop-aarch64-linux
+          - runner: macos-latest
+            seed: corepop-aarch64-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # gdb is for the probe's backtrace, not the build.
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libncurses-dev libcurl4-openssl-dev libpcre2-dev gdb
+          # Attaching to a non-child needs this relaxed on Ubuntu.
+          sudo sysctl -w kernel.yama.ptrace_scope=0 || true
+
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew list pcre2 >/dev/null 2>&1 || brew install pcre2
+
+      - name: Seed target/pop/corepop
+        run: |
+          mkdir -p target/pop
+          cp "nix/seeds/${{ matrix.seed }}" target/pop/corepop
+          chmod 755 target/pop/corepop
+
+      - name: Build Poplog
+        run: |
+          ./configure
+          make
+
+      - name: Build the optional C shims
+        run: |
+          sh tools/build-popcurl.sh
+          sh tools/build-poppcre.sh
+
+      # Exits 1 on the first hang, having dumped the state. A clean run
+      # is also a result: it bounds how rare the hang is on this platform.
+      - name: Probe
+        timeout-minutes: 45
+        env:
+          PROBE_PATIENCE: ${{ inputs.patience }}
+        run: |
+          sh tools/debug/forkwait-probe.sh ${{ inputs.rounds }} ${{ inputs.suites }} \
+              2>&1 | tee probe.log
+
+      - name: Keep the dump even when the probe fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ matrix.runner }}
+          path: probe.log
+          if-no-files-found: warn
