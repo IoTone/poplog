@@ -80,7 +80,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libncurses-dev libcurl4-openssl-dev libpcre2-dev
+          sudo apt-get install -y libncurses-dev libcurl4-openssl-dev libpcre2-dev gdb
+          # attaching to a non-child needs this relaxed on Ubuntu
+          sudo sysctl -w kernel.yama.ptrace_scope=0 || true
 
       # macOS gets libcurl from the SDK; pcre2 is not in the runner image.
       - name: Install build dependencies (macOS)
@@ -116,8 +118,32 @@ jobs:
       # same line either way.  A suite that finishes at, say, 200s was
       # merely slow and wants its own `;;; test-timeout:` line; one still
       # alive at 600s is genuinely wedged.
+      # The invocation is deliberately untouched -- foreground, stdout to
+      # the Actions log, exactly as the legs that hang.  The watcher runs
+      # BESIDE it and only looks: wrapping the invocation is what made the
+      # hang vanish last time (57 wrapped sequences clean vs 6 hangs in 21
+      # plain legs).  TEST_TIMEOUT stays at 600 because 600 still hangs, so
+      # it costs nothing and gives the watcher a wide window to dump in.
       - name: Library test suites
-        run: TEST_TIMEOUT=600 sh tools/test-libs.sh
+        run: |
+          sh tools/debug/hang-watch.sh "$PWD" 150 hang-dump.txt &
+          watcher=$!
+          rc=0
+          TEST_TIMEOUT=600 sh tools/test-libs.sh || rc=$?
+          kill "$watcher" 2>/dev/null || true
+          if [ -s hang-dump.txt ]; then
+              echo "=== hang-watch caught something ==="
+              cat hang-dump.txt
+          fi
+          exit $rc
+
+      - name: Keep the dump
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hang-dump-${{ matrix.asset }}
+          path: hang-dump.txt
+          if-no-files-found: ignore
 
       # The regression this release exists to ship.  The bug parks sys_wait
       # in pause() with no error and no CPU, so a hang here would otherwise
