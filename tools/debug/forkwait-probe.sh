@@ -47,6 +47,17 @@ set -e
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
 
+# --set runs the WHOLE 16-suite test-libs.sh sequence per round instead of
+# one suite at a time.  That distinction turned out to be the finding: 240
+# isolated suite-runs (40 rounds x 2 suites x 3 platforms) did not hang
+# once, while the full sequence hangs about 1 leg in 3.  So the trigger is
+# something about the sequence or about test-libs.sh's own harness -- it
+# runs each engine under `perl -e 'setpgrp(0,0); exec @ARGV'` in its own
+# process group, inside a command substitution, after fifteen other suites
+# have started and reaped children -- and not the suite in isolation.
+mode=one
+if [ "$1" = "--set" ]; then mode=set; shift; fi
+
 rounds="${1:-40}"
 case "$rounds" in ''|*[!0-9]*) echo "forkwait-probe: rounds must be a number" >&2; exit 2 ;; esac
 shift 2>/dev/null || true
@@ -63,6 +74,17 @@ fi
 # Long enough that a slow runner is not mistaken for a hang: the slowest
 # of these suites takes about 5s in CI, so 75s is ~15x headroom.
 : "${PROBE_PATIENCE:=75}"
+
+# Every descendant of a pid, any depth.  pgrep -P gives one level, and the
+# engine can sit two or three down (harness shell -> run_suite subshell ->
+# perl/engine), so this recurses.  Used to make sure the only processes this
+# script ever signals are ones it started.
+descendants() {
+    for _kid in $(pgrep -P "$1" 2>/dev/null); do
+        echo "$_kid"
+        descendants "$_kid"
+    done
+}
 
 dump() {
     _pid=$1; _suite=$2; _round=$3; _log=$4
@@ -118,6 +140,80 @@ dump() {
     fi
     echo "=============================================================="
 }
+
+if [ "$mode" = set ]; then
+    # TEST_TIMEOUT is raised far above the patience window on purpose:
+    # test-libs.sh's own watchdog kills the process group at 120s, which is
+    # precisely the state we are here to photograph.  We must reach the
+    # hung engine first.
+    r=1
+    while [ "$r" -le "$rounds" ]; do
+        log=$(mktemp) || exit 2
+        TEST_TIMEOUT=600 sh tools/test-libs.sh >"$log" 2>&1 &
+        harness=$!
+
+        # Progress is measured by the log growing: test-libs.sh prints one
+        # line per suite as it finishes.  The slowest legitimate gap is
+        # test_shell at ~32s, so the default 75s patience has room.
+        last=0; stale=0
+        while kill -0 "$harness" 2>/dev/null; do
+            now=$(wc -c <"$log" 2>/dev/null || echo 0)
+            if [ "$now" -eq "$last" ]; then
+                stale=$((stale + 5))
+            else
+                stale=0; last=$now
+            fi
+            if [ "$stale" -ge "$PROBE_PATIENCE" ]; then
+                # NEVER search by name alone.  `pgrep -f basepop11` on a
+                # development machine also matches other people's engines
+                # -- installed-skill sessions, MCP servers, another agent's
+                # work -- and this code goes on to SIGKILL what it finds.
+                # Tested the hard way: it picked a four-day-old session's
+                # engine out of ~25 live ones.  So the candidate must be
+                # BOTH a descendant of the harness this round started AND
+                # running from this repo.  test-libs.sh puts each engine in
+                # its own process group, but setpgrp does not change
+                # parentage, so the tree walk still finds it.
+                stuck=$(
+                    for p in $(descendants "$harness"); do
+                        if ps -o command= -p "$p" 2>/dev/null \
+                               | grep -q "$repo/target/pop/basepop11"; then
+                            echo "$p"; break
+                        fi
+                    done
+                )
+                if [ -n "$stuck" ]; then
+                    dump "$stuck" "test-libs(set)" "$r" "$log"
+                    kill -TERM "$stuck" 2>/dev/null || true
+                    sleep 2
+                    kill -KILL "$stuck" 2>/dev/null || true
+                else
+                    echo "forkwait-probe: log went quiet but no engine found" >&2
+                    cat "$log"
+                fi
+                kill -TERM "$harness" 2>/dev/null || true
+                sleep 1
+                kill -KILL "$harness" 2>/dev/null || true
+                wait "$harness" 2>/dev/null || true
+                rm -f "$log"
+                exit 1
+            fi
+            sleep 5
+        done
+        wait "$harness" 2>/dev/null || true
+
+        if grep -q 'all suites green' "$log"; then
+            printf 'test-libs round %s/%s all green\n' "$r" "$rounds"
+        else
+            printf 'test-libs round %s/%s NOT green\n' "$r" "$rounds"
+            grep -E '^FAIL|suite\(s\) failing' "$log" | tail -5
+        fi
+        rm -f "$log"
+        r=$((r + 1))
+    done
+    echo "forkwait-probe: no hang in $rounds whole-set rounds"
+    exit 0
+fi
 
 for suite in $suites; do
     name=$(basename "$suite" .p)

@@ -35,8 +35,12 @@ on:
   workflow_dispatch:
     inputs:
       rounds:
-        description: 'Rounds per suite (hang rate was ~1 in 3 whole-suite-set runs, so give it room)'
-        default: '40'
+        description: 'Rounds per round-trip. Whole-set rounds take ~2min each; 1-in-3 hang rate means ~15 is plenty'
+        default: '15'
+      whole_set:
+        description: 'Run the full 16-suite test-libs.sh sequence (the configuration that actually hangs)'
+        type: boolean
+        default: true
       suites:
         description: 'Suites to loop, space separated; empty means the two that hung'
         required: false
@@ -94,12 +98,21 @@ jobs:
 
       # Exits 1 on the first hang, having dumped the state. A clean run
       # is also a result: it bounds how rare the hang is on this platform.
+      # Isolated suites came back clean: 240 runs, 40 rounds x 2 suites x 3
+      # platforms, no hang.  So --set is the default -- the hang needs the
+      # whole sequence, not the suite.
       - name: Probe
-        timeout-minutes: 45
+        timeout-minutes: 90
         env:
-          PROBE_PATIENCE: ${{ inputs.patience }}
+          # A push trigger carries no inputs at all, so every one of these
+          # needs its own fallback -- an empty rounds count would otherwise
+          # make the probe exit 2 on arrival.
+          PROBE_PATIENCE: ${{ inputs.patience || '75' }}
+          ROUNDS: ${{ inputs.rounds || '15' }}
+          SET_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.whole_set == false) && ' ' || '--set' }}
         run: |
-          sh tools/debug/forkwait-probe.sh ${{ inputs.rounds }} ${{ inputs.suites }} \
+          # shellcheck disable=SC2086
+          sh tools/debug/forkwait-probe.sh $SET_FLAG $ROUNDS ${{ inputs.suites }} \
               2>&1 | tee probe.log
 
       - name: Keep the dump even when the probe fails
