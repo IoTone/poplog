@@ -252,6 +252,39 @@ surfaces in these suites, and it means my original child-wait instinct was
 closer than the timer story that replaced it.  It is still a hypothesis:
 the next instrument has to show whether `cont(ref)` is ever set.
 
+## Two symptoms, one missing notification
+
+Run 39065661703 hung two legs at once and they look nothing alike, which
+is the most useful thing to happen to this investigation.
+
+x86_64, `test_sysexecute_or_exit`: `State: R`, 100% CPU, the busy loop
+above.
+
+macOS arm64, `test_http_server` (pid 6816, 154s):
+
+    6816  6813 S<   .../basepop11 .../tools/tests/test_http_server.p
+    --- children and grandchildren ---
+    (none)
+    frame #0: libsystem_kernel.dylib`poll + 8
+    frame #1: basepop11`pause_popintr at c_core.c:1381:5
+
+`S<`, not `R` -- parked, not spinning -- in `syshibernate`'s `poll`,
+which is the 100ms-bounded park #47 introduced.  So it wakes every 100ms,
+finds nothing to service, and parks again, forever.
+
+Different constructs, identical situation: **something the process is
+waiting to be told never gets told to it**, and no children exist to tell
+it.  One waiting construct busy-polls a pipe that is permanently ready
+(x86_64), the other parks and re-parks (macOS).  That unifies the three
+platforms, explains why the suite differs by platform, and puts the root
+cause back in the child-status notification path -- #47's family, which
+fixed one lost-SIGCHLD instance in `c_core.c` and evidently not all of
+them.
+
+Also worth noting against the timer story: this leg printed no
+`pop_timer:` line either, so the negative evidence now covers macOS as
+well.
+
 ## What was ruled out, and at what cost
 
 Worth recording because most of it was wasted motion from reasoning ahead
