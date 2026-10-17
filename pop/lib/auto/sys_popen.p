@@ -174,7 +174,17 @@ define global sys_popen(name, args) -> (parent_get, ref);
     ;;; do false -> cont(ref) when the child process dies.
     lvars pid;
     if (sys_fork(false, report_finished(%ref%)) ->> pid) then
-        ;;; parent
+        ;;; parent -- close our copy of the child's write end.  While it
+        ;;; stays open the pipe can never reach end of file, so the drain
+        ;;; only ends when the child's exit status lands in cont(ref),
+        ;;; costing one 0.5s sys_device_wait timeout per read_pipe call
+        ;;; after the output is exhausted -- and if a garbage collection
+        ;;; closes this orphaned device mid-drain, the pipe hits EOF at a
+        ;;; time of the GC's choosing instead of the child's.  With the
+        ;;; EOF case in read_pipe handled, closing it here makes end of
+        ;;; file arrive exactly when the child is done with the pipe, and
+        ;;; stops leaking a file descriptor per sys_popen besides.
+        sysclose(child_devout);
     else
         ;;; child
         sysclose(popdevin);
