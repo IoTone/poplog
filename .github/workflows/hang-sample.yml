@@ -1,0 +1,117 @@
+# Sample the intermittent suite hang at a useful rate.
+#
+# The release gate gives 3 legs per run and hangs about one leg in four
+# (docs/bugs/syssleep-expired-timer-spin.md), so catching one dump with a
+# new instrument in it takes several full runs, each of which also packages
+# and smoke-installs a tarball it does not need.  This builds the engine
+# once per platform and then runs the suites repeatedly, which is the same
+# evidence an order of magnitude cheaper.
+#
+# THE INVOCATION IS NOT WRAPPED.  That is the whole discipline here.  An
+# earlier probe put the suites in the background, redirected stdout to a
+# file and raised TEST_TIMEOUT, and the hang vanished: 57 wrapped sequences
+# clean against 6 hangs in 21 plain legs.  So each round below runs exactly
+#
+#     sh tools/test-libs.sh
+#
+# in the foreground with stdout to the log, TEST_TIMEOUT left at its
+# default, byte for byte what the gate runs.  The only new thing is the
+# loop around whole rounds, and hang-watch.sh beside it, which observes and
+# signals nothing.
+#
+# hang-watch's age threshold is 60s rather than the gate's 150s because
+# TEST_TIMEOUT defaults to 120s here: the dump has to be taken before
+# test-libs.sh's own watchdog SIGKILLs the process group.  A merely slow
+# suite may therefore get photographed too; a dump costs nothing and the
+# strace/gdb attaches are read-only.
+name: hang-sample
+
+# The push trigger is not laziness: workflow_dispatch is only offered for
+# workflows that exist on the default branch, so a new one on a feature
+# branch cannot be run any other way.  Pushing to `hang-sample` starts a
+# sampling run; `inputs.rounds` is empty on a push, hence the fallback.
+on:
+  push:
+    branches: [hang-sample]
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: 'whole 16-suite sequences per platform'
+        required: false
+        default: '8'
+
+jobs:
+  sample:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            seed: corepop-x86_64-linux
+          - runner: ubuntu-24.04-arm
+            seed: corepop-aarch64-linux
+          - runner: macos-latest
+            seed: corepop-aarch64-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libncurses-dev libcurl4-openssl-dev libpcre2-dev gdb strace
+          sudo sysctl -w kernel.yama.ptrace_scope=0 || true
+
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew list pcre2 >/dev/null 2>&1 || brew install pcre2
+
+      - name: Seed target/pop/corepop
+        run: |
+          mkdir -p target/pop
+          cp "nix/seeds/${{ matrix.seed }}" target/pop/corepop
+          chmod 755 target/pop/corepop
+
+      - name: Build Poplog
+        run: |
+          ./configure
+          make
+
+      - name: Build the optional C shims
+        run: |
+          sh tools/build-popcurl.sh
+          sh tools/build-poppcre.sh
+
+      # POP_TIMER_DEBUG is kept on even though the timer hypothesis is
+      # refuted: it costs nothing when the branch is not taken, and its
+      # silence is now part of the evidence.
+      - name: Sample the suites
+        env:
+          POP_TIMER_DEBUG: '1000'
+        run: |
+          sh tools/debug/hang-watch.sh "$PWD" 60 hang-dump.txt &
+          watcher=$!
+          hangs=0
+          rounds='${{ inputs.rounds || '8' }}'
+          i=1
+          while [ "$i" -le "$rounds" ]; do
+              echo "===== round $i/$rounds  $(date -u +%H:%M:%SZ) ====="
+              sh tools/test-libs.sh || hangs=$((hangs + 1))
+              i=$((i + 1))
+          done
+          kill "$watcher" 2>/dev/null || true
+          echo "===== $hangs failing round(s) of $rounds ====="
+          if [ -s hang-dump.txt ]; then
+              echo "===== hang-watch dumps ====="
+              cat hang-dump.txt
+          fi
+
+      - name: Keep the dumps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hang-sample-${{ matrix.runner }}
+          path: hang-dump.txt
+          if-no-files-found: ignore
