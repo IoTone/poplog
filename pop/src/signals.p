@@ -531,6 +531,41 @@ enddefine;
 
     /*  Raising an ASynchronous Trap (called from _checkall)
     */
+    /*  Reap every child the OS will report as terminated, raising each
+        one's ast.
+
+        Called for SIG_CHILD, which does not queue: one delivery can stand
+        for any number of deaths, so Get_os_process_trap -- which reaps
+        the first terminated entry and returns -- has to be called until
+        it reports nothing more died.  Ten children dying together lost
+        one to four of their asts every round when the dispatch called it
+        once (tools/tests/test_sigchld_coalesce.p).
+
+        Also called by sys_wait each time its bounded 100ms park wakes,
+        because a SIG_CHILD can be lost outright: the child can die inside
+        sys_fork's window between pop_fork() returning in the parent and
+        Add_os_process_entry listing it -- allocation in that window is a
+        check point, so this very trap runs, finds no entry, and the
+        signal is spent; the entry is listed a moment later with nothing
+        left to announce it.  Seen on hosted runners as a <defunct> sh
+        under an engine parked in syshibernate with SigPnd 0
+        (docs/bugs/popen-drain-eof-spin.md has the campaign).  The rescan
+        turns that from a permanent park into one lost tick.
+
+        It must be this direct call, not a synthetic ast from sys_wait: a
+        queued ast sets _pop_signals_pending, which makes the very park it
+        follows return immediately, and sys_wait becomes a 100%-CPU loop
+        (measured: 4.9s CPU for a 5s wait).
+    */
+define Check_os_children();
+    lvars ast;
+    if testdef Get_os_process_trap then
+        while weakref Get_os_process_trap() ->> ast do
+            unless Raise_astp(ast, false) then Add(ast) endunless
+        endwhile
+    endif
+enddefine;
+
 define Async_raise_signal();
     lvars ast, _ioset, _s1, _s2;
     dlvars _type, _data;
@@ -554,23 +589,8 @@ define Async_raise_signal();
         elseif _type == _:AST_SIGNAL then
             ;;; data is signal number
             if _data == _:SIG_CHILD then
-                ;;; SIG_CHILD does not queue: one delivery can stand for
-                ;;; any number of deaths.  Get_os_process_trap reaps the
-                ;;; first terminated entry on os_process_list, runs its
-                ;;; ast and returns, so a single call leaves the others
-                ;;; unreaped with no further signal coming -- their asts
-                ;;; never run, is_dead never goes true, and whatever waits
-                ;;; on them waits for good.  Ten children dying together
-                ;;; lost one to four of their asts every trial; see
-                ;;; docs/bugs/syssleep-expired-timer-spin.md.  So drain it.
-                if testdef Get_os_process_trap then
-                    while weakref Get_os_process_trap() ->> ast do
-                        unless Raise_astp(ast, false) then Add(ast) endunless
-                    endwhile;
-                    true
-                else
-                    true
-                endif
+                Check_os_children();
+                true
             else
                 ;;; check needed for upward compatibility
                 if _data == _:SIG_INT then `\n` -> weakref poplastchar endif;
