@@ -106,6 +106,27 @@ define vars read_pipe(dev, string, len, ref) -> num;
 
         sysread(dev, string, len) -> num;
 
+        if num == 0 then
+            ;;; Ready with nothing to read means end of file: the writer
+            ;;; is gone.  This has to be reported as finished, not as 0
+            ;;; ("alive, nothing yet"), because a pipe at EOF stays READY
+            ;;; for select -- so the else branch below, the only place
+            ;;; cont(ref) is consulted and the only one that can return
+            ;;; false, becomes unreachable.  The documented drain loop
+            ;;;
+            ;;;     repeat
+            ;;;         read_pipe(dev, buf, len, ref) -> n;
+            ;;;         quitunless(n);
+            ;;;         ...
+            ;;;     endrepeat
+            ;;;
+            ;;; then spins at 100% CPU for ever, since 0 is true in
+            ;;; Pop-11.  Measured on a hosted x86_64 runner: ~3000
+            ;;; select+read pairs a second, 8 of 8 test rounds wedged.
+            ;;; See docs/bugs/popen-drain-eof-spin.md.
+            false -> num
+        endif
+
     else
         ;;; Nothing in pipe. See if process is dead,
         ;;; chance to run
@@ -153,7 +174,17 @@ define global sys_popen(name, args) -> (parent_get, ref);
     ;;; do false -> cont(ref) when the child process dies.
     lvars pid;
     if (sys_fork(false, report_finished(%ref%)) ->> pid) then
-        ;;; parent
+        ;;; parent -- close our copy of the child's write end.  While it
+        ;;; stays open the pipe can never reach end of file, so the drain
+        ;;; only ends when the child's exit status lands in cont(ref),
+        ;;; costing one 0.5s sys_device_wait timeout per read_pipe call
+        ;;; after the output is exhausted -- and if a garbage collection
+        ;;; closes this orphaned device mid-drain, the pipe hits EOF at a
+        ;;; time of the GC's choosing instead of the child's.  With the
+        ;;; EOF case in read_pipe handled, closing it here makes end of
+        ;;; file arrive exactly when the child is done with the pipe, and
+        ;;; stops leaking a file descriptor per sys_popen besides.
+        sysclose(child_devout);
     else
         ;;; child
         sysclose(popdevin);
