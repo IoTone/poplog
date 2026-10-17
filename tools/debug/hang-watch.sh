@@ -108,7 +108,15 @@ dump() {
         # setitimer+sigprocmask alone means the timer code itself.
         echo "--- syscall histogram (2s sample) ---"
         if command -v strace >/dev/null 2>&1; then
-            strace -c -p "$_pid" -o /dev/stdout &
+            # NOT `-o /dev/stdout`: -o opens its target with O_TRUNC, and
+            # here that target is this dump file, so strace quietly wiped
+            # every earlier dump.  strace writes its report to stderr by
+            # default, which the enclosing redirect appends.
+            #
+            # `|| true` on the wait because strace exits non-zero when it
+            # is interrupted, and `set -e` would take the watcher with it
+            # -- which it did, after the first dump.
+            strace -c -p "$_pid" &
             _st=$!
             sleep 2
             kill -INT "$_st" 2>/dev/null || true
