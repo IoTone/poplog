@@ -433,6 +433,106 @@ static timer
 static long half_clockint;
 static void timer_handler(int sig);
 
+/*  Diagnostic for the expired-timer spin (docs/bugs/syssleep-expired-
+    timer-spin.md).  next_timer's handling=0 branch raises a trap and
+    disarms the itimer but leaves the expired entry at the head of the
+    queue, so a deadline in the past wedges the queue permanently and the
+    engine spins.  Set POP_TIMER_DEBUG=<n> to report the head entry's
+    absolute deadline, the clock it was compared against and the computed
+    remainder once that branch has been taken n times -- enough to
+    tell a 0/0 entry (prints zeros) from a clock that stepped forward
+    (prints a deadline a plausible distance in the past).
+
+    Does nothing at all unless the variable is set, so ordinary builds are
+    unaffected.  write(2) rather than fprintf because next_timer reaches
+    this branch from inside timer_handler as well; snprintf there is not
+    strictly async-signal-safe, which is tolerable in a debugging build
+    that is never shipped.
+*/
+#ifdef UNIX
+
+#include <stdio.h>      /* snprintf */
+#include <stdlib.h>     /* getenv, strtol */
+
+static int timer_debug_after(void) {
+    static int after = -1;
+    if (after < 0) {
+        char * s = getenv("POP_TIMER_DEBUG");
+        long n = (s && *s) ? strtol(s, NULL, 10) : 0;
+        after = (n > 0 && n < 100000000) ? (int) n : 0;
+    }
+    return after;
+}
+
+static void timer_debug_expired(timer * timerp, timentry * e, timeval * clk,
+                                int sec, int usec) {
+    static unsigned long runs;
+    int after = timer_debug_after();
+    char buf[320];
+    int n;
+    sigset_t cur, pend;
+    int blocked = -1, pending = -1;
+    struct itimerval armed;
+    long armed_sec = -1, armed_usec = -1;
+
+    if (!after) return;
+    /*  One line when the count first reaches the threshold -- that is the
+        onset, and the interesting one -- then a heartbeat, because a spin
+        goes round this millions of times a second (hence the very large
+        heartbeat interval) and the watchdog kills the process mid-line.
+    */
+    if (++runs != (unsigned long) after && runs % 100000000UL) return;
+
+    /*  The raise is kill(getpid(), T_SIG) and the itimer has just been
+        disarmed, so the two things worth knowing beyond the arithmetic are
+        whether that signal can be delivered at all and whether anything is
+        armed to deliver it later.  syssleep(0) locally takes this same
+        branch once and returns immediately, so the raise path does work in
+        the ordinary case; the spin needs it not to.
+    */
+    if (sigprocmask(SIG_BLOCK, NULL, &cur) == 0)
+        blocked = sigismember(&cur, timerp->T_SIG);
+    if (sigpending(&pend) == 0)
+        pending = sigismember(&pend, timerp->T_SIG);
+    if (getitimer(VIRT(timerp) ? ITIMER_VIRTUAL : ITIMER_REAL, &armed) == 0) {
+        armed_sec = armed.it_value.tv_sec;
+        armed_usec = armed.it_value.tv_usec;
+    }
+
+    /*  clk is NULL for a 0/0 deadline, where next_timer never reads the
+        clock: that case is already expired by definition and the clock it
+        would have been compared against says nothing.
+    */
+    if (clk)
+        n = snprintf(buf, sizeof buf,
+            "pop_timer: %lu expiries on %s queue, handling=0; "
+            "deadline %ld.%06ld clock %ld.%06ld remainder %d.%06d "
+            "ident %ld repeat %ld.%06ld blocked %d pending %d "
+            "armed %ld.%06ld\n",
+            runs, VIRT(timerp) ? "virtual" : "real",
+            (long) e->E_SEC, (long) e->E_USEC,
+            (long) clk->tv_sec, (long) clk->tv_usec,
+            sec, usec,
+            (long) e->E_IDENT,
+            (long) e->E_INTSEC, (long) e->E_INTUSEC,
+            blocked, pending, armed_sec, armed_usec);
+    else
+        n = snprintf(buf, sizeof buf,
+            "pop_timer: %lu expiries on %s queue, handling=0; "
+            "deadline 0.000000 (zero, always expired) "
+            "ident %ld repeat %ld.%06ld blocked %d pending %d "
+            "armed %ld.%06ld\n",
+            runs, VIRT(timerp) ? "virtual" : "real",
+            (long) e->E_IDENT,
+            (long) e->E_INTSEC, (long) e->E_INTUSEC,
+            blocked, pending, armed_sec, armed_usec);
+    if (n > 0) write(2, buf, (size_t) (n < (int) sizeof buf ? n : sizeof buf));
+}
+
+#else
+#define timer_debug_expired(timerp, e, clk, sec, usec)  /* nothing */
+#endif
+
 static timentry *next_timer(timer * timerp, bool handling) {
     timentry *e;
     timeval clk;
@@ -481,6 +581,9 @@ static timentry *next_timer(timer * timerp, bool handling) {
                 return(e);
             } else {
                 /* not handling immediately -- generate trap */
+                timer_debug_expired(timerp, e,
+                                    (e->E_SEC | e->E_USEC) ? &clk : NULL,
+                                    sec, usec);
                 sec = usec = 0;     /* to cancel itimer */
                 TIMER_RAISE_TRAP(timerp->T_SIG, timer_handler);
             }
