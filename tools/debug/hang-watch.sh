@@ -97,6 +97,26 @@ dump() {
             ls -l "/proc/$_pid/fd" 2>/dev/null | sed 's/^.*[0-9] //'
         fi
 
+        # The one observation that says what the loop IS rather than where
+        # its program counter happened to land.  Three captured stacks all
+        # sat in pop_timer, which looked like a wedged timer queue until an
+        # instrumented engine printed nothing: the expired branch was never
+        # taken.  A spin that calls something with a timeout arms a timer
+        # every iteration, so pop_timer is simply where the cycles go.  A
+        # two-second syscall histogram distinguishes the candidates
+        # outright -- select+read means a pipe at EOF being re-read,
+        # setitimer+sigprocmask alone means the timer code itself.
+        echo "--- syscall histogram (2s sample) ---"
+        if command -v strace >/dev/null 2>&1; then
+            strace -c -p "$_pid" -o /dev/stdout &
+            _st=$!
+            sleep 2
+            kill -INT "$_st" 2>/dev/null || true
+            wait "$_st" 2>/dev/null || true
+        else
+            echo "(no strace)"
+        fi
+
         echo "--- native backtrace (read-only attach) ---"
         if command -v gdb >/dev/null 2>&1; then
             gdb -p "$_pid" -batch -ex 'bt' -ex 'detach' 2>&1 | tail -40
