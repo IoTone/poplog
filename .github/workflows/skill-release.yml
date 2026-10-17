@@ -109,8 +109,32 @@ jobs:
           sh tools/build-popcurl.sh
           sh tools/build-poppcre.sh
 
+      # The same 16 suites, run under a watcher that photographs the engine
+      # before killing it.  This job is the ONLY place the intermittent
+      # process-wait hang has ever appeared -- 3 of 9 legs, test_http_server
+      # on macOS and test_sysexecute_or_exit on x86_64, each parked waiting
+      # for a child after its visible checks passed.  It has not reproduced
+      # anywhere we can attach a debugger by hand: 240 isolated suite-runs
+      # and 45 whole-sequence runs, across all three platforms, all clean,
+      # at a flat 85s per sequence with no slow outliers.  So the evidence
+      # has to be taken here, and test-libs.sh's own watchdog destroys it
+      # (it SIGKILLs the process group at 120s, which is the state worth
+      # looking at).  A red suite still fails the step, so this is not a
+      # weaker gate -- just one that leaves a body to examine.
       - name: Library test suites
-        run: sh tools/test-libs.sh
+        run: |
+          # tee, so the dump survives as an artifact and not only as job
+          # log scrollback; pipefail so the probe's exit status still gates.
+          set -o pipefail
+          sh tools/debug/forkwait-probe.sh --set 1 2>&1 | tee probe.log
+
+      - name: Keep the dump if it hung
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hang-dump-${{ matrix.asset }}
+          path: probe.log
+          if-no-files-found: ignore
 
       # The regression this release exists to ship.  The bug parks sys_wait
       # in pause() with no error and no CPU, so a hang here would otherwise
