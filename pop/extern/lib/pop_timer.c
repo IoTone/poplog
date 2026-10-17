@@ -584,7 +584,25 @@ static timentry *next_timer(timer * timerp, bool handling) {
                 timer_debug_expired(timerp, e,
                                     (e->E_SEC | e->E_USEC) ? &clk : NULL,
                                     sec, usec);
-                sec = usec = 0;     /* to cancel itimer */
+                /*  Arm a minimum non-zero itimer instead of cancelling.
+                    The trap below is how this entry is normally serviced,
+                    and it usually works -- but setitimer with 0/0
+                    DISARMS, and only next_timer(handling=TRUE), reached
+                    from a delivered signal, ever takes an entry off the
+                    queue.  So if the trap goes unserviced the expired
+                    entry stays at the head with nothing armed to shift
+                    it, every later call finds it expired again, and the
+                    engine spins at 100% CPU until something kills it:
+                    docs/bugs/syssleep-expired-timer-spin.md, seen in
+                    about a quarter of hosted-runner test legs.
+
+                    One clock interval of itimer is a backstop that costs
+                    at most one extra signal, and timer_handler copes with
+                    arriving after the trap already did the work: it finds
+                    the queue empty or the head unexpired and re-arms.
+                */
+                sec = 0;
+                usec = half_clockint > 0 ? half_clockint << 1 : 1000;
                 TIMER_RAISE_TRAP(timerp->T_SIG, timer_handler);
             }
         }
