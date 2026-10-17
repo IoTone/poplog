@@ -1,7 +1,14 @@
 # syssleep spins at 100% CPU on an already-expired real timer
 
-**Status:** spin confirmed by two independent stacks; the loop is identified,
-the reason the deadline is in the past is not.  Fix not written.
+**Status:** spin confirmed by four independent stacks.  **The timer
+diagnosis below is refuted** -- an engine instrumented at the suspect
+branch printed nothing, and the spin survives the fix.  Current reading:
+a busy loop in `read_pipe`/`popen_drain` over a pipe at EOF, with
+`pop_timer` merely where a loop that arms a timeout every iteration spends
+its cycles.  See "The timer was a red herring".
+
+The filename is now wrong and is being kept until the real mechanism is
+nailed down, so that links to it keep working.
 **Platforms:** all three hosted CI platforms (x86_64 Linux, aarch64 Linux,
 macOS arm64).  Never reproduced on a developer machine.
 **Rate:** 7 hangs in 27 release-gate legs, about 26% per leg.
@@ -173,6 +180,78 @@ time to lose between them.  Two better candidates:
     laptop in a two-minute test does not.  This fits "CI only" better
     than anything else so far, and it is testable.
 
+## The timer was a red herring
+
+Four stacks now, all x86_64 Linux, all `test_sysexecute_or_exit`, all
+`State: R` with no children, and all with the program counter in
+`pop_timer`.  That is what made the timer-queue story look strong.  Three
+pieces of evidence taken together kill it:
+
+  * **The instrumented engine printed nothing.**  `POP_TIMER_DEBUG=1000`
+    reports once the `handling=0` expired branch has been taken a thousand
+    times; a spin through that branch passes a thousand in microseconds.
+    Run 39065636219 hung for the full 600s and the log contains no
+    `pop_timer:` line at all.  The expired branch is not being taken.  The
+    instrument earning its keep by refuting the hypothesis it was built
+    for is the whole reason it was built.
+  * **The fix does not fix it.**  `timer-expired-rearm`, which arms a
+    minimum itimer instead of cancelling, hung in exactly the same place
+    (run 39065872100, pid 3886).
+  * **The frames are the SETTING path, not a stuck queue.**  Two of the
+    four dumps show `pop_timer(flags=0, ident=..., handler=_pop_timer_trap,
+    tvp=0x7fffffff4650)` -- a *fresh* timeout being armed -- and one shows
+    the GET/CANCEL path with `handler=0, tvp=0`.  Arm, cancel, arm, cancel
+    is a loop calling something with a timeout on every iteration, which
+    is where the cycles of any such spin would land.
+
+So `pop_timer` is the scenery, not the bug.
+
+## Where it actually wedges
+
+Not `syssleep(50)` at `test_sysexecute_or_exit.p:61`.  The captured suite
+output goes much further than that -- `sysexecute_or_exit`,
+`run_unix_program`, `pipein` and `pipeout` all report PASS -- and stops in
+the `sys_popen` case at line 98:
+
+    no_runaway('sys_popen',
+        procedure; popen_drain(sys_popen(noexec, [])) -> output endprocedure);
+
+`popen_drain` (line 39) is the ordinary `read_pipe` idiom:
+
+    repeat
+        read_pipe(dev, buf, 4096, ref) -> n;
+        quitunless(n);
+        if n > 0 then s <> substring(1, n, buf) -> s endif
+    endrepeat;
+
+and `read_pipe` (`pop/lib/auto/sys_popen.p:94`) waits half a second for
+input, reads if the device is ready, and otherwise returns `false` if
+`cont(ref)` shows the child finished or `0` if it has not:
+
+    sys_device_wait(dev, [], [], 5e5) -> (n, , );
+    if n then sysread(dev, string, len) -> num;
+    else      if cont(ref) then false -> num else 0 -> num endif
+    endif
+
+Two properties of that combination produce exactly the observed spin.  `0`
+is true in Pop-11, so `quitunless(n)` does not stop on `0` -- by design,
+since `0` means "alive, nothing yet".  And a pipe at EOF is *ready* for
+`select`, so `sys_device_wait` returns ready, `sysread` returns 0
+characters, and the loop goes round again immediately.  The `false` that
+ends the loop can only be reached down the not-ready branch, which needs
+`cont(ref)` -- the child's exit status, delivered by the
+`report_finished` AST that `sys_fork` was given.  While that AST is
+outstanding the loop spins at 100% CPU, arming and cancelling a 0.5s
+timeout every iteration.
+
+Usually the AST arrives within microseconds and nobody notices.  The
+hypothesis for the ~26%: on a loaded hosted runner it sometimes does not
+arrive at all, and then the loop never ends.  That makes this the same
+family as #47 -- a lost child-status notification -- which is why it
+surfaces in these suites, and it means my original child-wait instinct was
+closer than the timer story that replaced it.  It is still a hypothesis:
+the next instrument has to show whether `cont(ref)` is ever set.
+
 ## What was ruled out, and at what cost
 
 Worth recording because most of it was wasted motion from reasoning ahead
@@ -204,15 +283,24 @@ nothing, leaving the killing to `test-libs.sh`'s own watchdog.
 
 ## Next
 
+0. A syscall histogram, now in `hang-watch.sh`: two seconds of
+   `strace -c` on the wedged pid.  `select` + `read` in the hundreds of
+   thousands confirms the pipe-at-EOF loop; `setitimer` and `sigprocmask`
+   alone would send this back to the timer.  Dispatched on
+   `gate-timeout-bisect`.
 1. ~~A second captured stack.~~  Done; see above.  It is a loop.
-2. Instrument the expired branch, not `syssleep`: on the Nth consecutive
+2. ~~Instrument the expired branch~~ -- done, and it refuted the
+   hypothesis: on the Nth consecutive
    `handling=0` expiry, print the head entry's absolute `E_SEC/E_USEC`,
    the clock just read, and the computed remainder, once, to stderr
    behind an environment variable so ordinary builds are untouched.  That
    separates the two candidates above -- a 0/0 entry prints zeros, a
    clock step prints a deadline a plausible distance in the past -- and
    it is a dozen lines in `pop_timer.c`.
-3. ~~The fix.~~  Written, on branch `timer-expired-rearm`: `next_timer`
+3. ~~The fix.~~  Written and **not the fix for this bug** -- the gate hung
+   with it in place (run 39065872100).  Keep or drop it on its own
+   merits as hardening, not as a bug fix; on branch
+   `timer-expired-rearm`: `next_timer`
    arms one clock interval instead of cancelling, so the signal arrives
    even when the trap is not serviced, the handler runs with
    `handling=TRUE`, and the entry is dequeued.  The queue stops being
