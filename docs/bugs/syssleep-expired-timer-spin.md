@@ -149,8 +149,22 @@ time to lose between them.  Two better candidates:
     for a zero interval ("elseif zero interval, leave as zero and expires
     immediately", `pop_timer.c:562`), and `sys_timer.p`'s
     `returnunless(usec)` does not catch integer 0, since 0 is true in
-    Pop-11.  `syssleep(50)` passes 500000, so this is not our caller --
-    but it is a live way to wedge the queue from Pop-11.
+    Pop-11.  `syssleep(50)` passes 500000, so this is not our caller.
+
+    **Tested, and it does not wedge** -- which is the useful part.
+    `syssleep(0)` locally takes this exact branch once and returns
+    immediately, and with the instrument at `POP_TIMER_DEBUG=1` prints:
+
+        pop_timer: 1 expiries on real queue, handling=0;
+        deadline 0.000000 (zero, always expired) ident 4295168232
+        repeat 0.000000 blocked 1 pending 0 armed 0.000000
+
+    So the queue really can hold a permanently-expired entry, the itimer
+    really is disarmed (`armed 0.000000`), and the raise-and-trap path
+    still services it.  An expired deadline is therefore **not
+    sufficient**: the spin additionally needs the raised SIGALRM to go
+    unserviced.  That is why the instrument reports `blocked`, `pending`
+    and the armed itimer as well as the arithmetic.
   * **A forward step of the wall clock.**  `TIMER_GET_CLOCK` for a real
     timer is `gettimeofday`, i.e. CLOCK_REALTIME.  An NTP step forward
     between arming and the first check puts the deadline in the past once
@@ -198,12 +212,13 @@ nothing, leaving the killing to `test-libs.sh`'s own watchdog.
    separates the two candidates above -- a 0/0 entry prints zeros, a
    clock step prints a deadline a plausible distance in the past -- and
    it is a dozen lines in `pop_timer.c`.
-3. The fix does not depend on which one it is, and is worth making
-   either way: `next_timer` must never leave an expired entry queued with
-   no timer armed.  Arming a minimum non-zero itimer instead of
-   disarming makes the signal actually arrive, so the handler runs with
-   `handling=TRUE`, the entry is dequeued, and the loop cannot form
-   whatever put the deadline in the past.
+3. ~~The fix.~~  Written, on branch `timer-expired-rearm`: `next_timer`
+   arms one clock interval instead of cancelling, so the signal arrives
+   even when the trap is not serviced, the handler runs with
+   `handling=TRUE`, and the entry is dequeued.  The queue stops being
+   wedgeable whatever put the deadline in the past.  Deliberately a
+   separate branch from the instrument, so each is judged on its own.
+   Locally 16/16 suites green and `10 x syssleep(50)` still 5.05s.
 4. Judge the fix by the gate, honestly: at a 26% per-leg rate, a run of
    clean x86_64 legs only means something past about ten of them
    (0.74^10 is under 5%).  Fewer than that is re-rolling until green,
