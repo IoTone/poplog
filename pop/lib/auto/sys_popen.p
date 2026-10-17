@@ -106,6 +106,27 @@ define vars read_pipe(dev, string, len, ref) -> num;
 
         sysread(dev, string, len) -> num;
 
+        if num == 0 then
+            ;;; Ready with nothing to read means end of file: the writer
+            ;;; is gone.  This has to be reported as finished, not as 0
+            ;;; ("alive, nothing yet"), because a pipe at EOF stays READY
+            ;;; for select -- so the else branch below, the only place
+            ;;; cont(ref) is consulted and the only one that can return
+            ;;; false, becomes unreachable.  The documented drain loop
+            ;;;
+            ;;;     repeat
+            ;;;         read_pipe(dev, buf, len, ref) -> n;
+            ;;;         quitunless(n);
+            ;;;         ...
+            ;;;     endrepeat
+            ;;;
+            ;;; then spins at 100% CPU for ever, since 0 is true in
+            ;;; Pop-11.  Measured on a hosted x86_64 runner: ~3000
+            ;;; select+read pairs a second, 8 of 8 test rounds wedged.
+            ;;; See docs/bugs/popen-drain-eof-spin.md.
+            false -> num
+        endif
+
     else
         ;;; Nothing in pipe. See if process is dead,
         ;;; chance to run
