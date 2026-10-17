@@ -11,7 +11,7 @@
 #_INCLUDE 'signals.ph'      ;;; For OSPROC_ stuff
 
 constant
-        procedure (syshibernate)
+        procedure (syshibernate, Sys$-Check_os_children)
     ;
 
 vars
@@ -120,7 +120,20 @@ define sys_wait(pid) /* -> (pid, status) */;
         endif;
 
         true -> _waited;
-        syshibernate()
+        syshibernate();
+        ;;; A SIG_CHILD can be lost outright, leaving a zombie that no
+        ;;; signal will ever announce -- most directly when the child dies
+        ;;; inside sys_fork's window between pop_fork() returning in the
+        ;;; parent and Add_os_process_entry listing it, so the trap runs,
+        ;;; finds no entry, and the signal is spent.  Seen on hosted
+        ;;; runners as a <defunct> sh under an engine parked right here
+        ;;; with SigPnd 0.  The park above is already bounded at 100ms for
+        ;;; a sibling race (see pause_popintr), so re-scan the process
+        ;;; list each time it wakes: a lost signal then costs one tick
+        ;;; instead of for ever.  A direct call, deliberately -- a
+        ;;; synthetic ast would leave _pop_signals_pending set and make
+        ;;; the next park return at once, turning this loop into a spin.
+        Check_os_children()
     endrepeat
 enddefine;
 
