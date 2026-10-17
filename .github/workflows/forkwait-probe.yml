@@ -108,7 +108,15 @@ jobs:
           # needs its own fallback -- an empty rounds count would otherwise
           # make the probe exit 2 on arrival.
           PROBE_PATIENCE: ${{ inputs.patience || '75' }}
-          ROUNDS: ${{ inputs.rounds || '15' }}
+          # One round on a push, deliberately.  The 45-round runs were a
+          # misread: only round 1 of each is on a freshly booted runner
+          # with a cold tree, so 15 rounds bought 1 cold sample and 14 warm
+          # ones -- and all three hangs seen so far were a runner's FIRST
+          # test-libs run.  At the observed ~25% per-leg rate, three cold
+          # samples come back clean 42% of the time, so the earlier "all
+          # clean" never tested this.  One round per push, pushed a few
+          # times, is how to get cold samples.
+          ROUNDS: ${{ inputs.rounds || '1' }}
           SET_FLAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.whole_set == false) && ' ' || '--set' }}
         run: |
           # shellcheck disable=SC2086
