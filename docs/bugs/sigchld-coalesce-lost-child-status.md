@@ -2,9 +2,9 @@
 
 Found 2026-10-17 by `.github/workflows/skill-release.yml` running all 16
 library suites on hosted runners for the first time.  The Jenkins gate ran
-2 suites, so it could not have seen this.  **Partly fixed** the same day
-in `pop/src/signals.p` (branch `sigchld-coalesce`); a second hole remains,
-see "What is still broken".
+2 suites, so it could not have seen this.  **Fixed** the same day in
+`pop/src/signals.p` with a regression test in
+`tools/tests/test_sigchld_coalesce.p` (branch `sigchld-coalesce`).
 
 Sibling of [`shell-fork-hang-lost-sigchld.md`](shell-fork-hang-lost-sigchld.md)
 (#47), which bounded the *park* this bug causes without curing the cause.
@@ -31,7 +31,7 @@ Rates, all on the same plain `sh tools/test-libs.sh`:
 | `hang-sample`, 8 sequences back to back, x86_64 | 8 | **7** |
 | `hang-sample`, 8 sequences back to back, macOS arm64 | 8 | 1 |
 | `hang-sample`, 8 sequences back to back, aarch64 | 8 | 0 |
-| local reproducer, 10 children dying together | every round | 1-4 asts lost |
+| local reproducer, 10 children dying together | 30 rounds | 17 rounds lost an ast, 25 in all |
 
 Never reproduced on a developer machine *as a suite hang*; the underlying
 loss reproduces on an idle laptop in under a second (see "Reproducing").
@@ -76,17 +76,17 @@ Both symptoms follow from that:
 
 ## Reproducing
 
-`tools/debug/sigchld-coalesce-probe.p`: fork ten children that each sleep
-0.3s and exit, so they die together, each with an ast.
+`tools/tests/test_sigchld_coalesce.p` forks ten children that each sleep
+0.3s and exit, so they die together, each with an ast:
 
-    ./poplog target/pop/basepop11 tools/debug/sigchld-coalesce-probe.p
+    ./poplog target/pop/basepop11 tools/tests/test_sigchld_coalesce.p
 
-Before the fix, on an idle macOS arm64 laptop, every single round lost
-asts -- `lost 2 of 10`, `4`, `1`, `1`, `2` -- and the lost pids are always
-the *oldest*, which is what a LIFO list scanned with `return`-after-first
-predicts.
+On an idle macOS arm64 laptop that loses asts in more than half of all
+rounds on an unfixed engine, and the lost pids are always the *oldest* --
+what a LIFO list scanned with `return`-after-first predicts.  Nothing in
+this investigation had reproduced the bug off a hosted runner before.
 
-## The fix, and what is still broken
+## The fix
 
 `pop/src/signals.p`: keep calling the trap until it reports that nothing
 more has died.
@@ -95,19 +95,39 @@ more has died.
         unless Raise_astp(ast, false) then Add(ast) endunless
     endwhile;
 
-That takes the loss from ~2 asts per round to about one per 25 rounds --
-roughly 50x, and necessary regardless -- but **not to zero**.  With
-reaping driven only by signal deliveries, any delivery that is lost is
-lost forever; draining each one narrows the window without closing it.
+Measured with `tools/tests/test_sigchld_coalesce.p`, ten children dying
+together:
 
-The candidate for closing it: reap periodically as well, on the 100ms
-`syshibernate` tick #47 already introduced, so a lost delivery costs one
-tick instead of forever.  That is a change to the signal path and is not
-written.
+| | rounds losing an ast | asts lost |
+| --- | --- | --- |
+| before | 17 of 30 | 25 |
+| after | 0 of 30 | 0 |
 
-The probe stays in `tools/debug`, not `tools/tests`, until the rate is
-zero: at one failure in five it would make the release gate flaky, which
-is the thing this whole exercise exists to prevent.
+The test fails 3 for 3 on an unfixed engine and passes 3 for 3 on a fixed
+one, so ten rounds catch a regression with better than 99.9% probability,
+and it is cheap enough to live in the suite set rather than in
+`tools/debug`.
+
+### A hole in the probe, not the engine
+
+For an hour the fix looked partial: an earlier probe still lost about one
+ast per 25 rounds with the drain in place, and this file said so.  That
+probe accumulated reaped pids as
+
+    [^^fired ^pid] -> fired
+
+inside the ast.  Allocation is a check point and asts run at check
+points, so an ast nested inside that cons loses the outer update: the
+probe was dropping its own records.  The test above gives each ast a
+preallocated slot -- no consing, no shared accumulator -- and reports zero
+loss over 30 rounds.
+
+What settled it was asking what kind of loss it was rather than
+theorising: for a child whose ast never ran, `sys_wait` mishaps with
+INVALID OR NONEXISTENT if the entry had been removed (reaped, ast lost)
+and parks if the entry is still there (never reaped).  It mishapped --
+the child *had* been reaped -- which pointed at the recording side, and
+the recording side was mine.
 
 ## What the earlier diagnoses got wrong
 
