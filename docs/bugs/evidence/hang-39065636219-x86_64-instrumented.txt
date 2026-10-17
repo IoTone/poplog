@@ -1,0 +1,52 @@
+==============================================================
+WEDGED  pid 4083  alive 151s  20:15:25Z
+uname: Linux 6.17.0-1022-azure x86_64
+==============================================================
+--- command ---
+   4083    4081 /home/runner/work/poplog/poplog/target/pop/basepop11 /home/runner/work/poplog/poplog/tools/tests/test_sysexecute_or_exit.p
+--- children and grandchildren ---
+--- ancestry ---
+   4083    4081 R    /home/runner/work/poplog/poplog/target/pop/basepop11 /home/runner/work/poplog/poplog/tools/tests/test_sysexecute_or_exit.p
+   4081    3468 S    sh tools/test-libs.sh
+   3468    3466 S    sh tools/test-libs.sh
+   3466    2141 S    /usr/bin/bash -e /home/runner/work/_temp/b1714964-a33f-4489-843f-9f343c1e112b.sh
+   2141    2121 Sl   /home/runner/actions-runner/cached/2.337.0/bin/Runner.Worker spawnclient 142 145
+   2121    2047 Sl   /home/runner/actions-runner/cached/2.337.0/bin/Runner.Listener run
+   2047       1 Ssl  /opt/hca/hosted-compute-agent
+--- wchan / syscall ---
+0
+running
+
+--- signals and state ---
+State:	R (running)
+Threads:	1
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000000000
+SigIgn:	0000000009421000
+SigCgt:	000000003699eeff
+--- fds ---
+total 0
+-> /dev/null
+-> /tmp/tmp.OBp6fIkboD
+-> pipe:[10848]
+-> pipe:[10849]
+-> /tmp/tmp.OBp6fIkboD
+-> /home/runner/work/poplog/poplog/tools/tests/test_sysexecute_or_exit.p
+-> pipe:[22141]
+--- native backtrace (read-only attach) ---
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+__GI___pthread_sigmask (how=how@entry=0, newmask=<optimized out>, newmask@entry=0x7fffffff4520, oldmask=oldmask@entry=0x7fffffff44a0) at ./nptl/pthread_sigmask.c:43
+
+warning: 43	./nptl/pthread_sigmask.c: No such file or directory
+#0  __GI___pthread_sigmask (how=how@entry=0, newmask=<optimized out>, newmask@entry=0x7fffffff4520, oldmask=oldmask@entry=0x7fffffff44a0) at ./nptl/pthread_sigmask.c:43
+#1  0x00007ffff7c4550d in __GI___sigprocmask (how=how@entry=0, set=set@entry=0x7fffffff4520, oset=oset@entry=0x7fffffff44a0) at ../sysdeps/unix/sysv/linux/sigprocmask.c:25
+#2  0x00000000005b5050 in pop_timer (flags=0, ident=6142304, handler=0x5b414b <_pop_timer_trap>, tvp=0x7fffffff4650) at pop/extern/lib/pop_timer.c:635
+#3  0x00000000005ab3cd in L2.2 ()
+#4  0x00000000001e8483 in ?? ()
+#5  0x0000000000dc17e0 in ?? ()
+#6  0x00000000001e8483 in ?? ()
+#7  0x0000000000000000 in ?? ()
+[Inferior 1 (process 4083) detached]
+
