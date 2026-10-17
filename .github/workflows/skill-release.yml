@@ -109,8 +109,15 @@ jobs:
           sh tools/build-popcurl.sh
           sh tools/build-poppcre.sh
 
+      # ONE flip from the config that hangs (4 of 15 legs): same foreground
+      # invocation, same piped stdout, only the watchdog's limit raised from
+      # 120s to 600s.  This settles slow-vs-hung, which "timed out after
+      # 120s" cannot: test-libs.sh SIGKILLs at the limit and reports the
+      # same line either way.  A suite that finishes at, say, 200s was
+      # merely slow and wants its own `;;; test-timeout:` line; one still
+      # alive at 600s is genuinely wedged.
       - name: Library test suites
-        run: sh tools/test-libs.sh
+        run: TEST_TIMEOUT=600 sh tools/test-libs.sh
 
       # The regression this release exists to ship.  The bug parks sys_wait
       # in pause() with no error and no CPU, so a hang here would otherwise
