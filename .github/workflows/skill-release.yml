@@ -124,12 +124,18 @@ jobs:
       # hang vanish last time (57 wrapped sequences clean vs 6 hangs in 21
       # plain legs).  TEST_TIMEOUT stays at 600 because 600 still hangs, so
       # it costs nothing and gives the watcher a wide window to dump in.
+      #
+      # POP_TIMER_DEBUG makes next_timer report the head entry's absolute
+      # deadline, the clock it was compared against and the remainder once
+      # it has taken the handling=0 expired branch 1000 times.  Normal
+      # operation never gets near that; a spin passes it instantly.  The
+      # threshold and the format are in pop/extern/lib/pop_timer.c.
       - name: Library test suites
         run: |
           sh tools/debug/hang-watch.sh "$PWD" 150 hang-dump.txt &
           watcher=$!
           rc=0
-          TEST_TIMEOUT=600 sh tools/test-libs.sh || rc=$?
+          POP_TIMER_DEBUG=1000 TEST_TIMEOUT=600 sh tools/test-libs.sh || rc=$?
           kill "$watcher" 2>/dev/null || true
           if [ -s hang-dump.txt ]; then
               echo "=== hang-watch caught something ==="
