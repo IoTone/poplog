@@ -21,9 +21,6 @@ this investigation believed first.**
 The rest of this file is the investigation as it happened, kept because
 the refutations and the instruments are the durable part.
 
-What is solid: the symptom (below), the two shapes it takes, the
-reproduction rate, and the tooling.  What is not: any claim about cause.
-
 Related: [`shell-fork-hang-lost-sigchld.md`](shell-fork-hang-lost-sigchld.md)
 (#47), a genuinely different bug in the same area, whose 100ms `poll()`
 bound is why one shape of this hang parks rather than hanging dead.
