@@ -147,6 +147,7 @@ if [ "$mode" = set ]; then
     # precisely the state we are here to photograph.  We must reach the
     # hung engine first.
     r=1
+    notgreen=0
     while [ "$r" -le "$rounds" ]; do
         log=$(mktemp) || exit 2
         TEST_TIMEOUT=600 sh tools/test-libs.sh >"$log" 2>&1 &
@@ -205,12 +206,21 @@ if [ "$mode" = set ]; then
         if grep -q 'all suites green' "$log"; then
             printf 'test-libs round %s/%s all green\n' "$r" "$rounds"
         else
+            # A failing check is not the hang we are hunting, but this
+            # doubles as the release gate's own test step, so a red suite
+            # has to come back as a non-zero exit and not just a line of
+            # text that scrolls past.
             printf 'test-libs round %s/%s NOT green\n' "$r" "$rounds"
-            grep -E '^FAIL|suite\(s\) failing' "$log" | tail -5
+            grep -E '^FAIL|suite\(s\) failing' "$log" | tail -8
+            notgreen=$((notgreen + 1))
         fi
         rm -f "$log"
         r=$((r + 1))
     done
+    if [ "$notgreen" -gt 0 ]; then
+        echo "forkwait-probe: no hang, but $notgreen of $rounds rounds were not green"
+        exit 1
+    fi
     echo "forkwait-probe: no hang in $rounds whole-set rounds"
     exit 0
 fi
