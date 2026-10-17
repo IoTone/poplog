@@ -1,0 +1,255 @@
+# Build and publish the pop11 Claude skill tarballs.
+#
+# Trigger by pushing a tag named skill-YYYY.MM, or manually via
+# workflow_dispatch (which defaults to a dry run: it builds and verifies
+# every platform but publishes nothing, so the three build legs can be
+# proved before a tag exists).
+#
+# Why this exists.  These tarballs used to be built by hand on four
+# machines, and on 2026-10-15 that showed: the skill-2026.10 assets went up
+# at 07:46 and the fork-hang fix (#47) merged at 22:28 the same day, so
+# every install for the next day shipped a `shell_run` that wedged about
+# one call in forty on aarch64 Linux.  The fix was in
+# pop/extern/lib/c_core.c -- compiled into basepop11, so no file shipped
+# alongside could patch it.  A release that needs four machines visited in
+# the right order is a release that drifts; this one needs a tag.
+#
+# riscv64 is NOT built here: there is no hosted RISC-V runner.  It stays
+# hand-built on machine1 and uploaded to the same tag --
+#
+#     tools/release-skill-tarball.sh ~/poplog-ci/poplog dist/skill
+#     gh release upload skill-YYYY.MM dist/skill/pop11-skill-linux-riscv64.tar.gz
+#
+# -- after which re-running this workflow on the same tag regenerates
+# SHA256SUMS.pop11-skill over all four, because the publish job pulls any
+# riscv64 asset already on the release before hashing.
+#
+# The seeds come from nix/seeds/ rather than a corepops release, so the
+# build's provenance is the tagged commit and nothing depends on a release
+# URL -- the `latest` slot in particular, which the skill tarballs own (the
+# install-skill.sh one-liner reads releases/latest/download/) and which
+# broke the docs build when a seed tried to share it.
+name: skill-release
+
+on:
+  push:
+    tags:
+      - 'skill-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. skill-2026.10); ignored on a dry run'
+        required: false
+      dry_run:
+        description: 'Build and verify only, publish nothing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: skill-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tarball:
+    # fail-fast off on purpose: one platform's build breaking should still
+    # leave the others' evidence to look at.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            seed: corepop-x86_64-linux
+            asset: pop11-skill-linux-x86_64.tar.gz
+          - runner: ubuntu-24.04-arm
+            seed: corepop-aarch64-linux
+            asset: pop11-skill-linux-aarch64.tar.gz
+          - runner: macos-latest
+            seed: corepop-aarch64-darwin
+            asset: pop11-skill-macos-arm64.tar.gz
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libncurses-dev
+
+      - name: Seed target/pop/corepop
+        run: |
+          mkdir -p target/pop
+          cp "nix/seeds/${{ matrix.seed }}" target/pop/corepop
+          chmod 755 target/pop/corepop
+
+      - name: Build Poplog
+        run: |
+          ./configure
+          make
+
+      - name: Library test suites
+        run: sh tools/test-libs.sh
+
+      # The regression this release exists to ship.  The bug parks sys_wait
+      # in pause() with no error and no CPU, so a hang here would otherwise
+      # burn the job's whole budget: hence the step timeout, which IS the
+      # assertion.  180 calls because it hung 4 runs in 5 at 60.
+      - name: A lost SIGCHLD does not park sys_wait
+        timeout-minutes: 5
+        run: |
+          cat > /tmp/forkloop.p <<'POP'
+          uses shell;
+          ;;; `trial`, not `round`: round is a built-in procedure and cannot
+          ;;; be declared, which this script found out the hard way.
+          vars out, status, i, trial;
+          for trial from 1 to 3 do
+              for i from 1 to 60 do
+                  shell_run('echo hi') -> (out, status);
+                  unless status == 0 then
+                      mishap(status, 1, 'shell_run failed')
+                  endunless;
+              endfor;
+              printf('trial %p: 60 calls ok\n', [^trial]);
+          endfor;
+          printf('FORKLOOP-OK\n');
+          POP
+          ./poplog ./target/pop/basepop11 /tmp/forkloop.p | tee /tmp/forkloop.out
+          grep -q FORKLOOP-OK /tmp/forkloop.out
+
+      - name: Package
+        run: tools/release-skill-tarball.sh . dist/skill
+
+      - name: The tarball is named what the installer asks for
+        run: test -f "dist/skill/${{ matrix.asset }}"
+
+      # The relocation claim, checked rather than trusted: install from the
+      # tarball exactly as a user would, through the real installer, into a
+      # path that has nothing to do with where it was built.  skill/install.sh
+      # ends in a live session smoke test, so this covers the runtime too.
+      - name: Install it the way a user does
+        run: |
+          POP11_SKILL_URL="file://$PWD/dist/skill/${{ matrix.asset }}" \
+          POP11_SKILL_PREFIX="$RUNNER_TEMP/pop11-skill-check" \
+              sh tools/install-skill.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/skill/${{ matrix.asset }}
+          if-no-files-found: error
+
+  # Platform-neutral (config and grammars only), so once, anywhere.
+  editors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Package the editor extensions
+        run: tools/package-editors.sh dist/editors
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editors
+          path: dist/editors/*
+          if-no-files-found: error
+
+  publish:
+    needs: [tarball, editors]
+    # A dispatch defaults to building only; a tag push always publishes.
+    if: github.event_name == 'push' || inputs.dry_run == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: incoming
+
+      - name: Collect the assets
+        run: |
+          mkdir -p dist
+          find incoming -type f -exec cp {} dist/ \;
+          ls -l dist
+
+      - name: Resolve the tag
+        id: tag
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          [ -n "$TAG" ] || { echo "no tag given" >&2; exit 2; }
+          case "$TAG" in
+              skill-*) ;;
+              *) echo "refusing to publish to $TAG: skill releases are skill-*" >&2
+                 exit 2 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # riscv64 has no hosted runner, so its tarball is hand-built and may
+      # already be on the release.  Pull it in before hashing, or
+      # SHA256SUMS would silently describe three platforms and claim to
+      # describe the release.
+      - name: Adopt a hand-built riscv64 tarball, if there is one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if gh release download "$TAG" --dir dist \
+                 --pattern 'pop11-skill-linux-riscv64.tar.gz' 2>/dev/null; then
+              echo "adopted the existing riscv64 tarball"
+          else
+              echo "::warning::no riscv64 tarball on $TAG -- build it on machine1 and re-run this workflow"
+          fi
+
+      - name: Checksums
+        run: |
+          cd dist
+          ls pop11-skill-*.tar.gz | sort | xargs sha256sum > SHA256SUMS.pop11-skill
+          cat SHA256SUMS.pop11-skill
+
+      - name: Release notes
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          {
+            echo "Poplog runtime + the pop11 Claude skill, built from \`${GITHUB_SHA}\`."
+            echo
+            echo '```sh'
+            echo 'curl -fsSL https://raw.githubusercontent.com/IoTone/poplog/master/tools/install-skill.sh | sh'
+            echo '```'
+            echo
+            echo "Every tarball here was built from the seed vendored in this commit, run"
+            echo "through the library suites and the fork-hang regression, then installed"
+            echo "from scratch through \`install-skill.sh\` into a path unrelated to its"
+            echo "build directory -- so the relocation is checked, not assumed."
+            echo
+            if [ -f dist/pop11-skill-linux-riscv64.tar.gz ]; then
+              echo "riscv64 is hand-built (no hosted RISC-V runner) and included."
+            else
+              echo "**riscv64 is not in this release yet** -- it has no hosted runner, so it"
+              echo "is built on machine1 and uploaded separately."
+            fi
+            echo
+            echo "Checksums: \`SHA256SUMS.pop11-skill\`."
+          } > dist/NOTES.md
+          cat dist/NOTES.md
+
+      # --latest is explicit because install-skill.sh reads
+      # releases/latest/download/, so the skill release has to own that slot.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          assets="$(ls dist/pop11-* dist/SHA256SUMS.pop11-skill)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" $assets --clobber
+              gh release edit "$TAG" --latest --notes-file dist/NOTES.md
+          else
+              gh release create "$TAG" \
+                  --title "Poplog runtime + pop11 Claude skill ($TAG)" \
+                  --notes-file dist/NOTES.md \
+                  --latest \
+                  $assets
+          fi

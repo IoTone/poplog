@@ -1,0 +1,134 @@
+{
+ "float16": {
+  "email": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "en": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "zh": {
+   "model": "multilingual",
+   "reason": "non-Latin script (han, 100% of letters); the English checkpoint cannot read it"
+  },
+  "de": {
+   "model": "multilingual",
+   "reason": "Latin script but language looks like 'de', not English"
+  },
+  "fr": {
+   "model": "multilingual",
+   "reason": "Latin script but language looks like 'fr', not English"
+  },
+  "es": {
+   "model": "multilingual",
+   "reason": "Latin script but language looks like 'es', not English"
+  },
+  "hi": {
+   "model": "multilingual",
+   "reason": "non-Latin script (devanagari, 100% of letters); the English checkpoint cannot read it"
+  },
+  "ja": {
+   "model": "multilingual",
+   "reason": "non-Latin script (kana, 100% of letters); the English checkpoint cannot read it"
+  },
+  "ru": {
+   "model": "multilingual",
+   "reason": "non-Latin script (cyrillic, 100% of letters); the English checkpoint cannot read it"
+  },
+  "empty_state": {
+   "model": "english",
+   "reason": "no letters detected in state; using default (english)"
+  },
+  "long": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "conversation": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "mask_literals": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "many_questions": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "structured": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "twenty_options": {
+   "model": "english",
+   "reason": "English Latin text"
+  }
+ },
+ "float32": {
+  "email": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "en": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "zh": {
+   "model": "multilingual",
+   "reason": "non-Latin script (han, 100% of letters); the English checkpoint cannot read it"
+  },
+  "de": {
+   "model": "multilingual",
+   "reason": "Latin script but language looks like 'de', not English"
+  },
+  "fr": {
+   "model": "multilingual",
+   "reason": "Latin script but language looks like 'fr', not English"
+  },
+  "es": {
+   "model": "multilingual",
+   "reason": "Latin script but language looks like 'es', not English"
+  },
+  "hi": {
+   "model": "multilingual",
+   "reason": "non-Latin script (devanagari, 100% of letters); the English checkpoint cannot read it"
+  },
+  "ja": {
+   "model": "multilingual",
+   "reason": "non-Latin script (kana, 100% of letters); the English checkpoint cannot read it"
+  },
+  "ru": {
+   "model": "multilingual",
+   "reason": "non-Latin script (cyrillic, 100% of letters); the English checkpoint cannot read it"
+  },
+  "empty_state": {
+   "model": "english",
+   "reason": "no letters detected in state; using default (english)"
+  },
+  "long": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "conversation": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "mask_literals": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "many_questions": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "structured": {
+   "model": "english",
+   "reason": "English Latin text"
+  },
+  "twenty_options": {
+   "model": "english",
+   "reason": "English Latin text"
+  }
+ }
+}

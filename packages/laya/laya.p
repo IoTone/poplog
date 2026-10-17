@@ -312,12 +312,19 @@ define laya_install();
     laya_transport -> ts_transport;
     false -> ts_require_key;
     'laya' -> ts_model;     ;;; informational: the child chose its checkpoint
+    ;;; Nothing here is worth retrying.  The statuses this transport
+    ;;; reports are its own, not a server's: a 504 means the call outran
+    ;;; ts_timeout and the child has already been killed, so a retry would
+    ;;; pay the model load again for the same answer -- and a local pipe
+    ;;; has neither a rate limit nor a gateway to be transiently broken.
+    [] -> ts_retry_statuses;
 enddefine;
 
 define laya_uninstall();
     http_request -> ts_transport;
     true -> ts_require_key;
     'jev-latest' -> ts_model;
+    false -> ts_retry_statuses;     ;;; back to the hosted API's policy
 enddefine;
 
 laya_install();

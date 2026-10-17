@@ -1,0 +1,119 @@
+{
+ "base_url": "https://api.typesafe.ai/v1",
+ "model_asked": "jev-latest",
+ "model_reported": [
+  "jev-1.13.0"
+ ],
+ "calls": 39,
+ "deterministic_on_repeat": true,
+ "control_noise": 0.0,
+ "option_order_matters": false,
+ "question_order_matters": true,
+ "control": {
+  "dup_charge": {
+   "repeats": 3,
+   "identical": true,
+   "max_numeric_spread": 0.0,
+   "worst_field": null,
+   "fields_that_changed_categorically": []
+  },
+  "crash": {
+   "repeats": 3,
+   "identical": true,
+   "max_numeric_spread": 0.0,
+   "worst_field": null,
+   "fields_that_changed_categorically": []
+  },
+  "pricing": {
+   "repeats": 3,
+   "identical": true,
+   "max_numeric_spread": 0.0,
+   "worst_field": null,
+   "fields_that_changed_categorically": []
+  }
+ },
+ "g3_option_order": {
+  "dup_charge": {
+   "orderings": 6,
+   "distinct_picks": [
+    "billing"
+   ],
+   "pick_changed": false,
+   "pick_in_written_order": "billing",
+   "max_numeric_spread": 0.0,
+   "worst_field": null,
+   "above_control_noise": false
+  },
+  "crash": {
+   "orderings": 6,
+   "distinct_picks": [
+    "technical"
+   ],
+   "pick_changed": false,
+   "pick_in_written_order": "technical",
+   "max_numeric_spread": 0.0,
+   "worst_field": null,
+   "above_control_noise": false
+  },
+  "pricing": {
+   "orderings": 6,
+   "distinct_picks": [
+    "sales"
+   ],
+   "pick_changed": false,
+   "pick_in_written_order": "sales",
+   "max_numeric_spread": 0.0,
+   "worst_field": null,
+   "above_control_noise": false
+  }
+ },
+ "g4_question_order": {
+  "dup_charge": {
+   "refund": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   },
+   "team": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   },
+   "urgency": {
+    "orderings": 6,
+    "max_numeric_spread": 0.020000000000000018,
+    "worst_field": "/confidence",
+    "fields_that_changed_categorically": [],
+    "above_control_noise": true
+   }
+  },
+  "crash": {
+   "refund": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   },
+   "team": {
+    "orderings": 6,
+    "max_numeric_spread": 0.0,
+    "worst_field": null,
+    "fields_that_changed_categorically": [],
+    "above_control_noise": false
+   },
+   "urgency": {
+    "orderings": 6,
+    "max_numeric_spread": 0.12,
+    "worst_field": "/confidence",
+    "fields_that_changed_categorically": [],
+    "above_control_noise": true
+   }
+  }
+ },
+ "problems": []
+}

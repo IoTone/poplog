@@ -3,6 +3,12 @@
 ;;;     LAYA_MODEL=aac6fef/laya-mlx LAYA_DTYPE=float16 PARITY_DIR=... PARITY_OUT=.../out.json \
 ;;;         ./poplog ./target/pop/basepop11 packages/laya/experiments/parity.p
 ;;;
+;;; With LAYA_ROUTER set to a nonempty value the child is started with --router
+;;; instead of --model, which is E6: the same cases, answered by whichever
+;;; checkpoint the router picks per request.  LAYA_MODEL is then ignored, as it is
+;;; by laya_serve.py.  One harness for both so the two experiments cannot drift
+;;; apart in how they call ts_eval -- which is the thing being measured.
+;;;
 ;;; Each request is parsed with json_ordered_objects on, so choice options and nested
 ;;; objects keep their order, then rebuilt as a ts_eval call -- the path a Pop-11
 ;;; program takes, including Pop-11's own JSON generation of the state.
@@ -14,7 +20,12 @@ extend_searchlist('packages/laya', popuseslist) -> popuseslist;
 uses fileutils;
 uses laya;
 
-systranslate('LAYA_MODEL') -> laya_model;
+lvars router = systranslate('LAYA_ROUTER');
+if router and router /= '' then
+    true -> laya_router;
+else
+    systranslate('LAYA_MODEL') -> laya_model;
+endif;
 systranslate('LAYA_DTYPE') -> laya_dtype;
 false -> ts_api_key;
 

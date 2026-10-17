@@ -122,6 +122,18 @@ location; `POP11_SKILL_URL` pins a version (any curl-able URL, including
 Tarballs are built by `tools/release-skill-tarball.sh` and published with
 checksums (`SHA256SUMS.pop11-skill`) on the releases page.
 
+Releasing is one tag: pushing `skill-YYYY.MM` runs
+[`.github/workflows/skill-release.yml`](.github/workflows/skill-release.yml),
+which builds x86-64 Linux, AArch64 Linux and Apple Silicon macOS from the
+seed vendored in that commit, runs the library suites and the fork-hang
+regression on each, installs every tarball through `install-skill.sh` into a
+path unrelated to its build directory, and publishes with checksums. Run it
+from the Actions tab first to build and verify without publishing anything.
+**RISC-V has no hosted runner**, so `pop11-skill-linux-riscv64.tar.gz` is
+still hand-built on `machine1` and uploaded to the same tag; re-running the
+workflow afterwards folds it into `SHA256SUMS.pop11-skill`, which the
+publish step reads off the release rather than assuming three platforms.
+
 **2. From source** — see [INSTALL](INSTALL): seed `target/pop/corepop`
 (binaries vendored under `nix/seeds/` for the four ported platforms),
 then `./configure && make all`.
@@ -348,8 +360,10 @@ published with checksums on this repository's releases page:
 
   https://github.com/IoTone/poplog/releases
 
-(e.g. `releases/latest/download/corepop-aarch64-linux`; the same seeds
-are vendored under `nix/seeds/` for the Nix flake build).  For the older
+(e.g. `releases/download/corepops-2026.10/corepop-aarch64-linux` -- seed
+URLs name their corepops tag rather than `latest`, which the skill
+releases also use; the same seeds are vendored under `nix/seeds/` for
+the Nix flake build).  For the older
 upstream platforms you can find bootstrap binaries at:
 
   https://poplog.fricas.org/corepops
