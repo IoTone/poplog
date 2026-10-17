@@ -1,15 +1,29 @@
-# One SIGCHLD, several dead children: the rest are never reaped
+# The intermittent suite hang: still open (and three dead hypotheses)
 
 Found 2026-10-17 by `.github/workflows/skill-release.yml` running all 16
 library suites on hosted runners for the first time.  The Jenkins gate ran
-2 suites, so it could not have seen this.  **Fixed** the same day in
-`pop/src/signals.p` with a regression test in
-`tools/tests/test_sigchld_coalesce.p` (PR #57).
+2 suites, so it could not have seen this.  **STILL OPEN.**  Three hypotheses have been killed by measurement, the
+third after its fix was written and shipped to CI: a child-wait
+bookkeeping bug, a spin in the interval timer, and coalesced SIG_CHILD
+losing child-status asts.  The last of those is a real bug, fixed in
+`pop/src/signals.p` with a regression test (PR #57), and it changes this
+hang not at all:
 
-Sibling of [`shell-fork-hang-lost-sigchld.md`](shell-fork-hang-lost-sigchld.md)
-(#47), which bounded the *park* this bug causes without curing the cause.
-Two earlier diagnoses of this one were wrong; both are kept below, because
-what refuted them is the useful part.
+| leg | before the fix | with the fix |
+| --- | --- | --- |
+| x86_64, 8 rounds | 7 hung | **8 hung** |
+| macOS arm64, 8 rounds | 1 | 2 |
+| aarch64, 8 rounds | 0 | 1 |
+
+What is solid: the symptom (below), the two shapes it takes, the
+reproduction rate, and the tooling.  What is not: any claim about cause.
+
+Related: [`shell-fork-hang-lost-sigchld.md`](shell-fork-hang-lost-sigchld.md)
+(#47), a genuinely different bug in the same area, whose 100ms `poll()`
+bound is why one shape of this hang parks rather than hanging dead.
+
+Every hypothesis is kept below with what refuted it, which is the only
+durable part of this file.
 
 ## Symptom
 
@@ -36,7 +50,12 @@ Rates, all on the same plain `sh tools/test-libs.sh`:
 Never reproduced on a developer machine *as a suite hang*; the underlying
 loss reproduces on an idle laptop in under a second (see "Reproducing").
 
-## What it is
+## The third dead hypothesis: coalesced SIGCHLD
+
+It fits every symptom below, which is exactly why it was convincing, and
+the fix for it does not move the hang.  Recorded in full because the bug
+it describes is real and now fixed -- just not this one.
+
 
 `SIG_CHILD` does not queue.  One delivery can stand for any number of
 child deaths -- the kernel keeps at most one pending.
@@ -86,7 +105,7 @@ rounds on an unfixed engine, and the lost pids are always the *oldest* --
 what a LIFO list scanned with `return`-after-first predicts.  Nothing in
 this investigation had reproduced the bug off a hosted runner before.
 
-## The fix
+### The fix for the coalescing bug (good, and beside the point)
 
 `pop/src/signals.p`: keep calling the trap until it reports that nothing
 more has died.
@@ -129,7 +148,29 @@ and parks if the entry is still there (never reaped).  It mishapped --
 the child *had* been reaped -- which pointed at the recording side, and
 the recording side was mine.
 
-## What the earlier diagnoses got wrong
+## Where to look next
+
+Nothing is ruled in.  What the evidence still supports:
+
+  * The two shapes are real and simultaneous: x86_64 spins at 100% CPU in
+    `test_sysexecute_or_exit`, macOS parks in `syshibernate`'s `poll` in
+    `test_http_server`, in the same run.  Whether they share a cause is
+    now an open question, not a finding -- the coalescing story was what
+    unified them, and it is dead.
+  * The x86_64 spin is in `sys_popen`'s `popen_drain` loop, after
+    `pipeout` passes and during the `sys_popen` case.  The suite
+    transcript places it there, repeatedly.  `read_pipe` returning `0`
+    forever is the mechanism of the spin; what keeps it returning `0` is
+    unknown now that lost asts are excluded.
+  * `hang-sample` reproduces it at 7-8 of 8 rounds on x86_64, which is a
+    good enough rate to bisect against.  That is the cheapest next move:
+    bisect the engine, not the hypotheses.
+  * The `strace` histogram in `hang-watch.sh` has still never been
+    captured, because the first run with it hung nothing and the second
+    truncated its own dump.  It would say what the loop is doing in
+    syscalls, which no amount of code reading has settled.
+
+## What the hypotheses got wrong
 
 Worth keeping, because the instruments that refuted them are reusable and
 the reasoning errors were mine, not the evidence's.
