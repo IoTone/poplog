@@ -554,9 +554,20 @@ define Async_raise_signal();
         elseif _type == _:AST_SIGNAL then
             ;;; data is signal number
             if _data == _:SIG_CHILD then
-                if testdef Get_os_process_trap
-                and weakref Get_os_process_trap() ->> ast then
-                    Raise_astp(ast, false)
+                ;;; SIG_CHILD does not queue: one delivery can stand for
+                ;;; any number of deaths.  Get_os_process_trap reaps the
+                ;;; first terminated entry on os_process_list, runs its
+                ;;; ast and returns, so a single call leaves the others
+                ;;; unreaped with no further signal coming -- their asts
+                ;;; never run, is_dead never goes true, and whatever waits
+                ;;; on them waits for good.  Ten children dying together
+                ;;; lost one to four of their asts every trial; see
+                ;;; docs/bugs/syssleep-expired-timer-spin.md.  So drain it.
+                if testdef Get_os_process_trap then
+                    while weakref Get_os_process_trap() ->> ast do
+                        unless Raise_astp(ast, false) then Add(ast) endunless
+                    endwhile;
+                    true
                 else
                     true
                 endif
