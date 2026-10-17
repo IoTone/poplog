@@ -26,13 +26,17 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 out="${1:-dist}"
 cd "$repo"
 mkdir -p "$out"
+# Absolute from here on.  vsce's --out was built as "$repo/$out", which
+# turned an absolute outdir into $repo + the absolute path and failed with
+# ENOENT on a directory that had just been created.
+out="$(cd "$out" && pwd)"
 
 : "${VSCE_VERSION:=2.32.0}"
 
 vsv="$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' editors/vscode/package.json | head -1)"
 ( cd editors/vscode && \
   npx --yes "@vscode/vsce@$VSCE_VERSION" package \
-      --out "$repo/$out/pop11-vscode-$vsv.vsix" ) >/dev/null
+      --out "$out/pop11-vscode-$vsv.vsix" ) >/dev/null
 echo "packaged: $out/pop11-vscode-$vsv.vsix"
 
 # `tar -s` is BSD (macOS); GNU tar spells the same thing --transform.  The
