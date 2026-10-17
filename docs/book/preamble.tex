@@ -128,7 +128,26 @@
     \draw[sketch] (-5.5,-1.5) -- (-2,-1.5) -- (-2,1) -- (-5.5,1) -- cycle (-5.5,1) .. controls (-4,2.5) .. (-2,1);
     \draw[sketch] (-1.2,-3) -- (-3,-6.5) (1.2,-3) -- (3,-6.5);
     \draw[sketch] (-9,-6.5) -- (9,-6.5) (10.5,-6.5) -- (12,-6.5);
-  \else % 9 -- appendix: clipboard robot
+  \or % 9 -- taking counsel: HQ mast far left, pocket adviser in hand
+    \node[sketch,minimum width=7mm,minimum height=6mm,inner sep=0] (body) at (0,0) {};
+    \draw[sketch] (-2.5,3) -- (2.5,3) -- (2.5,7.5) -- (-2.5,7.5) -- cycle;
+    \draw[pen] (-1.2,5.6) circle (0.7); \draw[pen] (1.2,5.6) circle (0.7);
+    \draw[sketch] (-0.8,4.1) -- (0.8,4.1);
+    % left arm cupped toward the distant mast
+    \draw[sketch] (-3.5,1.5) -- (-5.5,4.5) -- (-4.5,5.5);
+    % the mast at HQ, over the horizon, radiating
+    \draw[sketch] (-11,-3.5) -- (-11,4.5) (-12,-3.5) -- (-10,-3.5);
+    \draw[sketch] (-11.8,1) -- (-10.2,1);
+    \draw[pen] (-9.8,5.7) arc (-35:35:1.2);
+    \draw[pen] (-9.2,6.3) arc (-35:35:2.1);
+    % right arm out flat, a pocket adviser sitting on it
+    \draw[sketch] (3.5,1) -- (7.5,1);
+    \draw[sketch] (5.2,1) -- (5.2,3.8) -- (7.8,3.8) -- (7.8,1);
+    \draw[pen] (5.9,2.9) circle (0.5); \draw[pen] (7.1,2.9) circle (0.5);
+    \draw[sketch] (6.5,3.8) -- (6.5,4.8); \draw[pen] (6.5,4.8) circle (0.5);
+    \draw[sketch] (-1.5,-3) -- (-1.5,-5.5) (1.5,-3) -- (1.5,-5.5);
+    \draw[sketch] (-2.5,-5.5) -- (-0.5,-5.5) (0.5,-5.5) -- (2.5,-5.5);
+  \else % 10 -- appendix: clipboard robot
     \node[sketch,minimum width=6mm,minimum height=6mm,inner sep=0] (body) at (0,0) {};
     \draw[pen] (-2.5,3) -- (2.5,3) -- (2.5,7) -- (-2.5,7) -- cycle (-1.1,5.2) circle (0.7); \draw[pen] (1.1,5.2) circle (0.7);
     \draw[sketch] (-1,4) -- (1,4);

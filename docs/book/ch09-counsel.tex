@@ -1,0 +1,161 @@
+\chapter{The fleet takes counsel}
+
+Chapter~8 ended with the fleet running software that arrived. This chapter
+is about the one thing it cannot compile its way out of. A report comes in
+as prose; an order has to leave as structure; and the step between the two
+is a judgment call. ``Culvert on the ridge road is blocked and the drone
+cannot see past it'' names no unit, no urgency and no approval chain --- and
+those three things are exactly what \ghfile{c2.p}'s \code{POST /order}
+needs.
+
+The matcher from Chapter~4 handles orders that already look like orders.
+For the rest, the command post asks an \emph{adviser}: a decision model that
+takes prose plus a set of \textbf{typed} questions and returns typed
+answers --- a pick from options you fixed, a probability, a score on a scale
+you named. Not a paragraph. Nothing to parse, nothing to hope about.
+
+\section{Typed questions}
+
+\ghfile{counsel.p} builds three questions once and reuses them for every
+report. The kinds come straight from \code{fleet.p}'s roster:
+
+\begin{pop}
+lvars kind = ts_choice('Which kind of unit should take this?',
+                       [[scout  'look, do not touch']
+                        [sapper 'clear obstacles, handle charges']
+                        [medic  'casualty care']
+                        [hauler 'move supplies or wreckage']]);
+
+lvars human = ts_noul('Must a human approve before any unit moves?',
+                      'force, casualties or civilians involved',
+                      'routine, within standing orders');
+
+lvars urgency = ts_score('How urgent is this?',
+                         ['routine' 'prompt' 'immediate']);
+\end{pop}
+
+\noindent One call sends the report and all three questions, and the
+answers come back keyed by name:
+
+\begin{pop}
+ts_eval(report, [[kind ^kind] [human ^human] [urgency ^urgency]]) -> a;
+a('kind')('choice') =>          ;;; a word from YOUR list, not free text
+\end{pop}
+
+\begin{repl}
+report:  Culvert on the ridge road is blocked and the drone cannot
+         see past it.
+send:    sapper  (0.1309)
+human:   0.2886
+urgency: 1.1648
+adviser: aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16
+\end{repl}
+
+\noindent The sapper is the right pick, and \code{1.16} on a 0--2 scale
+whose stops are \emph{routine}, \emph{prompt}, \emph{immediate} reads as
+``prompt, leaning urgent.'' Look at the pick's confidence, though:
+\code{0.13} against four options is \emph{below} a uniform prior. The
+adviser is sure of nothing; it has ranked. A typed answer is what makes
+that visible --- a prose answer saying ``send the sapper'' would have
+carried the same doubt and hidden it.
+
+\section{Two advisers, one call site}
+
+\code{lib typesafe} is a Pop-11 client for \textbf{Jev}, a hosted decision
+model: \code{POST /v1/systemone}, an API key, a network round trip.
+\code{lib laya} answers the \emph{same request} with \textbf{Laya}, an
+open-weight model running on the command post's own GPU through MLX ---
+about 8--10\,ms a question set, no key, no network after the first
+download. \code{uses laya} swaps the transport out from under
+\code{ts\_eval} and nothing at the call site changes, which is the whole
+API: counsel from HQ and a brain in the pack are the same procedure call.
+
+The local adviser is a child process over a pipe, not a server, and each
+part of that is a decision. \emph{No port}: nothing on the network can
+consult --- or impersonate --- the fleet's adviser. \emph{Its lifetime is
+Poplog's}: when the command post exits, the pipe closes and the adviser
+goes with it. \emph{A crash stays over there}: the call mishaps, the next
+call starts a fresh child. And the plumbing is cheap --- measured, the pipe
+and JSON add 0.11\,ms to an $\sim$8\,ms answer; a loopback HTTP server adds
+0.41\,ms, almost all of it in the server.
+
+The last line of the transcript is not decoration:
+
+\begin{repl}
+adviser: aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16
+\end{repl}
+
+\noindent \code{ts\_last\_model} names the exact checkpoint commit and
+precision, and both move probabilities. It belongs in \code{fleet.log}
+beside any decision that is kept. Chapter~7 signed the orders; this signs
+the advice.
+
+\section{Counsel is not command}
+
+Here is the same question set on a nastier report, verbatim:
+
+\begin{repl}
+report:  Two hikers sheltering inside the culvert, one limping.
+         Charges already placed.
+send:    sapper  (0.1298)
+human:   0.253
+urgency: 1.5053
+\end{repl}
+
+\noindent Urgency moved the right way: 1.51 against the empty culvert's
+1.16. The human gate did not move at all --- 0.25 says \emph{no approval
+needed}, for two people inside a culvert with charges in it, and the pick
+stayed \emph{sapper} when a limping hiker arguably wants the medic first.
+The adviser is a model. It will be wrong, and it will be wrong with the
+same calm numbers it uses when it is right.
+
+So the command post treats counsel the way it treats any other sensor:
+evidence, bounded by standing rules that are not up for discussion.
+Because the answer is a number, the bound is one line:
+
+\begin{pop}
+;;; standing order no. 1: if people are in the report, people approve it
+if issubstring('hiker', report) or issubstring('casualt', report)
+or a('human')('noul') > 0.5 then
+    true -> needs_human
+endif;
+\end{pop}
+
+\noindent You can threshold a number and override it with a rule. You
+cannot do either to a paragraph. That --- not any claim about the model
+being good --- is the argument for typed answers.
+
+\section{Order is part of the question}
+
+Both advisers were measured for something easy to forget: the request is a
+\emph{sequence}, and a model reads it as one. Reordering three options
+changed Laya's pick in 5 of 6 orderings. Jev, measured over 39 calls to
+\code{jev-latest}, was exactly deterministic --- the identical request three
+times gave byte-identical answers --- and immune to option order, but
+reordering the \emph{questions} shifted a score answer by up to 0.08 and
+its confidence by up to 0.12, tracking which questions were neighbours
+rather than their positions. No pick or band changed, but the numbers did.
+
+Two consequences land in the client. The request is built with
+\code{json\_object} from \code{LIB JSON}, which keeps insertion order --- a
+Pop-11 property is a hash table and would scramble it, silently asking a
+different question on every run. And the options go out \textbf{in the
+order you wrote them}, because that is the only behaviour correct for both
+advisers. The question you asked includes the order you asked it in; write
+the order you mean, and keep it.
+
+\section{What this is really showing}
+
+Strip the theme away and the chapter makes one claim: \textbf{judgment can
+be a component with a type signature.} The same schema answered from a
+hosted model or a local one, swapped with one \code{uses} line; answers a
+matcher can threshold, standing rules can override, and a log can attribute
+to an exact checkpoint. Each of the fleet's languages keeps doing what it
+is best at --- the matcher takes the orders that are already structure,
+Prolog the rules, and a model the ambiguity, with its output typed so the
+rest of the system can bound it.
+
+Neither library ships in the Poplog release. \code{packages/typesafe} and
+\code{packages/laya} live in the repository as out-of-tree libraries,
+client and transport alike written in plain Pop-11 --- the HTTP client of
+Chapter~8, the JSON of Chapter~4, and a pipe.
