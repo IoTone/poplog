@@ -5,8 +5,12 @@ Jupyter notebooks executed for real through the
 produced by the live engine, mishaps included (TEACH files use
 deliberate errors to teach; red cells are usually the lesson).
 
-Run them yourself: `tools/jupyter/install-kernel.sh`, then
-`jupyter lab` and pick the **Pop-11** kernel.
+Run them yourself: `tools/jupyter/install-kernel.sh`, then run the
+command it prints at the end and pick the **Pop-11** kernel. It prints
+one rather than telling you to type `jupyter lab` because it may have had
+to install JupyterLab into its own venv, which is not on your `PATH` — so
+a bare `jupyter lab` would be "command not found". See
+[tools/jupyter/](../../tools/jupyter/) if it is.
 
 - [pop11-live.ipynb](pop11-live.ipynb) — tour of the language and kernel
 - [zmachine-cave.ipynb](zmachine-cave.ipynb) — **play interactive fiction
