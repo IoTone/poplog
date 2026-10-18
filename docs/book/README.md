@@ -1,6 +1,6 @@
 # Pop-11 and the Robot Army
 
-**Edition 1.9, October 2026** — David J. Kordsmeier and Claude.
+**Edition 1.10, October 2026** — David J. Kordsmeier and Claude.
 
 An introduction to Poplog and Pop-11 built around one running example: a
 fleet of robots commanded from a live Poplog session by an AI agent. It
@@ -55,8 +55,8 @@ common packages (`geometry`, `listings`, `tcolorbox`, `hyperref`, `titlesec`,
 | `version.tex` | The edition number and date — bump here only |
 | `preamble.tex` | Page geometry, palette, headings, listing languages, callout box |
 | `ch00-title.tex` | Title page and colophon |
-| `ch01-why.tex` … `ch09-next.tex` | The nine chapters |
-| `ch10-appendix.tex` | Appendix A — cheat sheet, mishap decoder |
+| `ch01-why.tex` … `ch10-next.tex` | The ten chapters |
+| `ch11-appendix.tex` | Appendix A — cheat sheet, mishap decoder |
 | `figures/` | Cover art and screenshots (screenshots cropped from `docs/images/`) |
 | `figures/web/` | Derived, for the HTML edition only: the TikZ figure as SVG, the cover re-sized. Regenerated when its source is newer; kept apart from the print originals so an HTML build does not dirty the PDF |
 | `pop11.xml` | Pop-11 syntax definition for pandoc, so the HTML edition highlights the book's own language. Its keyword list mirrors the one `preamble.tex` gives `listings` — keep the two in step |
@@ -112,6 +112,7 @@ and tag the commit `book-v<edition>`.
 | 1.7 | September 2026 | Re-measures the single-machine swarm table under the clock-based code of 1.5, which no longer reproduces the old phase values, and re-cuts the figure from that run. Rows are now elapsed seconds rather than tick numbers, since a tick is not a fixed amount of time and so is not an axis. |
 | 1.8 | September 2026 | Adds §8.7, a knowledge base of sightings that expires, windows and dedups — ages on the wire rather than timestamps, expiry owned by each node, dedup by sequence. Adds §8.8, a classifier small enough to be honest: trained in Pop-11 at 275 samples/sec, inferring at 9121/sec without the autograd graph, identical to six decimals on three architectures. |
 | 1.9 | October 2026 | Brings Appendix A up to date: it had not changed since 1.1, so its example table listed 7 of the 24 files in `examples/robotarmy/` and none of the networked ones chapter 8 is about. Adds the nine files from 1.1-1.8 and a datagram section, including why a poll must use `sys_device_wait` rather than `sys_input_waiting`. Every form in the appendix was executed against the tree while checking this. |
+| 1.10 | October 2026 | New Chapter 9, *The fleet takes counsel*: typed judgment via `ts_eval` — a hosted adviser (Jev) and a local one (Laya, MLX on the command post's GPU) behind one call site, with `examples/robotarmy/counsel.p` run live for every transcript shown, including the one where the adviser gets the human-gate wrong. Records the measured order-sensitivity of both advisers and why the client keeps insertion order. Chapters renumber: next → 10, appendix file → `ch11-appendix.tex`. New chapter robot. |
 
 ## Licence
 
