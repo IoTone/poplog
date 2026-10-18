@@ -46,6 +46,22 @@ edition="$(sed -n 's/.*\\newcommand{\\bookversion}{\([^}]*\)}.*/\1/p' version.te
 bookdate="$(sed -n 's/.*\\newcommand{\\bookdate}{\([^}]*\)}.*/\1/p' version.tex)"
 [ -n "$edition" ] || { echo "book-html: no \\bookversion in version.tex" >&2; exit 2; }
 
+# --------------------------------------------------------------- chapters
+# poplog-book.tex is the single source of the running order, so read it
+# rather than keep a second copy of the list here.  A hand-kept copy rots
+# silently and did: edition 1.10 inserted ch09-counsel and renamed
+# ch09-next/ch10-appendix, and this script went on naming the old files --
+# which builds an HTML edition short one chapter, from two files that no
+# longer exist, while the PDF is correct.  \mainmatter .. \appendix are the
+# numbered chapters; whatever follows \appendix is the appendix.
+chapters="$(sed -n '/^\\mainmatter/,/^\\appendix/{ s/^\\input{\(ch[^}]*\)}.*/\1/p; }' \
+            poplog-book.tex)"
+appendices="$(sed -n '/^\\appendix/,${ s/^\\input{\(ch[^}]*\)}.*/\1/p; }' poplog-book.tex)"
+[ -n "$chapters" ] || { echo "book-html: no \\input{ch..} chapters in poplog-book.tex" >&2; exit 2; }
+for ch in $chapters $appendices; do
+    [ -f "$ch.tex" ] || { echo "book-html: poplog-book.tex names $ch.tex, which is missing" >&2; exit 2; }
+done
+
 # ---------------------------------------------------------- TikZ -> SVG
 # Chapter 1's VM diagram is a tikzpicture.  Pandoc cannot draw it, so render
 # it once with the same colour definitions the book uses and commit the SVG.
@@ -122,21 +138,19 @@ MACROS
               -e 's/\\par$//'
     printf '%s\n\n' '\hrulefill'
 
-    for ch in ch01-why ch02-quickstart ch03-fundamentals ch04-examples \
-              ch05-hosted ch06-hosting ch07-ffi ch08-network ch09-next \
-              ch10-appendix
+    for ch in $chapters $appendices
     do
-        # The PDF gets \appendix, which renumbers chapter 10 as "Appendix A"
-        # and is what the cross-references in chapters 4, 9 and 10 call it.
-        # Pandoc has no \appendix, so say it in the heading and leave the
-        # heading unnumbered rather than let it come out as "11".
-        case $ch in
+        # The PDF gets \appendix, which renumbers the last file as
+        # "Appendix A".  Pandoc has no \appendix, so say it in the heading
+        # and leave the heading unnumbered rather than let it come out as
+        # one past the last chapter.
+        apx=''
+        case " $appendices " in
             # Its sections are starred as well: an unnumbered chapter does
             # not reset the section counter, so numbered sections inside it
-            # carry on from chapter 9 and come out as "9.5 Syntax".
-            ch10-appendix) apx='s/^\\chapter{\(.*\)}/\\chapter*{Appendix A --- \1}/
-                                s/^\\section{\(.*\)}/\\section*{\1}/' ;;
-            *)             apx='' ;;
+            # would carry on from the last chapter as "10.5 Syntax".
+            *" $ch "*) apx='s/^\\chapter{\(.*\)}/\\chapter*{Appendix A --- \1}/
+                            s/^\\section{\(.*\)}/\\section*{\1}/' ;;
         esac
         # Per-chapter rewrites, all of them because pandoc reflows the
         # content of an environment it does not know -- which silently

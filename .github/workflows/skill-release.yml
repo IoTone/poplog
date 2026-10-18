@@ -73,9 +73,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      # libcurl/pcre2 are not needed to build Poplog -- they are the
+      # headers the http_client and pcre shims compile against, without
+      # which those two suites cannot run at all.
+      - name: Install build dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libncurses-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libncurses-dev libcurl4-openssl-dev libpcre2-dev
+
+      # macOS gets libcurl from the SDK; pcre2 is not in the runner image.
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew list pcre2 >/dev/null 2>&1 || brew install pcre2
 
       - name: Seed target/pop/corepop
         run: |
@@ -87,6 +97,17 @@ jobs:
         run: |
           ./configure
           make
+
+      # `make` does not build these: they are optional C shims, and the
+      # tarball ships their source plus skill/bin/build-popcurl so a user
+      # builds them at install time.  But test_http_client and test_pcre
+      # mishap outright without them ("shim not built"), so a release gate
+      # that skipped this step would be a release gate with two holes in
+      # it -- which is what the first dry run of this workflow found.
+      - name: Build the optional C shims
+        run: |
+          sh tools/build-popcurl.sh
+          sh tools/build-poppcre.sh
 
       - name: Library test suites
         run: sh tools/test-libs.sh

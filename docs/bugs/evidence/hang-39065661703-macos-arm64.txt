@@ -1,0 +1,40 @@
+==============================================================
+WEDGED  pid 6816  alive 154s  20:26:27Z
+uname: Darwin 25.6.0 arm64
+==============================================================
+--- command ---
+ 6816  6813 /Users/runner/work/poplog/poplog/target/pop/basepop11 /Users/runner/work/poplog/poplog/tools/tests/test_http_server.p
+--- children and grandchildren ---
+--- ancestry ---
+ 6816  6813 S<   /Users/runner/work/poplog/poplog/target/pop/basepop11 /Users/runner/work/poplog/poplog/tools/tests/test_http_server.p
+ 6813  6690 S<   sh tools/test-libs.sh
+ 6690  6688 S<   sh tools/test-libs.sh
+ 6688  3354 S<   /bin/bash -e /Users/runner/work/_temp/e03b5077-b66e-45d0-a9f4-405f34133c27.sh
+ 3354  3341 S<   /Users/runner/actions-runner/extracted/bin/Runner.Worker spawnclient 143 146
+ 3341   975 S<   /Users/runner/actions-runner/extracted/bin/Runner.Listener run
+  975   961 S<   /opt/hca/hosted-compute-agent
+  961     1 S<   /bin/bash /opt/hca/start_hca.sh
+--- native backtrace (read-only attach) ---
+(lldb) process attach --pid 6816
+Process 6816 stopped
+* thread #1, queue = 'com.apple.main-thread', stop reason = signal SIGSTOP
+    frame #0: 0x0000000182e806f8 libsystem_kernel.dylib`poll + 8
+libsystem_kernel.dylib`poll:
+->  0x182e806f8 <+8>:  b.lo   0x182e80718               ; <+40>
+    0x182e806fc <+12>: pacibsp 
+    0x182e80700 <+16>: stp    x29, x30, [sp, #-0x10]!
+    0x182e80704 <+20>: mov    x29, sp
+Target 0: (basepop11) stopped.
+Executable binary set to "/Users/runner/work/poplog/poplog/target/pop/basepop11".
+Architecture set to: arm64-apple-macosx-.
+(lldb) bt
+* thread #1, queue = 'com.apple.main-thread', stop reason = signal SIGSTOP
+  * frame #0: 0x0000000182e806f8 libsystem_kernel.dylib`poll + 8
+    frame #1: 0x0000000100001f7c basepop11`pause_popintr at c_core.c:1381:5 [opt]
+    frame #2: 0x000000010098bd60 basepop11`
+    frame #3: 0x0000000100950be4 basepop11`
+    frame #4: 0x0000000100000888 basepop11`main(argc=27287, argv=0x0000000100950b50, envp=0x0000008000240000) at pop_seed_loader.c:107:12 [opt]
+    frame #5: 0x0000000182af04e4 dyld`start + 6992
+(lldb) detach
+Process 6816 detached
+

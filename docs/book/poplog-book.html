@@ -347,7 +347,7 @@ Poplog front-end -- Pop-11, Prolog, Common Lisp, Standard ML and Forth."></figur
 <h1 class="title">Pop-11 and the Robot Army</h1>
 <p class="subtitle">Poplog as the engine behind AI agents and the machines they command</p>
 <p class="author">David J. Kordsmeier and Claude</p>
-<p class="date">Edition 1.9, October 2026</p>
+<p class="date">Edition 1.10, October 2026</p>
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
@@ -423,12 +423,20 @@ Poplog front-end -- Pop-11, Prolog, Common Lisp, Standard ML and Forth."></figur
 <li><a href="#a-classifier-small-enough-to-be-honest" id="toc-a-classifier-small-enough-to-be-honest"><span class="toc-section-number">8.8</span> A classifier small enough to be honest</a></li>
 <li><a href="#what-this-is-really-showing" id="toc-what-this-is-really-showing"><span class="toc-section-number">8.9</span> What this is really showing</a></li>
 </ul></li>
-<li><a href="#where-to-go-next" id="toc-where-to-go-next"><span class="toc-section-number">9</span> Where to go next</a>
+<li><a href="#the-fleet-takes-counsel" id="toc-the-fleet-takes-counsel"><span class="toc-section-number">9</span> The fleet takes counsel</a>
 <ul>
-<li><a href="#the-documentation-you-already-have" id="toc-the-documentation-you-already-have"><span class="toc-section-number">9.1</span> The documentation you already have</a></li>
-<li><a href="#four-decades-of-teaching-material" id="toc-four-decades-of-teaching-material"><span class="toc-section-number">9.2</span> Four decades of teaching material</a></li>
-<li><a href="#reading-the-source" id="toc-reading-the-source"><span class="toc-section-number">9.3</span> Reading the source</a></li>
-<li><a href="#benchmarks-ports-and-the-state-of-the-project" id="toc-benchmarks-ports-and-the-state-of-the-project"><span class="toc-section-number">9.4</span> Benchmarks, ports, and the state of the project</a></li>
+<li><a href="#typed-questions" id="toc-typed-questions"><span class="toc-section-number">9.1</span> Typed questions</a></li>
+<li><a href="#two-advisers-one-call-site" id="toc-two-advisers-one-call-site"><span class="toc-section-number">9.2</span> Two advisers, one call site</a></li>
+<li><a href="#counsel-is-not-command" id="toc-counsel-is-not-command"><span class="toc-section-number">9.3</span> Counsel is not command</a></li>
+<li><a href="#order-is-part-of-the-question" id="toc-order-is-part-of-the-question"><span class="toc-section-number">9.4</span> Order is part of the question</a></li>
+<li><a href="#what-this-is-really-showing-1" id="toc-what-this-is-really-showing-1"><span class="toc-section-number">9.5</span> What this is really showing</a></li>
+</ul></li>
+<li><a href="#where-to-go-next" id="toc-where-to-go-next"><span class="toc-section-number">10</span> Where to go next</a>
+<ul>
+<li><a href="#the-documentation-you-already-have" id="toc-the-documentation-you-already-have"><span class="toc-section-number">10.1</span> The documentation you already have</a></li>
+<li><a href="#four-decades-of-teaching-material" id="toc-four-decades-of-teaching-material"><span class="toc-section-number">10.2</span> Four decades of teaching material</a></li>
+<li><a href="#reading-the-source" id="toc-reading-the-source"><span class="toc-section-number">10.3</span> Reading the source</a></li>
+<li><a href="#benchmarks-ports-and-the-state-of-the-project" id="toc-benchmarks-ports-and-the-state-of-the-project"><span class="toc-section-number">10.4</span> Benchmarks, ports, and the state of the project</a></li>
 </ul></li>
 <li><a href="#appendix-a-cheat-sheet" id="toc-appendix-a-cheat-sheet">Appendix A — Cheat sheet</a>
 <ul>
@@ -2609,8 +2617,129 @@ running software that arrived.</p>
 than a separate program (§2.2), and because the VM’s back-ends make the same
 abstract code native on every port (Chapter 6). Take any one of those away
 and you are back to shipping containers.</p>
-<h1 data-number="9" id="where-to-go-next"><span class="header-section-number">9</span> Where to go next</h1>
-<h2 data-number="9.1" id="the-documentation-you-already-have"><span class="header-section-number">9.1</span> The documentation you already have</h2>
+<h1 data-number="9" id="the-fleet-takes-counsel"><span class="header-section-number">9</span> The fleet takes counsel</h1>
+<p>Chapter 8 ended with the fleet running software that arrived. This chapter
+is about the one thing it cannot compile its way out of. A report comes in
+as prose; an order has to leave as structure; and the step between the two
+is a judgment call. “Culvert on the ridge road is blocked and the drone
+cannot see past it” names no unit, no urgency and no approval chain — and
+those three things are exactly what <a href="https://github.com/IoTone/poplog/tree/master/examples/robotarmy/c2.p"><code>examples/robotarmy/c2.p</code></a>’s <code>POST /order</code>
+needs.</p>
+<p>The matcher from Chapter 4 handles orders that already look like orders.
+For the rest, the command post asks an <em>adviser</em>: a decision model that
+takes prose plus a set of <strong>typed</strong> questions and returns typed
+answers — a pick from options you fixed, a probability, a score on a scale
+you named. Not a paragraph. Nothing to parse, nothing to hope about.</p>
+<h2 data-number="9.1" id="typed-questions"><span class="header-section-number">9.1</span> Typed questions</h2>
+<p><a href="https://github.com/IoTone/poplog/tree/master/examples/robotarmy/counsel.p"><code>examples/robotarmy/counsel.p</code></a> builds three questions once and reuses them for every
+report. The kinds come straight from <code>fleet.p</code>’s roster:</p>
+<div class="sourceCode" id="cb91" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb91-1"><a href="#cb91-1" aria-hidden="true" tabindex="-1"></a><span class="kw">lvars</span> kind = ts_choice(<span class="st">&#39;Which kind of unit should take this?&#39;</span>,</span>
+<span id="cb91-2"><a href="#cb91-2" aria-hidden="true" tabindex="-1"></a>                       [[scout  <span class="st">&#39;look, do not touch&#39;</span>]</span>
+<span id="cb91-3"><a href="#cb91-3" aria-hidden="true" tabindex="-1"></a>                        [sapper <span class="st">&#39;clear obstacles, handle charges&#39;</span>]</span>
+<span id="cb91-4"><a href="#cb91-4" aria-hidden="true" tabindex="-1"></a>                        [medic  <span class="st">&#39;casualty care&#39;</span>]</span>
+<span id="cb91-5"><a href="#cb91-5" aria-hidden="true" tabindex="-1"></a>                        [hauler <span class="st">&#39;move supplies or wreckage&#39;</span>]]);</span>
+<span id="cb91-6"><a href="#cb91-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-7"><a href="#cb91-7" aria-hidden="true" tabindex="-1"></a><span class="kw">lvars</span> human = ts_noul(<span class="st">&#39;Must a human approve before any unit moves?&#39;</span>,</span>
+<span id="cb91-8"><a href="#cb91-8" aria-hidden="true" tabindex="-1"></a>                      <span class="st">&#39;force, casualties or civilians involved&#39;</span>,</span>
+<span id="cb91-9"><a href="#cb91-9" aria-hidden="true" tabindex="-1"></a>                      <span class="st">&#39;routine, within standing orders&#39;</span>);</span>
+<span id="cb91-10"><a href="#cb91-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb91-11"><a href="#cb91-11" aria-hidden="true" tabindex="-1"></a><span class="kw">lvars</span> urgency = ts_score(<span class="st">&#39;How urgent is this?&#39;</span>,</span>
+<span id="cb91-12"><a href="#cb91-12" aria-hidden="true" tabindex="-1"></a>                         [<span class="st">&#39;routine&#39;</span> <span class="st">&#39;prompt&#39;</span> <span class="st">&#39;immediate&#39;</span>]);</span></code></pre></div>
+<p>One call sends the report and all three questions, and the
+answers come back keyed by name:</p>
+<div class="sourceCode" id="cb92" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb92-1"><a href="#cb92-1" aria-hidden="true" tabindex="-1"></a>ts_eval(report, [[kind ^kind] [human ^human] [urgency ^urgency]]) -&gt; a;</span>
+<span id="cb92-2"><a href="#cb92-2" aria-hidden="true" tabindex="-1"></a>a(<span class="st">&#39;kind&#39;</span>)(<span class="st">&#39;choice&#39;</span>) =&gt;          <span class="co">;;; a word from YOUR list, not free text</span></span></code></pre></div>
+<pre><code>report:  Culvert on the ridge road is blocked and the drone cannot
+         see past it.
+send:    sapper  (0.1309)
+human:   0.2886
+urgency: 1.1648
+adviser: aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16</code></pre>
+<p>The sapper is the right pick, and <code>1.16</code> on a 0–2 scale
+whose stops are <em>routine</em>, <em>prompt</em>, <em>immediate</em> reads as
+“prompt, leaning urgent.” Look at the pick’s confidence, though:
+<code>0.13</code> against four options is <em>below</em> a uniform prior. The
+adviser is sure of nothing; it has ranked. A typed answer is what makes
+that visible — a prose answer saying “send the sapper” would have
+carried the same doubt and hidden it.</p>
+<h2 data-number="9.2" id="two-advisers-one-call-site"><span class="header-section-number">9.2</span> Two advisers, one call site</h2>
+<p><code>lib typesafe</code> is a Pop-11 client for <strong>Jev</strong>, a hosted decision
+model: <code>POST /v1/systemone</code>, an API key, a network round trip.
+<code>lib laya</code> answers the <em>same request</em> with <strong>Laya</strong>, an
+open-weight model running on the command post’s own GPU through MLX —
+about 8–10 ms a question set, no key, no network after the first
+download. <code>uses laya</code> swaps the transport out from under
+<code>ts_eval</code> and nothing at the call site changes, which is the whole
+API: counsel from HQ and a brain in the pack are the same procedure call.</p>
+<p>The local adviser is a child process over a pipe, not a server, and each
+part of that is a decision. <em>No port</em>: nothing on the network can
+consult — or impersonate — the fleet’s adviser. <em>Its lifetime is
+Poplog’s</em>: when the command post exits, the pipe closes and the adviser
+goes with it. <em>A crash stays over there</em>: the call mishaps, the next
+call starts a fresh child. And the plumbing is cheap — measured, the pipe
+and JSON add 0.11 ms to an <math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mo>∼</mo><annotation encoding="application/x-tex">\sim</annotation></semantics></math>8 ms answer; a loopback HTTP server adds
+0.41 ms, almost all of it in the server.</p>
+<p>The last line of the transcript is not decoration:</p>
+<pre><code>adviser: aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16</code></pre>
+<p><code>ts_last_model</code> names the exact checkpoint commit and
+precision, and both move probabilities. It belongs in <code>fleet.log</code>
+beside any decision that is kept. Chapter 7 signed the orders; this signs
+the advice.</p>
+<h2 data-number="9.3" id="counsel-is-not-command"><span class="header-section-number">9.3</span> Counsel is not command</h2>
+<p>Here is the same question set on a nastier report, verbatim:</p>
+<pre><code>report:  Two hikers sheltering inside the culvert, one limping.
+         Charges already placed.
+send:    sapper  (0.1298)
+human:   0.253
+urgency: 1.5053</code></pre>
+<p>Urgency moved the right way: 1.51 against the empty culvert’s
+1.16. The human gate did not move at all — 0.25 says <em>no approval
+needed</em>, for two people inside a culvert with charges in it, and the pick
+stayed <em>sapper</em> when a limping hiker arguably wants the medic first.
+The adviser is a model. It will be wrong, and it will be wrong with the
+same calm numbers it uses when it is right.</p>
+<p>So the command post treats counsel the way it treats any other sensor:
+evidence, bounded by standing rules that are not up for discussion.
+Because the answer is a number, the bound is one line:</p>
+<div class="sourceCode" id="cb96" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb96-1"><a href="#cb96-1" aria-hidden="true" tabindex="-1"></a><span class="co">;;; standing order no. 1: if people are in the report, people approve it</span></span>
+<span id="cb96-2"><a href="#cb96-2" aria-hidden="true" tabindex="-1"></a><span class="kw">if</span> issubstring(<span class="st">&#39;hiker&#39;</span>, report) <span class="kw">or</span> issubstring(<span class="st">&#39;casualt&#39;</span>, report)</span>
+<span id="cb96-3"><a href="#cb96-3" aria-hidden="true" tabindex="-1"></a><span class="kw">or</span> a(<span class="st">&#39;human&#39;</span>)(<span class="st">&#39;noul&#39;</span>) &gt; <span class="dv">0.5</span> <span class="kw">then</span></span>
+<span id="cb96-4"><a href="#cb96-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">true</span> -&gt; needs_human</span>
+<span id="cb96-5"><a href="#cb96-5" aria-hidden="true" tabindex="-1"></a><span class="kw">endif</span>;</span></code></pre></div>
+<p>You can threshold a number and override it with a rule. You
+cannot do either to a paragraph. That — not any claim about the model
+being good — is the argument for typed answers.</p>
+<h2 data-number="9.4" id="order-is-part-of-the-question"><span class="header-section-number">9.4</span> Order is part of the question</h2>
+<p>Both advisers were measured for something easy to forget: the request is a
+<em>sequence</em>, and a model reads it as one. Reordering three options
+changed Laya’s pick in 5 of 6 orderings. Jev, measured over 39 calls to
+<code>jev-latest</code>, was exactly deterministic — the identical request three
+times gave byte-identical answers — and immune to option order, but
+reordering the <em>questions</em> shifted a score answer by up to 0.08 and
+its confidence by up to 0.12, tracking which questions were neighbours
+rather than their positions. No pick or band changed, but the numbers did.</p>
+<p>Two consequences land in the client. The request is built with
+<code>json_object</code> from <code>LIB JSON</code>, which keeps insertion order — a
+Pop-11 property is a hash table and would scramble it, silently asking a
+different question on every run. And the options go out <strong>in the
+order you wrote them</strong>, because that is the only behaviour correct for both
+advisers. The question you asked includes the order you asked it in; write
+the order you mean, and keep it.</p>
+<h2 data-number="9.5" id="what-this-is-really-showing-1"><span class="header-section-number">9.5</span> What this is really showing</h2>
+<p>Strip the theme away and the chapter makes one claim: <strong>judgment can
+be a component with a type signature.</strong> The same schema answered from a
+hosted model or a local one, swapped with one <code>uses</code> line; answers a
+matcher can threshold, standing rules can override, and a log can attribute
+to an exact checkpoint. Each of the fleet’s languages keeps doing what it
+is best at — the matcher takes the orders that are already structure,
+Prolog the rules, and a model the ambiguity, with its output typed so the
+rest of the system can bound it.</p>
+<p>Neither library ships in the Poplog release. <code>packages/typesafe</code> and
+<code>packages/laya</code> live in the repository as out-of-tree libraries,
+client and transport alike written in plain Pop-11 — the HTTP client of
+Chapter 8, the JSON of Chapter 4, and a pipe.</p>
+<h1 data-number="10" id="where-to-go-next"><span class="header-section-number">10</span> Where to go next</h1>
+<h2 data-number="10.1" id="the-documentation-you-already-have"><span class="header-section-number">10.1</span> The documentation you already have</h2>
 <p>The in-tree corpus is over 900 files and it is the primary source for
 everything in this book. From any prompt:</p>
 <pre><code>: help matches          ;;; practical, task-shaped
@@ -2623,13 +2752,13 @@ entries worth reading early: <code>help external</code> and <code>ref external</
 (Chapter 7), <code>ref vmcode</code> and <code>ref subsystem</code> (Chapter 6),
 <code>ref regexp</code>, <code>help json</code>, <code>help crypto</code>, and
 <code>teach swank</code>.</p>
-<h2 data-number="9.2" id="four-decades-of-teaching-material"><span class="header-section-number">9.2</span> Four decades of teaching material</h2>
+<h2 data-number="10.2" id="four-decades-of-teaching-material"><span class="header-section-number">10.2</span> Four decades of teaching material</h2>
 <p>Poplog was the vehicle for a great deal of university AI teaching, and most
 of it survives. The tree does not vendor any of it; one script fetches it
 from public archives and wires it into <code>help</code>/<code>teach</code> inside the
 system:</p>
-<div class="sourceCode" id="cb92" data-language="bash"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb92-1"><a href="#cb92-1" aria-hidden="true" tabindex="-1"></a><span class="ex">tools/fetch-learning.sh</span> list        <span class="co"># what&#39;s available</span></span>
-<span id="cb92-2"><a href="#cb92-2" aria-hidden="true" tabindex="-1"></a><span class="ex">tools/fetch-learning.sh</span> <span class="at">--all</span>       <span class="co"># about 30 MB into learn/</span></span></code></pre></div>
+<div class="sourceCode" id="cb98" data-language="bash"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb98-1"><a href="#cb98-1" aria-hidden="true" tabindex="-1"></a><span class="ex">tools/fetch-learning.sh</span> list        <span class="co"># what&#39;s available</span></span>
+<span id="cb98-2"><a href="#cb98-2" aria-hidden="true" tabindex="-1"></a><span class="ex">tools/fetch-learning.sh</span> <span class="at">--all</span>       <span class="co"># about 30 MB into learn/</span></span></code></pre></div>
 <div class="center">
 <table>
 <tbody>
@@ -2668,7 +2797,7 @@ programmers.</td>
 </div>
 <p>Upstream licences apply per pack; each records its origin in
 <code>learn/</code><em><code>pack</code></em><code>/.source</code>.</p>
-<h2 data-number="9.3" id="reading-the-source"><span class="header-section-number">9.3</span> Reading the source</h2>
+<h2 data-number="10.3" id="reading-the-source"><span class="header-section-number">10.3</span> Reading the source</h2>
 <p>Poplog is written mostly in itself, which makes it unusually approachable.</p>
 <ul>
 <li><p><code>pop/src/</code> — the core: <code>vm_plant.p</code> and <code>vm_control.p</code>
@@ -2683,7 +2812,7 @@ afternoon each.</p></li>
 <li><p><code>examples/</code> — runnable programs: the HTTP service, ELIZA, a
 Z-machine interpreter, graphics demos.</p></li>
 </ul>
-<h2 data-number="9.4" id="benchmarks-ports-and-the-state-of-the-project"><span class="header-section-number">9.4</span> Benchmarks, ports, and the state of the project</h2>
+<h2 data-number="10.4" id="benchmarks-ports-and-the-state-of-the-project"><span class="header-section-number">10.4</span> Benchmarks, ports, and the state of the project</h2>
 <p><code>BENCHMARKS.md</code> carries the full cross-platform, cross-language matrix
 with its methodology; the numbers quoted in Chapter 1 are drawn from it. The
 <code>PORTING-*.md</code> files are the working notes from the AArch64, Apple
@@ -2853,51 +2982,51 @@ compile-time top level — wrap it in a procedure</td>
 </table>
 </div>
 <h2 class="unnumbered" id="files-processes-tables">Files, processes, tables</h2>
-<div class="sourceCode" id="cb93" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb93-1"><a href="#cb93-1" aria-hidden="true" tabindex="-1"></a><span class="co">;;; read a file line by line</span></span>
-<span id="cb93-2"><a href="#cb93-2" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> dev = sysopen(<span class="st">&#39;/path/file&#39;</span>, <span class="dv">0</span>, <span class="vs">&quot;line&quot;</span>);</span>
-<span id="cb93-3"><a href="#cb93-3" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> rep = line_repeater(dev, inits(<span class="dv">4096</span>));   <span class="co">;;; buffer size = max line length</span></span>
-<span id="cb93-4"><a href="#cb93-4" aria-hidden="true" tabindex="-1"></a><span class="kw">repeat</span></span>
-<span id="cb93-5"><a href="#cb93-5" aria-hidden="true" tabindex="-1"></a>    rep() -&gt; line;</span>
-<span id="cb93-6"><a href="#cb93-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">quitif</span>(line == termin);</span>
-<span id="cb93-7"><a href="#cb93-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">if</span> issubstring(<span class="st">&#39;ERROR&#39;</span>, <span class="dv">1</span>, line) <span class="kw">then</span> ... <span class="kw">endif</span>;</span>
-<span id="cb93-8"><a href="#cb93-8" aria-hidden="true" tabindex="-1"></a><span class="kw">endrepeat</span>;</span>
-<span id="cb93-9"><a href="#cb93-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb93-10"><a href="#cb93-10" aria-hidden="true" tabindex="-1"></a>sysobey(<span class="st">&#39;ls /tmp &gt; /tmp/out&#39;</span>);                          <span class="co">;;; run a command</span></span>
-<span id="cb93-11"><a href="#cb93-11" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> r = sys_obey_linerep(<span class="st">&#39;set +e; grep pat file&#39;</span>);     <span class="co">;;; ...and stream it</span></span>
-<span id="cb93-12"><a href="#cb93-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb93-13"><a href="#cb93-13" aria-hidden="true" tabindex="-1"></a>newproperty([], <span class="dv">50</span>, <span class="kw">false</span>, <span class="kw">true</span>) -&gt; tbl;   <span class="co">;;; hash table, keys matched by ==</span></span>
-<span id="cb93-14"><a href="#cb93-14" aria-hidden="true" tabindex="-1"></a>newmapping([],  <span class="dv">50</span>, <span class="kw">false</span>, <span class="kw">true</span>) -&gt; m;     <span class="co">;;; ...keys matched by =</span></span></code></pre></div>
+<div class="sourceCode" id="cb99" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb99-1"><a href="#cb99-1" aria-hidden="true" tabindex="-1"></a><span class="co">;;; read a file line by line</span></span>
+<span id="cb99-2"><a href="#cb99-2" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> dev = sysopen(<span class="st">&#39;/path/file&#39;</span>, <span class="dv">0</span>, <span class="vs">&quot;line&quot;</span>);</span>
+<span id="cb99-3"><a href="#cb99-3" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> rep = line_repeater(dev, inits(<span class="dv">4096</span>));   <span class="co">;;; buffer size = max line length</span></span>
+<span id="cb99-4"><a href="#cb99-4" aria-hidden="true" tabindex="-1"></a><span class="kw">repeat</span></span>
+<span id="cb99-5"><a href="#cb99-5" aria-hidden="true" tabindex="-1"></a>    rep() -&gt; line;</span>
+<span id="cb99-6"><a href="#cb99-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">quitif</span>(line == termin);</span>
+<span id="cb99-7"><a href="#cb99-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">if</span> issubstring(<span class="st">&#39;ERROR&#39;</span>, <span class="dv">1</span>, line) <span class="kw">then</span> ... <span class="kw">endif</span>;</span>
+<span id="cb99-8"><a href="#cb99-8" aria-hidden="true" tabindex="-1"></a><span class="kw">endrepeat</span>;</span>
+<span id="cb99-9"><a href="#cb99-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb99-10"><a href="#cb99-10" aria-hidden="true" tabindex="-1"></a>sysobey(<span class="st">&#39;ls /tmp &gt; /tmp/out&#39;</span>);                          <span class="co">;;; run a command</span></span>
+<span id="cb99-11"><a href="#cb99-11" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> r = sys_obey_linerep(<span class="st">&#39;set +e; grep pat file&#39;</span>);     <span class="co">;;; ...and stream it</span></span>
+<span id="cb99-12"><a href="#cb99-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb99-13"><a href="#cb99-13" aria-hidden="true" tabindex="-1"></a>newproperty([], <span class="dv">50</span>, <span class="kw">false</span>, <span class="kw">true</span>) -&gt; tbl;   <span class="co">;;; hash table, keys matched by ==</span></span>
+<span id="cb99-14"><a href="#cb99-14" aria-hidden="true" tabindex="-1"></a>newmapping([],  <span class="dv">50</span>, <span class="kw">false</span>, <span class="kw">true</span>) -&gt; m;     <span class="co">;;; ...keys matched by =</span></span></code></pre></div>
 <p><code>line_repeater</code> truncates lines longer than its buffer, so size
 <code>inits(n)</code> generously. <code>sys_obey_linerep</code> runs its command line
 under <code>errexit</code>: prefix <code>set +e;</code> whenever a failure is expected.</p>
 <h2 class="unnumbered" id="regular-expressions">Regular expressions</h2>
 <p>The escape character is <code>@</code>; <code>. * [ ] ^ $</code> are literal unless
 escaped; there is no alternation and no lookaround.</p>
-<div class="sourceCode" id="cb94" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb94-1"><a href="#cb94-1" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> err, p;</span>
-<span id="cb94-2"><a href="#cb94-2" aria-hidden="true" tabindex="-1"></a>regexp_compile(<span class="st">&#39;ERROR @[0-9@]@{1,@}&#39;</span>) -&gt; (err, p);   <span class="co">;;; test err -- false = ok</span></span>
-<span id="cb94-3"><a href="#cb94-3" aria-hidden="true" tabindex="-1"></a>p(<span class="dv">1</span>, <span class="st">&#39;ERROR 42 happened&#39;</span>, <span class="kw">false</span>, <span class="kw">false</span>) -&gt; (i, n);   <span class="co">;;; -&gt; 1  8</span></span>
-<span id="cb94-4"><a href="#cb94-4" aria-hidden="true" tabindex="-1"></a>substring(i, n, <span class="st">&#39;ERROR 42 happened&#39;</span>) =&gt;              <span class="co">;;; ** ERROR 42</span></span></code></pre></div>
+<div class="sourceCode" id="cb100" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb100-1"><a href="#cb100-1" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> err, p;</span>
+<span id="cb100-2"><a href="#cb100-2" aria-hidden="true" tabindex="-1"></a>regexp_compile(<span class="st">&#39;ERROR @[0-9@]@{1,@}&#39;</span>) -&gt; (err, p);   <span class="co">;;; test err -- false = ok</span></span>
+<span id="cb100-3"><a href="#cb100-3" aria-hidden="true" tabindex="-1"></a>p(<span class="dv">1</span>, <span class="st">&#39;ERROR 42 happened&#39;</span>, <span class="kw">false</span>, <span class="kw">false</span>) -&gt; (i, n);   <span class="co">;;; -&gt; 1  8</span></span>
+<span id="cb100-4"><a href="#cb100-4" aria-hidden="true" tabindex="-1"></a>substring(i, n, <span class="st">&#39;ERROR 42 happened&#39;</span>) =&gt;              <span class="co">;;; ** ERROR 42</span></span></code></pre></div>
 <p>Case-insensitive: <code>regexp_compile(s, 1, false)</code>, or <code>@i</code> in the
 pattern. <code>p</code> is a compiled procedure — define it once, reuse it.</p>
 <h2 class="unnumbered" id="datagrams">Datagrams</h2>
 <p>What Chapter 8 is built on. <code>‘i‘</code> is the internet domain and
 <code>‘D‘</code> a datagram socket; an address is a list, with <code>*</code> for
 <code>INADDR_ANY</code>.</p>
-<div class="sourceCode" id="cb95" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb95-1"><a href="#cb95-1" aria-hidden="true" tabindex="-1"></a><span class="kw">uses</span> unix_sockets;</span>
-<span id="cb95-2"><a href="#cb95-2" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> sock = sys_socket(`i`, `D`, <span class="kw">false</span>);</span>
-<span id="cb95-3"><a href="#cb95-3" aria-hidden="true" tabindex="-1"></a>[* <span class="dv">9951</span>] -&gt; sys_socket_name(sock);                 <span class="co">;;; bind</span></span>
-<span id="cb95-4"><a href="#cb95-4" aria-hidden="true" tabindex="-1"></a>sys_socket_send(sock, msg, length(msg), <span class="dv">0</span>, [<span class="st">&#39;127.0.0.1&#39;</span> <span class="dv">9952</span>]);</span>
-<span id="cb95-5"><a href="#cb95-5" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> buf = inits(<span class="dv">2048</span>);</span>
-<span id="cb95-6"><a href="#cb95-6" aria-hidden="true" tabindex="-1"></a>sys_socket_recv(sock, buf, <span class="dv">2048</span>, <span class="dv">0</span>, <span class="kw">true</span>) -&gt; (n, sender);</span>
-<span id="cb95-7"><a href="#cb95-7" aria-hidden="true" tabindex="-1"></a>substring(<span class="dv">1</span>, n, buf) =&gt;                            <span class="co">;;; the payload</span></span></code></pre></div>
+<div class="sourceCode" id="cb101" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb101-1"><a href="#cb101-1" aria-hidden="true" tabindex="-1"></a><span class="kw">uses</span> unix_sockets;</span>
+<span id="cb101-2"><a href="#cb101-2" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> sock = sys_socket(`i`, `D`, <span class="kw">false</span>);</span>
+<span id="cb101-3"><a href="#cb101-3" aria-hidden="true" tabindex="-1"></a>[* <span class="dv">9951</span>] -&gt; sys_socket_name(sock);                 <span class="co">;;; bind</span></span>
+<span id="cb101-4"><a href="#cb101-4" aria-hidden="true" tabindex="-1"></a>sys_socket_send(sock, msg, length(msg), <span class="dv">0</span>, [<span class="st">&#39;127.0.0.1&#39;</span> <span class="dv">9952</span>]);</span>
+<span id="cb101-5"><a href="#cb101-5" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> buf = inits(<span class="dv">2048</span>);</span>
+<span id="cb101-6"><a href="#cb101-6" aria-hidden="true" tabindex="-1"></a>sys_socket_recv(sock, buf, <span class="dv">2048</span>, <span class="dv">0</span>, <span class="kw">true</span>) -&gt; (n, sender);</span>
+<span id="cb101-7"><a href="#cb101-7" aria-hidden="true" tabindex="-1"></a>substring(<span class="dv">1</span>, n, buf) =&gt;                            <span class="co">;;; the payload</span></span></code></pre></div>
 <p>To poll, use <code>sys_device_wait</code> and <em>not</em>
 <code>sys_input_waiting</code>, which answers <code>false</code> forever on a
 datagram socket even with a datagram queued — a deaf poll that raises no
 error, because nothing arriving is also what a quiet network looks like
 (<code>docs/bugs/sys-input-waiting-blind-on-sockets.md</code>).</p>
-<div class="sourceCode" id="cb96" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb96-1"><a href="#cb96-1" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> rd;</span>
-<span id="cb96-2"><a href="#cb96-2" aria-hidden="true" tabindex="-1"></a>sys_device_wait([^sock], [], [], <span class="dv">0</span>) -&gt; (rd, , );    <span class="co">;;; 0 = don&#39;t block</span></span>
-<span id="cb96-3"><a href="#cb96-3" aria-hidden="true" tabindex="-1"></a><span class="kw">if</span> rd /== [] <span class="kw">then</span> ... <span class="kw">endif</span>;</span></code></pre></div>
+<div class="sourceCode" id="cb102" data-language="Pop11"><pre class="sourceCode Pop11"><code class="sourceCode pop11"><span id="cb102-1"><a href="#cb102-1" aria-hidden="true" tabindex="-1"></a><span class="kw">vars</span> rd;</span>
+<span id="cb102-2"><a href="#cb102-2" aria-hidden="true" tabindex="-1"></a>sys_device_wait([^sock], [], [], <span class="dv">0</span>) -&gt; (rd, , );    <span class="co">;;; 0 = don&#39;t block</span></span>
+<span id="cb102-3"><a href="#cb102-3" aria-hidden="true" tabindex="-1"></a><span class="kw">if</span> rd /== [] <span class="kw">then</span> ... <span class="kw">endif</span>;</span></code></pre></div>
 <h2 class="unnumbered" id="the-robot-army-examples">The Robot Army examples</h2>
 <p>All at <a href="https://github.com/IoTone/poplog/tree/master/examples/robotarmy"><code>examples/robotarmy/</code></a>; each runs from the
 repository root.</p>
