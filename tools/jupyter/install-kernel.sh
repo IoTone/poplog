@@ -3,11 +3,16 @@
 #
 #   tools/jupyter/install-kernel.sh
 #
-# Uses the running python3 if it already has ipykernel; otherwise creates
-# a small dedicated venv at ~/.cache/pop11-skill/jupyter-venv (alongside
-# the skill's other machine state) and installs ipykernel there.  Then
-# writes the kernelspec so `jupyter lab` / `jupyter console` list
-# "Pop-11".
+# Sets up a python that can run the kernel AND a frontend that can open a
+# notebook, then writes the kernelspec so `jupyter lab` / `jupyter console`
+# list "Pop-11".  In order of preference:
+#
+#   1. $POP11_KERNEL_PYTHON, if set -- yours, so nothing is installed into it.
+#   2. A complete setup already here: a python3 with ipykernel and a frontend
+#      on PATH.  Nothing is installed.
+#   3. uv -- `uv sync` the locked project in this directory (pyproject.toml,
+#      uv.lock).  Seconds, reproducible, and the normal path.
+#   4. No uv: a plain venv at ~/.cache/pop11-skill/jupyter-venv, with pip.
 #
 # A KERNEL IS NOT A FRONTEND.  ipykernel is the engine side; `jupyter lab`
 # comes from jupyterlab and `jupyter console` from jupyter-console, and
@@ -21,10 +26,11 @@
 # Env overrides:
 #   POP11_SESSION_BIN   popsession executable
 #                       (default ~/.claude/skills/pop11/bin/popsession)
-#   POP11_KERNEL_PYTHON python to run the kernel with (skips venv logic)
+#   POP11_KERNEL_PYTHON python to run the kernel with (skips all of the below)
 #   POP11_KERNEL_NO_FRONTEND
 #                       non-empty: register the kernel and install no
 #                       frontend, even when this script owns the venv
+#   POP11_KERNEL_NO_UV  non-empty: skip uv even where it is installed
 set -e
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -37,13 +43,58 @@ popsession="${POP11_SESSION_BIN:-$HOME/.claude/skills/pop11/bin/popsession}"
     exit 2
 }
 
-# ---- pick a python with ipykernel -----------------------------------------
-py="$POP11_KERNEL_PYTHON"
-if [ -z "$py" ] && python3 -c 'import ipykernel' 2>/dev/null; then
-    py="$(command -v python3)"
-fi
-venv=""
-if [ -z "$py" ]; then
+# `jupyter <sub> --version` exits 0 when the subcommand exists and 1 when it
+# does not.  That, not `command -v jupyter`: the jupyter_core launcher comes
+# in with ipykernel either way, so the bare binary existing proves nothing --
+# which is how a machine with a registered kernel and no frontend went
+# unnoticed, and the old closing advice came to fail with "command not found".
+have_sub() {           # have_sub <jupyter-binary> <subcommand>
+    "$1" "$2" --version >/dev/null 2>&1
+}
+
+path_frontend() {      # echo the first usable subcommand of a jupyter on PATH
+    command -v jupyter >/dev/null 2>&1 || return 1
+    for _s in lab notebook console; do
+        if have_sub jupyter "$_s"; then echo "$_s"; return 0; fi
+    done
+    return 1
+}
+
+# ---- resolve a kernel python and a frontend -------------------------------
+# $launcher is set only on the uv path, because lab.sh requires uv: suggesting
+# it after the pip fallback would hand someone a command that cannot run.
+py=""; venv=""; front=""; front_sub=""; launcher=""
+
+if [ -n "$POP11_KERNEL_PYTHON" ]; then
+    # Yours: used as given, and nothing is installed into it.
+    py="$POP11_KERNEL_PYTHON"
+    if front_sub="$(path_frontend)"; then front="jupyter"; fi
+
+elif front_sub="$(path_frontend)" && python3 -c 'import ipykernel' 2>/dev/null; then
+    # Already complete -- a frontend on PATH and a python that can host the
+    # kernel.  Downloading our own copy of JupyterLab next to a working one
+    # would be rude, so this installs nothing.
+    py="$(command -v python3)"; front="jupyter"
+
+elif [ -z "$POP11_KERNEL_NO_UV" ] && command -v uv >/dev/null 2>&1; then
+    # The normal path: the locked project in this directory, which pins the
+    # kernel and the frontend together.  Seconds when uv's cache is warm.
+    echo "install-kernel: uv sync $here"
+    uv sync -q --frozen --project "$here" >/dev/null
+    venv="$here/.venv"
+    py="$venv/bin/python3"
+    # The kernelspec points at this python, NOT at `uv run`: Jupyter starts,
+    # restarts and signals the kernel process itself, and `uv run` would sit
+    # between the two as the process it actually controls.  LIB LAYA learned
+    # the same thing the hard way (packages/laya/README.md): a kill reached
+    # uv and left the real child answering.
+    for _s in lab console; do
+        if have_sub "$venv/bin/jupyter" "$_s"; then front="$venv/bin/jupyter"; front_sub="$_s"; break; fi
+    done
+    launcher="tools/jupyter/lab.sh"
+
+else
+    # No uv.  The original fallback: a plain venv with pip.
     venv="$HOME/.cache/pop11-skill/jupyter-venv"
     if [ ! -x "$venv/bin/python3" ]; then
         echo "install-kernel: creating venv at $venv"
@@ -54,6 +105,16 @@ if [ -z "$py" ]; then
         "$venv/bin/pip" -q install ipykernel
     }
     py="$venv/bin/python3"
+    for _s in lab console; do
+        if have_sub "$venv/bin/jupyter" "$_s"; then front="$venv/bin/jupyter"; front_sub="$_s"; break; fi
+    done
+    if [ -z "$front" ] && [ -z "$POP11_KERNEL_NO_FRONTEND" ]; then
+        echo "install-kernel: no jupyter frontend found; installing jupyterlab into the venv"
+        "$venv/bin/pip" -q install jupyterlab jupyter-console
+        for _s in lab console; do
+            if have_sub "$venv/bin/jupyter" "$_s"; then front="$venv/bin/jupyter"; front_sub="$_s"; break; fi
+        done
+    fi
 fi
 echo "install-kernel: kernel python: $py"
 
@@ -73,57 +134,35 @@ cat > "$kdir/kernel.json" <<EOF
 EOF
 echo "install-kernel: kernelspec written to $kdir"
 
-# ---- resolve a frontend ----------------------------------------------------
-# The kernelspec lives in the per-user Jupyter data directory, so ANY
-# frontend on this machine can see it -- it does not have to be the python
-# the kernel runs under.  Prefer one already on PATH and touch nothing;
-# `jupyter <sub> --version` exits 0 when the subcommand exists and 1 when
-# it does not, which is the check, because the jupyter_core launcher is
-# present either way (ipykernel pulls it in) and so `command -v jupyter`
-# proves nothing.
-have_sub() {           # have_sub <jupyter-binary> <subcommand>
-    "$1" "$2" --version >/dev/null 2>&1
-}
-
-front=""; front_sub=""
-if command -v jupyter >/dev/null 2>&1; then
-    for sub in lab notebook console; do
-        if have_sub jupyter "$sub"; then front="jupyter"; front_sub="$sub"; break; fi
-    done
-fi
-
-# Nothing usable on PATH.  If this script created the venv, it owns it and
-# can finish the job; if the python came from the user (POP11_KERNEL_PYTHON,
-# or their own python3 that already had ipykernel) then installing into it
-# is not this script's business -- say what is missing instead.
-if [ -z "$front" ] && [ -n "$venv" ] && [ -z "$POP11_KERNEL_NO_FRONTEND" ]; then
-    for sub in lab console; do
-        if have_sub "$venv/bin/jupyter" "$sub"; then front="$venv/bin/jupyter"; front_sub="$sub"; break; fi
-    done
-    if [ -z "$front" ]; then
-        echo "install-kernel: no jupyter frontend found; installing jupyterlab into the venv"
-        "$venv/bin/pip" -q install jupyterlab jupyter-console
-        for sub in lab console; do
-            if have_sub "$venv/bin/jupyter" "$sub"; then front="$venv/bin/jupyter"; front_sub="$sub"; break; fi
-        done
-    fi
-fi
-
-nb="$(cd "$here/../.." && pwd)/examples/notebooks/pop11-live.ipynb"
-[ -f "$nb" ] || nb=""
+# ---- say what to run next --------------------------------------------------
+# The kernelspec lives in the per-user Jupyter data directory, so ANY frontend
+# on this machine can see it; it need not be the python the kernel runs under.
+nb="examples/notebooks/pop11-live.ipynb"
+[ -f "$(cd "$here/../.." && pwd)/$nb" ] || nb=""
 
 echo
 if [ -n "$front" ]; then
-    # The venv is deliberately not put on PATH, so print it in full: a bare
-    # `jupyter lab` is exactly what fails for someone who only has this one.
     echo "Ready.  Open a notebook with:"
-    echo "    $front $front_sub ${nb:+$nb}"
-    [ "$front" = "jupyter" ] || echo "  (that jupyter lives in the venv and is not on your PATH)"
-    echo "and pick the Pop-11 kernel.  Or: $front console --kernel pop11"
+    if [ "$front" = "jupyter" ]; then
+        echo "    jupyter $front_sub ${nb:+$nb}"
+    else
+        # Neither venv is put on PATH, so print something runnable rather than
+        # a bare `jupyter lab` -- which is exactly what fails for someone who
+        # has only this one, and was the original complaint.
+        if [ -n "$launcher" ]; then
+            echo "    $launcher ${nb:+$nb}"
+            echo "  (or in full: $front $front_sub)"
+        else
+            echo "    $front $front_sub ${nb:+$nb}"
+            echo "  (that jupyter is in a venv and not on your PATH)"
+        fi
+    fi
+    echo "and pick the Pop-11 kernel."
 else
     echo "The Pop-11 kernel is registered, but this machine has no Jupyter"
     echo "frontend to run it with -- ipykernel is the kernel side only."
-    echo "Install one, then pick Pop-11:"
+    echo "Either install uv (https://docs.astral.sh/uv/) and re-run this"
+    echo "script, which sets up both from tools/jupyter/uv.lock, or:"
     echo "    python3 -m pip install jupyterlab      # or: pipx install jupyterlab"
     [ -n "$nb" ] && echo "    jupyter lab $nb"
 fi

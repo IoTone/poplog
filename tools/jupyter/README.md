@@ -7,60 +7,79 @@ machinery. Defines are native-compiled as cells run and survive between
 cells; a mishap shows its diagnostics red and the session lives on. The
 🌈 line after each cell is the real wall-clock cost.
 
-## Install
+## Run a notebook
 
 Prereqs: the pop11 skill installed (`install.sh` or the curl one-liner)
-and `python3`. Then:
+and [uv](https://docs.astral.sh/uv/). Then, from a checkout:
 
 ```sh
-tools/jupyter/install-kernel.sh
+tools/jupyter/lab.sh
 ```
 
-It does two separate things, and it is worth knowing which is which,
-because a kernel and a frontend are not the same package:
-
-1. **The kernel.** Uses your `python3` if it already has `ipykernel`;
-   otherwise creates a small venv at `~/.cache/pop11-skill/jupyter-venv`
-   and installs `ipykernel` there. Then registers the **Pop-11**
-   kernelspec in your per-user Jupyter directory, so *any* frontend on
-   the machine can see it — JupyterLab, `jupyter console`, VS Code
-   notebooks — whatever python the kernel itself runs under.
-2. **A frontend, if you have none.** `ipykernel` is the engine side only:
-   `jupyter lab` comes from `jupyterlab` and `jupyter console` from
-   `jupyter-console`, and neither is one of its dependencies. If no
-   `jupyter` on your `PATH` has a `lab`, `notebook` or `console`
-   subcommand, and the script created the venv, it installs `jupyterlab`
-   there too. It never installs into a python you supplied yourself; in
-   that case it tells you what is missing.
-
-The script ends by printing the command to run. **Read that line rather
-than typing `jupyter lab`** — if the frontend is the one in the venv, the
-venv is deliberately not on your `PATH`, so the command it prints is an
-absolute path:
+That is the whole thing. It syncs the environment, registers the kernel
+and opens `examples/notebooks/` in JupyterLab; pick the **Pop-11** kernel.
+A few seconds once uv's cache is warm. Nothing needs to be on your `PATH`
+and nothing is installed outside this directory.
 
 ```sh
-~/.cache/pop11-skill/jupyter-venv/bin/jupyter lab examples/notebooks/pop11-live.ipynb
+tools/jupyter/lab.sh examples/notebooks/pop11-live.ipynb   # straight to one
+tools/jupyter/lab.sh --console                             # terminal REPL
+tools/jupyter/lab.sh --execute --inplace nb.ipynb          # headless, in place
 ```
 
-Then pick the **Pop-11** kernel. To put that `jupyter` on your `PATH` for
-a shell, `. ~/.cache/pop11-skill/jupyter-venv/bin/activate`.
+The environment is a locked uv project in this directory —
+`pyproject.toml` and `uv.lock`, synced with `--frozen` — so you get the
+same Jupyter the committed notebook outputs were produced with. It pins
+both halves on purpose, because **a kernel is not a frontend**:
+`ipykernel` is the engine side, while `jupyter lab` comes from
+`jupyterlab` and `jupyter console` from `jupyter-console`, and neither is
+a dependency of `ipykernel`. Installing only `ipykernel` leaves a
+correctly registered Pop-11 kernel with nothing on the machine able to
+open a notebook — which is what used to happen here, with the symptom
+`zsh: command not found: jupyter`.
+
+### Without uv, or with a Jupyter of your own
+
+`install-kernel.sh` is the kernel half on its own and needs no uv. It
+registers the **Pop-11** kernelspec in your per-user Jupyter directory,
+so *any* frontend on the machine lists it — JupyterLab, `jupyter
+console`, VS Code notebooks — whatever python the kernel itself runs
+under. It picks that python in this order:
+
+| | |
+| --- | --- |
+| `$POP11_KERNEL_PYTHON` | used as given; nothing installed into it |
+| a frontend on `PATH` **and** a `python3` with `ipykernel` | already complete, so nothing is installed |
+| uv | `uv sync` this directory (the normal path, and what `lab.sh` uses) |
+| no uv | a plain venv at `~/.cache/pop11-skill/jupyter-venv`, with pip, plus `jupyterlab` if you have no frontend at all |
+
+It ends by printing the command to run next. **Read that line rather than
+typing `jupyter lab`**: if the frontend is one of the two venvs, that venv
+is deliberately not on your `PATH`, and a bare `jupyter lab` is exactly
+what fails.
+
+Overrides: `POP11_KERNEL_NO_UV=1` skips uv, `POP11_KERNEL_NO_FRONTEND=1`
+registers the kernel and installs no frontend, `POP11_SESSION_BIN` points
+at a `popsession` elsewhere.
 
 ### If `jupyter` is "command not found"
 
-The kernel is registered and fine — you have no frontend, or the only one
-is in the venv and not on your `PATH`. Check what is registered and which
-frontends exist:
+The kernel is almost certainly registered and fine — you simply have no
+frontend on your `PATH`. Use `tools/jupyter/lab.sh`, which needs nothing
+on `PATH`. To check what is registered:
 
 ```sh
-~/.cache/pop11-skill/jupyter-venv/bin/jupyter kernelspec list   # expect: pop11
-tools/jupyter/install-kernel.sh                                 # prints the command to use
+tools/jupyter/.venv/bin/jupyter kernelspec list     # expect: pop11
 ```
 
-To use your own Jupyter instead, install it (`python3 -m pip install
-jupyterlab`, or `pipx install jupyterlab`) and re-run the script: the
-kernelspec is global to your user, so an existing JupyterLab will list
-**Pop-11** with no further configuration. `POP11_KERNEL_NO_FRONTEND=1`
-registers the kernel and installs no frontend at all.
+To use your own Jupyter instead, install one (`python3 -m pip install
+jupyterlab`, or `pipx install jupyterlab`) and re-run
+`install-kernel.sh`: the kernelspec is per-user, so an existing
+JupyterLab lists **Pop-11** with no further configuration.
+
+Note that the kernelspec records an absolute path to the python that runs
+the kernel. Move the checkout and the registered path goes stale — re-run
+`install-kernel.sh` (or `lab.sh`, which does it every time) to rewrite it.
 
 ## Try it
 
@@ -70,4 +89,7 @@ kernel (the committed outputs are genuine).
 ## Files
 
 - `pop11_kernel.py` — the kernel (ipykernel wrapper class, ~150 lines)
-- `install-kernel.sh` — python resolution + kernelspec registration
+- `lab.sh` — sync, register, open; the one command you need
+- `install-kernel.sh` — python/frontend resolution + kernelspec registration
+- `pyproject.toml`, `uv.lock` — the locked environment (kernel + frontend)
+- `teach2nb.py`, `make-cave-nb.py` — the notebook builders
