@@ -66,3 +66,10 @@ __pycache__/
 poplog-src.tar.gz
 .ci-manifest
 .ci-commit
+
+# A JupyterLab session over examples/notebooks/ leaves these behind.  The
+# notebooks there are committed WITH their outputs, which are genuine engine
+# results, so a checkpoint copy of one is noise that invites a confusing
+# diff -- and lab re-saves an open notebook, stripping execution timings.
+.ipynb_checkpoints/
+Untitled*.ipynb

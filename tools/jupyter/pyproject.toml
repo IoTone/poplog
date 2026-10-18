@@ -1,0 +1,33 @@
+[project]
+name = "poplog-jupyter"
+version = "0.1.0"
+description = "The Python half of Poplog's Jupyter support: the Pop-11 kernel and a frontend to run it with"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # The kernel side.  pop11_kernel.py subclasses ipykernel.kernelbase.Kernel.
+    "ipykernel>=6.29",
+    # The frontend side, and the reason this project exists: ipykernel is a
+    # kernel, not a frontend, and neither of these is one of its dependencies.
+    # Installing only ipykernel leaves a registered Pop-11 kernel with nothing
+    # on the machine able to open a notebook.
+    "jupyterlab>=4.2",
+    "jupyter-console>=6.6",
+    # Direct imports of our own scripts, not just transitive deps of the above:
+    # teach2nb.py and make-cave-nb.py build notebooks with nbformat, and
+    # `jupyter execute` (how the committed outputs are regenerated, and how CI
+    # could check them) is nbclient.
+    "nbformat>=5.10",
+    "nbclient>=0.10",
+]
+
+[tool.uv]
+# Not a distributable package: the kernel and the notebook builders are run in
+# place from this directory.
+package = false
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
