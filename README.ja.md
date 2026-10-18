@@ -126,6 +126,20 @@ Linux x86-64 から)。再配置可能なランタイム(`basepop11` とライ�
 tarball は `tools/release-skill-tarball.sh` がビルドし、チェックサム
 (`SHA256SUMS.pop11-skill`)とともにリリースページで公開されます。
 
+リリースはタグ 1 つで完結します。`skill-YYYY.MM` を push すると
+[`.github/workflows/skill-release.yml`](.github/workflows/skill-release.yml)
+が走り、x86-64 Linux・AArch64 Linux・Apple Silicon macOS の 3 つを、
+そのコミットに同梱されたシードからビルドします。各プラットフォームで
+ライブラリのテストスイートと fork ハングの回帰テストを実行し、さらに
+ビルドディレクトリとは無関係な場所へ `install-skill.sh` 経由で実際に
+インストールしたうえで、チェックサム付きで公開します。まずは Actions
+タブから実行すれば、公開せずにビルドと検証だけを行えます。
+**RISC-V にはホストランナーがない**ため、
+`pop11-skill-linux-riscv64.tar.gz` だけは `machine1` で手動ビルドし、
+同じタグへアップロードします。その後ワークフローを再実行すれば
+`SHA256SUMS.pop11-skill` に取り込まれます — 公開ステップは
+3 プラットフォーム分を前提にせず、リリース上の実物を読むためです。
+
 **2. ソースから** — [INSTALL](INSTALL) を参照してください。
 `target/pop/corepop` をシードとして用意し(移植済み 4 プラットフォーム
 向けのバイナリは `nix/seeds/` に同梱)、`./configure && make all` を

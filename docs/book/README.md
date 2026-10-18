@@ -1,6 +1,6 @@
 # Pop-11 and the Robot Army
 
-**Edition 1.9, October 2026** — David J. Kordsmeier and Claude.
+**Edition 1.10, October 2026** — David J. Kordsmeier and Claude.
 
 An introduction to Poplog and Pop-11 built around one running example: a
 fleet of robots commanded from a live Poplog session by an AI agent. It
@@ -11,7 +11,9 @@ robots on the cover, how to host a language of your own, and the C interface.
 The programs are in `examples/robotarmy/`. Cover art by David J. Kordsmeier.
 Written by Kordsmeier and Claude (Anthropic) together in Claude Code.
 
-    make            # -> poplog-book.pdf
+    make            # -> poplog-book.pdf   (typeset, for printing)
+    make html       # -> poplog-book.html  (one self-contained HTML5 file)
+    make all        # both
 
 ## Building
 
@@ -20,6 +22,24 @@ single binary and downloads the TeX packages the document needs on first run:
 
     brew install tectonic          # macOS
     cargo install tectonic         # anywhere with Rust
+
+The HTML edition is built by `tools/book-html.sh`, which needs
+[pandoc](https://pandoc.org) and nothing else:
+
+    brew install pandoc
+
+It reads the same `.tex` sources the PDF is built from — there is no second
+copy of the text — and writes a single `poplog-book.html`: no JavaScript, no
+external CSS, no web fonts, every figure inlined as a data URI. It opens from
+a `file://` URL, from a static host or from inside a zip, and it prints. Two
+extra tools are used when they are present and skipped when they are not:
+`tectonic` + `pdftocairo` re-render the one TikZ figure, and ImageMagick
+re-sizes the cover for the web. Both outputs are committed under
+`figures/web/`, so an ordinary build needs only pandoc.
+
+Why not `tex4ht`/`make4ht`, the usual LaTeX-to-HTML route: it wants a full
+TeX installation, and this tree uses tectonic precisely so that it does not
+need one.
 
 Any other LaTeX distribution works as well — the document is plain LaTeX with
 common packages (`geometry`, `listings`, `tcolorbox`, `hyperref`, `titlesec`,
@@ -38,6 +58,8 @@ common packages (`geometry`, `listings`, `tcolorbox`, `hyperref`, `titlesec`,
 | `ch01-why.tex` … `ch10-next.tex` | The ten chapters |
 | `ch11-appendix.tex` | Appendix A — cheat sheet, mishap decoder |
 | `figures/` | Cover art and screenshots (screenshots cropped from `docs/images/`) |
+| `figures/web/` | Derived, for the HTML edition only: the TikZ figure as SVG, the cover re-sized. Regenerated when its source is newer; kept apart from the print originals so an HTML build does not dirty the PDF |
+| `pop11.xml` | Pop-11 syntax definition for pandoc, so the HTML edition highlights the book's own language. Its keyword list mirrors the one `preamble.tex` gives `listings` — keep the two in step |
 
 ## On the examples
 
@@ -53,10 +75,24 @@ reproducible from the listings in §1.2 and §1.4.
 
 ## Publishing
 
-`tools/gen-docs.sh` copies `poplog-book.pdf` into `dist/docs/` and links it
-from the documentation-site index when the PDF is present, so a built book is
-published with the site at <https://iotone.github.io/poplog/>. The PDF is
-committed, so CI does not need a TeX toolchain.
+`tools/gen-docs.sh` copies both editions into `dist/docs/` and links them from
+the documentation-site index when they are present, so a built book is
+published with the site at <https://iotone.github.io/poplog/>:
+
+| | URL |
+| --- | --- |
+| HTML | <https://iotone.github.io/poplog/poplog-book.html> |
+| PDF | <https://iotone.github.io/poplog/poplog-book.pdf> |
+
+The index links the HTML first and offers the PDF as the download, and the
+HTML edition is listed in `sitemap.xml` (the PDF is not — a sitemap is for
+pages). Both are committed, so CI needs neither a TeX toolchain nor pandoc.
+
+Because the HTML edition is one file with nothing external in it, it can also
+be linked or embedded from anywhere else — a course page, a wiki, a Google
+Sites page — with no build step and nothing to break: the link above is all
+that is needed. An `<iframe>` pointing at the same URL works for embedding it
+in place.
 
 ## Versions
 

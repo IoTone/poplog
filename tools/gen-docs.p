@@ -17,11 +17,17 @@ uses shell;
 vars outdir = 'dist/docs';
 vars site_base = 'https://iotone.github.io/poplog';
 
-;;; the book (docs/book/poplog-book.pdf) is published alongside the corpus
-;;; when it has been built; the index links it only if it is there
+;;; the book is published alongside the corpus in both editions when they
+;;; have been built; the index links each one only if it is there.  The PDF
+;;; is the typeset edition (docs/book/Makefile), the HTML the readable-in-a
+;;; -browser one (tools/book-html.sh) -- one self-contained file, which is
+;;; what makes it linkable from anywhere, embeddable, and readable offline.
 vars book_src = 'docs/book/poplog-book.pdf';
 vars book_out = 'poplog-book.pdf';
 vars book_present = false;
+vars bookh_src = 'docs/book/poplog-book.html';
+vars bookh_out = 'poplog-book.html';
+vars bookh_present = false;
 
 ;;; --- collect the corpus -------------------------------------------------
 
@@ -305,12 +311,22 @@ define lconstant gen_index();
              <> '<a href="help/json.html">HELP JSON</a>, '
              <> '<a href="teach/json.html">TEACH JSON</a>, '
              <> '<a href="ref/regexp.html">REF REGEXP</a>.'
-             <> (if book_present then
-                     '\n\nThe book: <a href="' <> book_out <> '">Pop-11 and '
-                     <> 'the Robot Army</a> (PDF) &mdash; the VM, the core '
+             <> (if book_present or bookh_present then
+                     '\n\nThe book: <a href="'
+                     <> (if bookh_present then bookh_out
+                         else book_out endif)
+                     <> '">Pop-11 and '
+                     <> 'the Robot Army</a> &mdash; the VM, the core '
                      <> 'language, the five front-ends\nand the C interface, '
                      <> 'built around a fleet of robots run from a live '
-                     <> 'session.  Programs: examples/robotarmy/.'
+                     <> 'session.  Programs: examples/robotarmy/.\n'
+                     <> (if bookh_present then
+                             'Read it in the browser, or '
+                         else '' endif)
+                     <> (if book_present then
+                             '<a href="' <> book_out <> '">download the PDF'
+                             <> '</a> (typeset, for printing).'
+                         else '' endif)
                  else '' endif)
              <> '</pre>' <> body),
         outdir <> '/index.html');
@@ -348,6 +364,11 @@ define lconstant gen_sitemap();
     [% '<?xml version="1.0" encoding="UTF-8"?>';
        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">';
        '  <url><loc>' <> site_base <> '/</loc></url>';
+       ;;; the HTML edition is a page in its own right, so it belongs in the
+       ;;; sitemap; the PDF does not go in one
+       if bookh_present then
+           '  <url><loc>' <> site_base <> '/' <> bookh_out <> '</loc></url>'
+       endif;
        for entry in corpus do
            '  <url><loc>' <> site_base <> '/' <> subscrv(1, entry) <> '/'
            <> escape(subscrv(2, entry)) <> '.html</loc></url>'
@@ -377,6 +398,10 @@ endfor;
 if sys_file_exists(book_src) then
     shell_run('cp ' <> book_src <> ' ' <> outdir <> '/' <> book_out) -> (out, st);
     st == 0 -> book_present;
+endif;
+if sys_file_exists(bookh_src) then
+    shell_run('cp ' <> bookh_src <> ' ' <> outdir <> '/' <> bookh_out) -> (out, st);
+    st == 0 -> bookh_present;
 endif;
 gen_index();
 gen_llms();

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE language SYSTEM "language.dtd">
+<!--
+  pop11.xml — a KDE/Kate syntax definition for Pop-11, used only by
+  tools/book-html.sh (pandoc --syntax-definition) so that the HTML edition
+  highlights the book's own language.  Without it pandoc knows bash, C, SML
+  and Common Lisp but not Pop-11, and 46 of the book's 96 listings -- the
+  Pop-11 ones, which are the point -- would be the only plain ones.
+
+  The keyword list is the same one preamble.tex gives to the `listings`
+  package for the PDF; keep the two in step.  Tokens are coloured by the
+  book's palette, which tools/book-html.sh overrides pandoc's default theme
+  with, so the two editions agree.
+
+  Highlighting cannot corrupt a listing: pandoc wraps spans around text it
+  does not otherwise alter, and book-html.sh's own check compares every
+  listing body against the .tex with the spans stripped.
+-->
+<language name="Pop11" section="Sources" extensions="*.p;*.ph" version="1"
+          kateversion="5.0" author="Poplog contributors" license="CC0">
+  <highlighting>
+    <list name="keywords">
+      <item>define</item>      <item>enddefine</item>
+      <item>procedure</item>   <item>endprocedure</item>
+      <item>vars</item>        <item>lvars</item>
+      <item>dlvars</item>      <item>dlocal</item>
+      <item>lconstant</item>   <item>constant</item>
+      <item>global</item>
+      <item>if</item>          <item>then</item>
+      <item>elseif</item>      <item>else</item>
+      <item>endif</item>
+      <item>unless</item>      <item>endunless</item>
+      <item>for</item>         <item>from</item>
+      <item>to</item>          <item>by</item>
+      <item>in</item>          <item>on</item>
+      <item>do</item>          <item>endfor</item>
+      <item>while</item>       <item>endwhile</item>
+      <item>until</item>
+      <item>repeat</item>      <item>endrepeat</item>
+      <item>quitif</item>      <item>quitloop</item>
+      <item>returnif</item>    <item>return</item>
+      <item>switchon</item>    <item>case</item>
+      <item>endswitchon</item>
+      <item>matches</item>
+      <item>section</item>     <item>endsection</item>
+      <item>uses</item>        <item>load</item>
+      <item>compile</item>
+      <item>exload</item>      <item>endexload</item>
+      <item>slot</item>        <item>method</item>
+      <item>class</item>       <item>defclass</item>
+      <item>is</item>          <item>with_nargs</item>
+      <item>macro</item>       <item>syntax</item>
+      <item>nonop</item>       <item>recursive_valof</item>
+      <item>chain</item>
+      <item>and</item>         <item>or</item>
+      <item>not</item>
+      <item>false</item>       <item>true</item>
+    </list>
+    <contexts>
+      <context name="Normal" attribute="Normal Text" lineEndContext="#stay">
+        <!-- ;;; to end of line.  Checked before the keyword list so that a
+             commented-out line is not highlighted as code. -->
+        <Detect2Chars attribute="Comment" context="LineComment" char=";" char1=";"/>
+        <Detect2Chars attribute="Comment" context="BlockComment" char="/" char1="*"
+                      beginRegion="Comment"/>
+        <keyword attribute="Keyword" String="keywords"/>
+        <!-- Pop-11 strings are single-quoted; double quotes make a word. -->
+        <DetectChar attribute="String" context="SQString" char="'"/>
+        <DetectChar attribute="Word" context="DQWord" char="&quot;"/>
+        <Float attribute="Number" context="#stay"/>
+        <Int attribute="Number" context="#stay"/>
+      </context>
+      <context name="LineComment" attribute="Comment" lineEndContext="#pop"/>
+      <context name="BlockComment" attribute="Comment" lineEndContext="#stay">
+        <Detect2Chars attribute="Comment" context="#pop" char="*" char1="/"
+                      endRegion="Comment"/>
+      </context>
+      <context name="SQString" attribute="String" lineEndContext="#pop">
+        <DetectChar attribute="String" context="#pop" char="'"/>
+      </context>
+      <context name="DQWord" attribute="Word" lineEndContext="#pop">
+        <DetectChar attribute="Word" context="#pop" char="&quot;"/>
+      </context>
+    </contexts>
+    <itemDatas>
+      <itemData name="Normal Text" defStyleNum="dsNormal"/>
+      <itemData name="Keyword"     defStyleNum="dsKeyword"/>
+      <itemData name="Comment"     defStyleNum="dsComment"/>
+      <itemData name="String"      defStyleNum="dsString"/>
+      <itemData name="Word"        defStyleNum="dsVerbatimString"/>
+      <itemData name="Number"      defStyleNum="dsDecVal"/>
+    </itemDatas>
+  </highlighting>
+  <general>
+    <comments>
+      <comment name="singleLine" start=";;;"/>
+      <comment name="multiLine" start="/*" end="*/"/>
+    </comments>
+    <!-- No additionalDeliminator: an underscore is part of a Pop-11 word
+         (sys_file_stat, with_nargs), not a separator between two. -->
+    <keywords casesensitive="1"/>
+  </general>
+</language>
