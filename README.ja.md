@@ -403,3 +403,39 @@ Intel/AMD 64 ビット Linux 向けのビルド可能な tarball はこちら:
 ください。
 
 より詳しいインストール手順は INSTALL を参照してください。
+
+---
+
+## このリポジトリの来歴
+
+Poplog は 40 年以上の歴史があり、このリポジトリはその系譜の最新の一つです。
+GitHub 上では「forked from」の表示がありませんが、これは履歴が fork ボタン
+ではなく、現在は使われていないアカウントからの push で持ち込まれたためです。
+
+* **直接の祖先: [hebisch/poplog](https://github.com/hebisch/poplog)** —
+  Waldek Hebisch 氏による整理版 Poplog。類似ではなく同一の履歴です。本
+  リポジトリの最初のコミット `d8f2a1c`(2019-02-19)は氏のものであり、
+  `6bbfa28`(2023-05-18)までのすべてのコミットを共有しています。氏の
+  リポジトリは現在も保守されています。
+* **拡張パッケージ:**
+  [hebisch/poplog_packages](https://github.com/hebisch/poplog_packages)
+* **起源: サセックス大学(University of Sussex)** — ソース中の著作権表示は
+  `Copyright (c) 1982-1999 University of Sussex. All rights reserved.` の
+  ままであり、*Poplog* は同大学の登録商標です。その後 Integral Solutions
+  Limited (ISL) がライセンスを受けて商用販売しました。
+* **フリー版の保管: バーミンガム大学(Aaron Sloman 氏)** —
+  <https://www.cs.bham.ac.uk/research/projects/poplog/freepoplog.html>
+  同サイトの複製が <http://poplog.fricas.org/bham/> にあります
+  (Free Poplog サイト: <http://poplog.fricas.org/>)。
+* **運営団体はありません。** BCS PLUG(利用者グループ)は 1990 年代以降
+  休止しており、統括団体や商標の管理主体は実質的に存在しません。
+* **現在の交流の場:** メーリングリスト **pop-forum@gaggle.email**
+  (「a mailing list for Poplog and Pop-11」)。登録は
+  <https://gaggle.email/join/pop-forum@gaggle.email> から行えます。
+
+**`poplog.org` に関する注意:** 1999 年当時の HELP ファイルの一部は
+`http://www.poplog.org` を参照していますが、このドメインは現在 Poplog とは
+無関係な内容を配信しています。上流の情報源として扱わないでください。
+
+ライセンスの状況を含む完全な記述は、英語版 README の
+[Where this came from](README.md#where-this-came-from) を参照してください。
