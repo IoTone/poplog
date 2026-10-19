@@ -15,14 +15,38 @@
 # the right order is a release that drifts; this one needs a tag.
 #
 # riscv64 is NOT built here: there is no hosted RISC-V runner.  It stays
-# hand-built on machine1 and uploaded to the same tag --
+# hand-built on machine1 and uploaded to the same tag.  On machine1, in a
+# git checkout (~/skillbuild is one; ~/poplog-ci is NOT -- it is an
+# unpacked tree with no .git, so it cannot be moved to a tag):
 #
-#     tools/release-skill-tarball.sh ~/poplog-ci/poplog dist/skill
-#     gh release upload skill-YYYY.MM dist/skill/pop11-skill-linux-riscv64.tar.gz
+#     cd ~/skillbuild
+#     git fetch origin --tags && git checkout skill-YYYY.MM
+#     setarch -R sh -c 'FORCE_ENGINE_REBUILD=1 tools/ci/build-and-verify.sh dist'
+#     # then, from a machine with gh:
+#     gh release upload skill-YYYY.MM dist/pop11-skill-linux-riscv64.tar.gz
 #
-# -- after which re-running this workflow on the same tag regenerates
+# Three things that block are easy to get wrong:
+#
+#   * AT THE TAG.  The checkout has to be the tagged commit, or riscv64
+#     ships a different engine from the other three.  A tree that merely
+#     exists on the box is not at the tag: when 2026.10.1 was backfilled,
+#     every tree on machine1 was behind it.
+#   * setarch -R WRAPS THE BUILD.  riscv64 Poplog restores images at fixed
+#     addresses, and the Makefile does not apply setarch itself -- the build
+#     runs the engine (poplibr, make_indexes), so the whole thing goes
+#     under setarch, not just the finished engine.
+#   * build-and-verify.sh, NOT release-skill-tarball.sh.  The latter only
+#     packages; the former is what the hosted platforms run, so riscv64 gets
+#     the same self-test, tarball verification and live installer smoke
+#     instead of a tarball nobody tried to install.
+#
+# Re-running this workflow on the same tag afterwards regenerates
 # SHA256SUMS.pop11-skill over all four, because the publish job pulls any
-# riscv64 asset already on the release before hashing.
+# riscv64 asset already on the release before hashing.  Note that the re-run
+# also REBUILDS and re-uploads the other three tarballs: the builds are not
+# bit-reproducible, so their checksums change even though the commit has
+# not.  Expected, but it means any checksum quoted outside the release's own
+# SHA256SUMS goes stale.
 #
 # The seeds come from nix/seeds/ rather than a corepops release, so the
 # build's provenance is the tagged commit and nothing depends on a release
