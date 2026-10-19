@@ -348,31 +348,18 @@ generated `learn/learn.p` wires it into `teach`/`help` inside Poplog.  See
 
 ---
 
-This is cleaned up version of Poplog sources, currently only
-core part.  It misses binary needed for bootstrap and extensions
-(packages).  Packages are in separate repository:
+This is a cleaned-up version of the Poplog sources, the core part only: it
+carries neither the bootstrap binaries nor the extension packages. Both live
+elsewhere, along with the rest of this repository's ancestry — see
+**[Where this came from](#where-this-came-from)** below.
 
-  https://github.com/hebisch/poplog_packages
-
-Bootstrap (`corepop`) binaries for the platforms ported here — x86-64
-Linux, AArch64 Linux, Apple Silicon macOS, and RISC-V RV64GC Linux — are
-published with checksums on this repository's releases page:
-
-  https://github.com/IoTone/poplog/releases
-
-(e.g. `releases/download/corepops-2026.10/corepop-aarch64-linux` -- seed
-URLs name their corepops tag rather than `latest`, which the skill
-releases also use; the same seeds are vendored under `nix/seeds/` for
-the Nix flake build).  For the older
-upstream platforms you can find bootstrap binaries at:
-
-  https://poplog.fricas.org/corepops
-
-There is buildable tarball for Intel/AMD 64-bit Linux at
-
-  http://fricas.org/~hebisch/poplog
-
-(this build version does not include newest changes to repository).
+Bootstrap (`corepop`) binaries for the platforms ported here — x86-64 Linux,
+AArch64 Linux, Apple Silicon macOS, and RISC-V RV64GC Linux — are published
+with checksums on [this repository's
+releases](https://github.com/IoTone/poplog/releases) (e.g.
+`releases/download/corepops-2026.10/corepop-aarch64-linux`). Seed URLs name
+their `corepops` tag rather than `latest`, which the skill releases own; the
+same seeds are vendored under `nix/seeds/` for the Nix flake build.
 
 The **AArch64 Linux** port (see the Platforms table above) is written to the
 generic `armv8-a` baseline and flushes the instruction cache via
@@ -382,3 +369,118 @@ page-aligned; the Pi 5 uses 16 KB pages).  See `PORTING-ARM64-LINUX-RPI5.md`
 (and its "Portability to other AArch64 platforms" section) for details.
 
 For more detailed installation instructions see INSTALL.
+
+---
+
+## Where this came from
+
+Poplog is over forty years old and this repository is the latest link in
+a chain. GitHub shows no "forked from" banner on it, because the history
+arrived by push from an account that no longer holds it rather than through
+the fork button — so the lineage is recorded here instead.
+
+### This repository's direct ancestor
+
+**[hebisch/poplog](https://github.com/hebisch/poplog)** — Waldek Hebisch's
+cleaned-up Poplog, and the repository this one continues. The relationship
+is not a resemblance; it is the same history. This repository's root commit
+`d8f2a1c` ("Inital commit", 19 Feb 2019) is Hebisch's, it is present in his
+repository too, and the two share every commit up to `6bbfa28` (18 May
+2023). Everything after that is this fork. Hebisch's repository is still
+maintained and is the place to look for changes that have not been brought
+across; the opening description of Poplog at the top of this README is his
+wording, kept deliberately.
+
+Also his, and still the right sources for things not built here:
+
+* **[hebisch/poplog_packages](https://github.com/hebisch/poplog_packages)** —
+  the extension packages, which this repository does not vendor.
+* **<http://poplog.fricas.org/>** — the Free Poplog site: documentation, and
+  at **<http://poplog.fricas.org/bham/>** a file-level **copy of the
+  Birmingham site**. Worth knowing about before you need it: `poplog.org`
+  has already been lost (see below), so a second copy of the Birmingham
+  material is not redundancy for its own sake.
+* **<https://poplog.fricas.org/corepops>** — bootstrap `corepop` binaries for
+  the older upstream platforms (the four platforms ported *here* are on
+  [this repository's releases](https://github.com/IoTone/poplog/releases),
+  and vendored under `nix/seeds/`).
+* **<http://fricas.org/~hebisch/poplog>** — a buildable tarball for
+  Intel/AMD 64-bit Linux.
+
+### Before GitHub
+
+Poplog was built at the **University of Sussex**, carrying forward the POP
+language line — the HELP files still document compatibility with "older
+dialects of POP (such as POP-2, POP-10, WPOP)". The sources here keep their
+notices: `Copyright (c) 1982-1999 University of Sussex. All rights
+reserved.`, and *Poplog* is a registered trade mark of the University of
+Sussex.
+
+You do not have to take that history second-hand; it is signed throughout
+the tree, and these are the names you meet most often reading it. **John
+Gibson** appears in over 1,600 files, most of the compiler and virtual
+machine sources among them. **Robert Duncan** signs around 300, including
+much of the HELP corpus. **Aaron Sloman** is on documentation from 1982
+onwards and later curated the free release. **Chris Mellish** wrote the Prolog
+documentation (1983), **Steve Hardy** help files from as early as 1978, and
+**Steve Leach** the Objectclass extension described at the top of this
+README.
+
+Poplog was then sold commercially under licence by **Integral Solutions
+Limited** (ISL) of Bristol. The licence agreement between Sussex and ISL
+survives in the tree as `HELP POPLOG_LICENCE` — as a record only: Poplog was
+released for free use in the late 1990s, and ISL's site (`www.isl.co.uk`) no
+longer resolves.
+
+The free release has been curated since at the **University of Birmingham**
+by Aaron Sloman, and those pages are still up and still the best account of
+what Poplog is and why:
+
+* **<https://www.cs.bham.ac.uk/research/projects/poplog/freepoplog.html>** —
+  Free Poplog.
+* **<https://www.cs.bham.ac.uk/research/projects/poplog/poplog.info.html>** —
+  background and papers.
+* **<https://www.cs.bham.ac.uk/~axs/>** — Sloman's own pages, including much
+  of the thinking Poplog was built to serve.
+
+Decades of the teaching material that went with it — the Birmingham AI
+course TEACH files, the SimAgent toolkit, the Pop-11 Primer — are fetched on
+demand by `tools/fetch-learning.sh`; see [LEARNING.md](LEARNING.md).
+
+### Is there a Poplog foundation? Where do people talk?
+
+There is no foundation, no governing body and no trademark steward in
+practice — the trade mark rests with the University of Sussex, and
+maintenance is Hebisch's repository, this one, and the archives above. The
+**BCS Poplog and Pop Languages User Group** (PLUG) ran conferences and a
+newsletter into the 1990s and has been dormant since; `HELP PLUG` keeps its
+details "in case users decide to revive PLUG", and the `comp.lang.pop`
+newsgroup named throughout the HELP files is likewise historical.
+
+There is, however, somewhere to ask a question:
+
+* **pop-forum@gaggle.email** — "a mailing list for Poplog and Pop-11", the
+  closest thing to a current community venue. Subscribe at
+  **<https://gaggle.email/join/pop-forum@gaggle.email>**. (Use the join
+  link; `gaggle.email/g/pop-forum` is a members' sign-in page and shows
+  nothing to a visitor.)
+
+> **A warning about `poplog.org`.** Several in-tree HELP files, written in
+> 1999, point readers at `http://www.poplog.org`. That domain is no longer
+> connected to Poplog: it now serves unrelated search-engine filler. The
+> HELP files are left as the historical record they claim to be, but do not
+> follow that link, and do not treat it as an upstream source.
+
+### Licensing, honestly
+
+This repository has no `LICENSE` file, and neither does
+[hebisch/poplog](https://github.com/hebisch/poplog) (GitHub reports no
+declared licence for it). What the tree actually contains is the University
+of Sussex copyright notices above, plus `HELP POPLOG_LICENCE`'s statement
+that "Poplog licence terms & conditions are no longer relevant as Poplog is
+freely available" and that the free versions are supplied "as is", at the
+user's sole risk, with no warranty of any kind. That is the basis on which
+the code has been redistributed for twenty-five years, and this README
+describes it rather than restating it as a licence grant, which is not ours
+to make. If you need formal terms for your own use, the Birmingham pages
+above are the right starting point.
