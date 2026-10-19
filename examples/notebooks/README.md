@@ -5,8 +5,19 @@ Jupyter notebooks executed for real through the
 produced by the live engine, mishaps included (TEACH files use
 deliberate errors to teach; red cells are usually the lesson).
 
-Run them yourself: `tools/jupyter/install-kernel.sh`, then
-`jupyter lab` and pick the **Pop-11** kernel.
+Run them yourself, with [uv](https://docs.astral.sh/uv/) and the pop11
+skill installed:
+
+```sh
+tools/jupyter/lab.sh                             # opens this directory
+tools/jupyter/lab.sh examples/notebooks/pop11-live.ipynb
+```
+
+Then pick the **Pop-11** kernel. That sets up the environment and
+registers the kernel on the way through, and needs nothing on your
+`PATH`. Without uv, run `tools/jupyter/install-kernel.sh` and use the
+command it prints — see [tools/jupyter/](../../tools/jupyter/), which also
+covers using a Jupyter you already have.
 
 - [pop11-live.ipynb](pop11-live.ipynb) — tour of the language and kernel
 - [zmachine-cave.ipynb](zmachine-cave.ipynb) — **play interactive fiction
