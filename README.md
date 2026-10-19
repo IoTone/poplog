@@ -395,6 +395,11 @@ Also his, and still the right sources for things not built here:
 
 * **[hebisch/poplog_packages](https://github.com/hebisch/poplog_packages)** —
   the extension packages, which this repository does not vendor.
+* **<http://poplog.fricas.org/>** — the Free Poplog site: documentation, and
+  at **<http://poplog.fricas.org/bham/>** a file-level **copy of the
+  Birmingham site**. Worth knowing about before you need it: `poplog.org`
+  has already been lost (see below), so a second copy of the Birmingham
+  material is not redundancy for its own sake.
 * **<https://poplog.fricas.org/corepops>** — bootstrap `corepop` binaries for
   the older upstream platforms (the four platforms ported *here* are on
   [this repository's releases](https://github.com/IoTone/poplog/releases),
@@ -442,15 +447,23 @@ Decades of the teaching material that went with it — the Birmingham AI
 course TEACH files, the SimAgent toolkit, the Pop-11 Primer — are fetched on
 demand by `tools/fetch-learning.sh`; see [LEARNING.md](LEARNING.md).
 
-### Is there a Poplog foundation?
+### Is there a Poplog foundation? Where do people talk?
 
-No, and it is worth saying so plainly rather than leaving the question open.
-The **BCS Poplog and Pop Languages User Group** (PLUG) ran conferences and a
+There is no foundation, no governing body and no trademark steward in
+practice — the trade mark rests with the University of Sussex, and
+maintenance is Hebisch's repository, this one, and the archives above. The
+**BCS Poplog and Pop Languages User Group** (PLUG) ran conferences and a
 newsletter into the 1990s and has been dormant since; `HELP PLUG` keeps its
-details "in case users decide to revive PLUG". The `comp.lang.pop` newsgroup
-named throughout the HELP files is likewise historical. There is no active
-governing body, mailing list or trademark steward in practice — maintenance
-is Hebisch's repository, this one, and Sloman's archive.
+details "in case users decide to revive PLUG", and the `comp.lang.pop`
+newsgroup named throughout the HELP files is likewise historical.
+
+There is, however, somewhere to ask a question:
+
+* **pop-forum@gaggle.email** — "a mailing list for Poplog and Pop-11", the
+  closest thing to a current community venue. Subscribe at
+  **<https://gaggle.email/join/pop-forum@gaggle.email>**. (Use the join
+  link; `gaggle.email/g/pop-forum` is a members' sign-in page and shows
+  nothing to a visitor.)
 
 > **A warning about `poplog.org`.** Several in-tree HELP files, written in
 > 1999, point readers at `http://www.poplog.org`. That domain is no longer

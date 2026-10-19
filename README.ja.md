@@ -425,8 +425,13 @@ GitHub 上では「forked from」の表示がありませんが、これは履�
   Limited (ISL) がライセンスを受けて商用販売しました。
 * **フリー版の保管: バーミンガム大学(Aaron Sloman 氏)** —
   <https://www.cs.bham.ac.uk/research/projects/poplog/freepoplog.html>
+  同サイトの複製が <http://poplog.fricas.org/bham/> にあります
+  (Free Poplog サイト: <http://poplog.fricas.org/>)。
 * **運営団体はありません。** BCS PLUG(利用者グループ)は 1990 年代以降
-  休止しています。
+  休止しており、統括団体や商標の管理主体は実質的に存在しません。
+* **現在の交流の場:** メーリングリスト **pop-forum@gaggle.email**
+  (「a mailing list for Poplog and Pop-11」)。登録は
+  <https://gaggle.email/join/pop-forum@gaggle.email> から行えます。
 
 **`poplog.org` に関する注意:** 1999 年当時の HELP ファイルの一部は
 `http://www.poplog.org` を参照していますが、このドメインは現在 Poplog とは
