@@ -212,7 +212,8 @@ enddefine;
 lconstant GRAPH_FILES = ['graph/schema.pl' 'graph/resources.pl'
                          'graph/ja/ladder.pl' 'graph/ja/kana.pl'
                          'graph/ja/items.pl'
-                         'graph/en/ladder.pl' 'graph/en/items.pl'];
+                         'graph/en/ladder.pl' 'graph/en/items.pl'
+                         'graph/en/a1.pl'];
 
 ;;; The imported levels.  Each of these is a BUILD PRODUCT written by
 ;;; import.p out of upstream reference data; none is committed, and the
@@ -227,7 +228,8 @@ lconstant GRAPH_FILES = ['graph/schema.pl' 'graph/resources.pl'
 ;;; graph that grew a level because a file appeared in a build directory
 ;;; is not a graph anybody can reason about.
 lconstant GRAPH_GENERATED = ['graph/ja/generated/n5-kanji.pl'
-                             'graph/ja/generated/n5-words.pl'];
+                             'graph/ja/generated/n5-words.pl'
+                             'graph/en/generated/a1-sounds.pl'];
 
 ;;; Load the graph, optionally holding one generated file back.  The
 ;;; importer is why that argument exists: it reads the graph to check that

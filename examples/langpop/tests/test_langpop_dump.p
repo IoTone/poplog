@@ -25,14 +25,26 @@ lp_index();
 ;;; ------------------------------------------------ capture, not stdout
 ;;; dump_dev is the one seam: everything the exporter writes goes through
 ;;; it a character at a time, so a collector here is the whole harness.
-vars dump_buf = [];
-
+;;; Collected into a string that doubles when it fills, and not into a
+;;; list.  The first version was conspair per character and consstring on
+;;; the reverse at the end, which is fine for a 170-item graph and dies on
+;;; a 521-item one: a quarter of a million pairs plus their reversal is
+;;; popmemlim.  The harness has to scale with the graph, or building a
+;;; level breaks the suite that checks the exporter.
 define dump_capture(proc) -> s;
-    lvars proc, s;
-    dlocal dump_dev = procedure(c); conspair(c, dump_buf) -> dump_buf endprocedure;
-    [] -> dump_buf;
+    lvars proc, s, buf = inits(65536), n = 0;
+    dlocal dump_dev = procedure(c);
+        lvars c, i, bigger;
+        if n == length(buf) then
+            inits(length(buf) fi_* 2) -> bigger;
+            for i from 1 to n do subscrs(i, buf) -> subscrs(i, bigger) endfor;
+            bigger -> buf;
+        endif;
+        n fi_+ 1 -> n;
+        c -> subscrs(n, buf);
+    endprocedure;
     proc();
-    consstring(destlist(rev(dump_buf))) -> s;
+    substring(1, n, buf) -> s;
 enddefine;
 
 ;;; json_parse hands back a VECTOR for a JSON array and a property for an

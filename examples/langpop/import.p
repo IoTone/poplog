@@ -373,11 +373,24 @@ define xml_scan(path, on_open, on_text, on_close);
 enddefine;
 
 ;;; ------------------------------------------------------- writing Prolog
-;;; Prolog quoting is NOT Pop-11 quoting: a quote inside a quoted atom is
-;;; doubled, there is no backslash escape to reach for, and a gloss like
-;;; "one's own" would otherwise end the atom in the middle and leave the
-;;; rest of the line as syntax.  Every piece of upstream text goes through
-;;; imp_atom.
+;;; Quoting, which is the one thing in this file that MUST be right: a
+;;; gloss like "one's own" would otherwise end the atom in the middle and
+;;; leave the rest of the line as syntax.  Every piece of upstream text
+;;; goes through imp_atom.
+;;;
+;;; The escape is a BACKSLASH, not a doubled quote.  Standard Prolog
+;;; doubles it, Poplog Prolog does not accept that, and the way it says so
+;;; is the problem:
+;;;
+;;;     d1('doubled''quote').     ;;; FOUND : 'quote'  -- clause DROPPED
+;;;     d2('backslash\'quote').   ;;; ok
+;;;
+;;; A syntax error in a consulted file is not fatal.  Prolog reports it,
+;;; skips that clause and carries on, so the first version of this file
+;;; emitted three glosses containing an apostrophe that silently never
+;;; reached the graph -- and check(graph) passed, because there is no
+;;; integrity rule saying an item must have a gloss.  imp_verify below is
+;;; the answer to that, and it is why it exists.
 vars imp_dev = false;
 
 define imp_out(s);
@@ -399,7 +412,7 @@ define imp_atom(x) -> s;
     lvars x, c, n = 0, s = x sys_>< '';
     `'`; 1 -> n;
     for c in_string s do
-        if c == `'` then `'`; `'`; n fi_+ 2 -> n
+        if c == `'` then `\\`; `'`; n fi_+ 2 -> n
         elseif c == `\\` then `\\`; `\\`; n fi_+ 2 -> n
         elseif c < 32 or c == 127 then                  ;;; dropped, see above
         else c; n fi_+ 1 -> n
@@ -471,6 +484,18 @@ define imp_hex(n) -> s;
     lvars i, t = inits(k);
     for i from 1 to k do subscrs(k fi_- i fi_+ 1, s) -> subscrs(i, t) endfor;
     t -> s;
+enddefine;
+
+;;; Split on whitespace: CMUdict is a line of a word and its phonemes.
+define imp_split(str) -> l;
+    lvars str, c, n = 0, l = [], start = 0, i, len = length(str);
+    [% for i from 1 to len fi_+ 1 do
+           if i > len or xml_space(subscrs(i, str)) then
+               if start > 0 then substring(start, i fi_- start, str) endif;
+               0 -> start;
+           elseif start == 0 then i -> start;
+           endif;
+       endfor %] -> l;
 enddefine;
 
 ;;; The first n of a list, or all of it.
@@ -873,6 +898,12 @@ lconstant NOTICE = [
     'Development Group (EDRDG) and is used in conformance with the'
     'Group\'s licence: Creative Commons Attribution-ShareAlike 4.0.'
     'See https://www.edrdg.org/edrdg/licence.html .']
+ 'CMUdict'
+   ['The CMU Pronouncing Dictionary is Copyright (C) 1993-2015 Carnegie'
+    'Mellon University; all rights reserved.  Redistributed under its'
+    'two-clause BSD licence, which requires that the copyright notice,'
+    'the list of conditions and the disclaimer be retained.  See'
+    'cmudict.LICENSE beside the source file for the full text.']
  'KANJIDIC2'
    ['KANJIDIC2 is the property of the Electronic Dictionary Research and'
     'Development Group (EDRDG) and is used in conformance with the'
@@ -912,17 +943,27 @@ define imp_emit(es, srcname, path);
     imp_pr('generated(%p, %p, %p, %p, %p).\n\n',
            [% ;;; = and not == : two equal strings are two objects, and
               ;;; == put kanjidic2 in the header of the words file.
-              if srcname = 'JMdict' then 'jmdict' else 'kanjidic2' endif,
+              if     srcname = 'JMdict'   then 'jmdict'
+              elseif srcname = 'CMUdict'  then 'cmudict'
+              else   'kanjidic2' endif,
               imp_lang, imp_level, length(es), imp_atom(dt_iso(sys_real_time())) %]);
 
     for e in es do
-        imp_pr('item(%p, %p, %p, %p, %p).\n',
-               [% imp_e_id(e), imp_e_kind(e), imp_lang, imp_level, imp_e_prov(e) %]);
+        ;;; An entry with no kind declares no item.  That is the cmudict
+        ;;; mode: it adds a form and some edges to an item a committed
+        ;;; graph file already declared, rather than bringing a new one
+        ;;; into existence.  Prolog does not mind -- the whole graph is
+        ;;; concatenated and compiled once -- and neither does the schema.
+        if imp_e_kind(e) then
+            imp_pr('item(%p, %p, %p, %p, %p).\n',
+                   [% imp_e_id(e), imp_e_kind(e), imp_lang, imp_level,
+                      imp_e_prov(e) %]);
+        endif;
         for f in imp_e_forms(e) do
             imp_pr('form(%p, %p, %p).\n',
                    [% imp_e_id(e), hd(f), imp_atom(hd(tl(f))) %]);
         endfor;
-        unless imp_e_gloss(e) = '' then
+        unless not(imp_e_gloss(e)) or imp_e_gloss(e) = '' then
             imp_pr('gloss(%p, en, %p).\n', [% imp_e_id(e), imp_atom(imp_e_gloss(e)) %]);
         endunless;
         for r in imp_e_reqs(e) do
@@ -961,15 +1002,72 @@ define imp_report(unresolved);
     endunless;
 enddefine;
 
+
 ;;; A pick whose id is already an item is refused.  An id is an identity,
 ;;; and two items sharing one would merge a student's beliefs about two
 ;;; different words -- silently, since the overlay is keyed by id alone.
 define imp_collisions(es) -> bad;
     lvars es, e, bad = [];
     for e in es do
+        ;;; An enrichment entry is SUPPOSED to name an existing item --
+        ;;; that is the whole point of it -- so only an entry that
+        ;;; declares one can collide.
+        nextunless(imp_e_kind(e));
         if lp_ilang(imp_e_id(e)) then
             bad <> [[% imp_e_id(e), lp_ilevel(imp_e_id(e)) %]] -> bad
         endif;
+    endfor;
+enddefine;
+
+;;; --------------------------------------------------------- verification
+;;; Read back what was just written and check it arrived.  Not paranoia: a
+;;; Prolog syntax error in a consulted file is non-fatal, so a badly
+;;; quoted atom costs exactly one clause and says so only in a line of
+;;; loading noise.  This compares what the emitter MEANT to write against
+;;; what the graph actually holds afterwards, which catches that and any
+;;; other emission bug by the same route.
+;;; The prerequisite edges, as a property from item to its list.  index/0
+;;; deliberately does not collect requires/2 (the tutor only ever needs
+;;; ready/4's one-level check), so they are asked for once -- the same
+;;; route dump.p takes.
+define imp_edge_map() -> m;
+    lvars t, m = newproperty([], 512, [], "perm"), a, b;
+    for t in lp_ask("edges", 0) do
+        prolog_full_deref(prolog_arg(1, t)) -> a;
+        prolog_full_deref(prolog_arg(2, t)) -> b;
+        m(a) <> [^b] -> m(a);
+    endfor;
+enddefine;
+
+define imp_verify(es, out) -> bad;
+    lvars es, out, e, f, r, bad = [], id, edges;
+    lp_load_except(false);              ;;; everything, including `out`
+    lp_index();
+    imp_edge_map() -> edges;
+    for e in es do
+        imp_e_id(e) -> id;
+        if imp_e_kind(e) and not(lp_ilang(id)) then
+            bad <> [[^id 'item missing']] -> bad; nextloop
+        endif;
+        ;;; Compared AS STRINGS.  A Prolog quoted atom derefs to a Pop-11
+        ;;; word, and a word is never = to a string with the same
+        ;;; characters, so the first version of this check reported all
+        ;;; 444 facts missing -- which at least proved it was looking.
+        for f in imp_e_forms(e) do
+            unless (lp_form_of(id, hd(f)) sys_>< '') = (hd(tl(f)) sys_>< '') then
+                bad <> [[% id, 'form ' <> (hd(f) sys_>< '') <> ' missing or wrong' %]]
+                    -> bad;
+            endunless;
+        endfor;
+        if imp_e_gloss(e) and imp_e_gloss(e) /= ''
+        and (lp_gloss_of(id, "en") sys_>< '') /= (imp_e_gloss(e) sys_>< '') then
+            bad <> [[% id, 'gloss missing or wrong' %]] -> bad;
+        endif;
+        for r in imp_e_reqs(e) do
+            unless member(r, edges(id)) then
+                bad <> [[% id, 'requires ' <> (r sys_>< '') <> ' missing' %]] -> bad;
+            endunless;
+        endfor;
     endfor;
 enddefine;
 
@@ -978,7 +1076,9 @@ define imp_default_out() -> p;
     lvars p;
     'graph/' <> (imp_lang sys_>< '') <> '/generated/'
         <> (imp_level sys_>< '') <> '-'
-        <> (if imp_source == "kanjidic" then 'kanji' else 'words' endif)
+        <> (if     imp_source == "kanjidic" then 'kanji'
+            elseif imp_source == "cmudict"  then 'sounds'
+            else   'words' endif)
         <> '.pl' -> p;
 enddefine;
 
@@ -1029,8 +1129,17 @@ define imp_main();
     elseif imp_source == "jmdict" then
         'JMdict' -> srcname;
         imp_jmdict(imp_file, picks, imp_load_pick_reqs()) -> (es, unresolved);
+    elseif imp_source == "cmudict" then
+        'CMUdict' -> srcname;
+        lvars want = imp_en_words();
+        if want == [] then
+            mishap(imp_level, 1, 'import: no items with a latin form at that level '
+                                 <> '(cmudict enriches items the graph already has)')
+        endif;
+        imp_cmudict(imp_file, want) -> (es, unresolved);
+        imp_unexercised(es);
     else
-        mishap(imp_source, 1, 'import: unknown source (kanjidic, jmdict)')
+        mishap(imp_source, 1, 'import: unknown source (kanjidic, jmdict, cmudict)')
     endif;
 
     printf('%p: %p entries from %p\n', [% imp_source, length(es), imp_upstream %]);
@@ -1065,6 +1174,321 @@ define imp_main();
     imp_emit(es, srcname, out);
     dev(termin);
     printf('wrote %p\n', [% langpop_dir <> out %]);
+
+    ;;; and read it back
+    lvars wrong = imp_verify(es, out), x;
+    unless wrong == [] then
+        for x in wrong do printf('LOST %p: %p\n', [% hd(x), hd(tl(x)) %]) endfor;
+        mishap(length(wrong), 1,
+               'import: facts written but not in the graph (quoting? syntax?)');
+    endunless;
+    printf('verified %p entries back out of the graph\n', [% length(es) %]);
 enddefine;
 
+
+;;; ---------------------------------------------------------------- CMUdict
+;;; The third import mode, and a different KIND of import.  kanjidic
+;;; creates items from a rule and jmdict creates them from a pick list;
+;;; this one creates nothing and ENRICHES items the graph already has,
+;;; with the two things about an English word that no person should type a
+;;; hundred times and no human judgment improves: how it is pronounced,
+;;; and which of the pre-school sound contrasts that pronunciation makes
+;;; the learner practise.
+;;;
+;;; That second one is the same move the word import makes for kanji -- 本
+;;; is in 日本, so a student who cannot read 本 cannot read 日本 -- applied
+;;; to sounds instead of characters.  'library' contains an R and an L, so
+;;; it IS the /r/-/l/ exercise, and that is a fact about the word rather
+;;; than an opinion about teaching.
+;;;
+;;; CMUdict is 2-clause BSD (not CC BY-SA, unlike JMdict and KANJIDIC2),
+;;; so unlike those two its derived content could be committed.  It is
+;;; kept a build product anyway: a reader of graph/en/generated/ should
+;;; not have to check which upstream a file came from to know whether it
+;;; is in the repository.
+
+;;; ARPAbet to IPA, broad.  Two deliberate choices: R is r and not ɹ,
+;;; matching the /r/ - /l/ the pre-school contrasts are already written
+;;; with; and AH is ʌ when stressed but ə when not, because CMUdict uses
+;;; one symbol for both and the unstressed one is the schwa that s_schwa
+;;; is about.
+lconstant ARPA_IPA = [
+    AA 'ɑ'   AE 'æ'   AH 'ʌ'   AO 'ɔ'   AW 'aʊ'  AY 'aɪ'
+    B  'b'   CH 'tʃ'  D  'd'   DH 'ð'   EH 'ɛ'   ER 'ɜr'
+    EY 'eɪ'  F  'f'   G  'ɡ'   HH 'h'   IH 'ɪ'   IY 'i'
+    JH 'dʒ'  K  'k'   L  'l'   M  'm'   N  'n'   NG 'ŋ'
+    OW 'oʊ'  OY 'ɔɪ'  P  'p'   R  'r'   S  's'   SH 'ʃ'
+    T  't'   TH 'θ'   UH 'ʊ'   UW 'u'   V  'v'   W  'w'
+    Y  'j'   Z  'z'   ZH 'ʒ'
+];
+
+lconstant ARPA_VOWELS = [AA AE AH AO AW AY EH ER EY IH IY OW OY UH UW];
+
+;;; The contrasts imp_contrasts can decide from a pronunciation.  The
+;;; three that are not here are not oversights: s_final ("ends in a
+;;; consonant") is true of two words in three and an edge that common
+;;; carries no information; s_stress needs the stress-shifting PAIR and
+;;; one CMUdict entry cannot show it; s_rhythm is a property of a
+;;; sentence.  Naming them here is what lets the report say "no rule
+;;; derives this" instead of blaming the word list for it.
+lconstant DERIVABLE = [s_r_l s_v_b s_f_h s_th_un s_th_v s_si_shi
+                       s_cluster s_ae_uh s_schwa];
+
+define imp_ipa_of(sym) -> s;
+    lvars sym, l = ARPA_IPA, s = false;
+    until l == [] do
+        if hd(l) == sym then hd(tl(l)) -> s; return endif;
+        tl(tl(l)) -> l;
+    enduntil;
+enddefine;
+
+;;; A phoneme as CMUdict writes it is a symbol plus, for a vowel, a stress
+;;; digit: AO1, ER0, T.  Split into (symbol, stress) with stress false for
+;;; a consonant.
+define imp_arpa(p) -> (sym, stress);
+    lvars p, sym, stress = false, n = length(p), c;
+    if n > 1 then
+        subscrs(n, p) -> c;
+        if c >= `0` and c <= `2` then
+            c fi_- `0` -> stress;
+            substring(1, n fi_- 1, p) -> p;
+        endif;
+    endif;
+    consword(p) -> sym;
+enddefine;
+
+;;; The IPA for a whole pronunciation.  The stress mark goes immediately
+;;; before the stressed VOWEL rather than at the start of its syllable,
+;;; which is a simplification -- proper syllabification is a separate job
+;;; and CMUdict does not carry syllable boundaries.  Said here because the
+;;; output looks like a claim about syllables and is not one.
+define imp_ipa(ps) -> s;
+    lvars ps, p, sym, stress, s = '', nsyl = 0, ipa;
+    for p in ps do
+        imp_arpa(p) -> (sym, stress);
+        if stress then nsyl fi_+ 1 -> nsyl endif;
+    endfor;
+    for p in ps do
+        imp_arpa(p) -> (sym, stress);
+        imp_ipa_of(sym) -> ipa;
+        nextunless(ipa);
+        ;;; a one-syllable word needs no stress mark: there is nothing to
+        ;;; distinguish it from
+        if nsyl > 1 then
+            if     stress == 1 then s <> 'ˈ' -> s
+            elseif stress == 2 then s <> 'ˌ' -> s
+            endif;
+        endif;
+        if sym == "AH" and stress == 0 then s <> 'ə' -> s
+        elseif sym == "ER" and stress == 0 then s <> 'ər' -> s
+        else s <> ipa -> s
+        endif;
+    endfor;
+enddefine;
+
+define imp_is_vowel(sym); lvars sym; member(sym, ARPA_VOWELS) enddefine;
+
+define imp_has(syms, x); lvars syms, x; member(x, syms) enddefine;
+
+;;; The longest run of consonants anywhere in the word.
+define imp_cons_run(syms) -> mx;
+    lvars syms, sym, run = 0, mx = 0;
+    for sym in syms do
+        if imp_is_vowel(sym) then 0 -> run
+        else run fi_+ 1 -> run; if run > mx then run -> mx endif
+        endif;
+    endfor;
+enddefine;
+
+;;; Which pre-school contrasts a pronunciation exercises.
+;;;
+;;; SELECTIVE ON PURPOSE, and this was measured before it was settled.  A
+;;; rule for s_final -- "ends in a consonant", the contrast about not
+;;; adding a vowel after it -- is true of 67 of these 100 words, and an
+;;; edge that two items in three carry tells a reader nothing and a
+;;; planner nothing either.  It is left out, and so are s_stress (which
+;;; needs the stress-shifting PAIR, and one CMUdict entry cannot show it)
+;;; and s_rhythm (a property of a sentence, not a word).  What is left
+;;; fires on 2% to 14% of the list, which is what makes an edge worth
+;;; having.
+;;;
+;;; The minimal-pair contrasts want BOTH phonemes present: a word with an
+;;; R and no L is not the /r/-/l/ exercise, it is just a word with an R
+;;; in it.  ER counts as carrying the R, because it is a rhotic vowel and
+;;; `world` (W ER1 L D) is one of the hardest words on this list for a
+;;; Japanese speaker -- leaving it out on a technicality would be the
+;;; rule serving itself.
+define imp_contrasts(ps) -> cs;
+    lvars ps, p, sym, stress, syms = [], raw = [], cs = [], i, n;
+    for p in ps do
+        imp_arpa(p) -> (sym, stress);
+        syms <> [^sym] -> syms;
+        raw <> [% if sym == "AH" and stress == 0 then "AH0" else sym endif %] -> raw;
+    endfor;
+    length(syms) -> n;
+
+    lvars rhotic = imp_has(syms, "R") or imp_has(syms, "ER");
+    if rhotic and imp_has(syms, "L") then cs <> [s_r_l] -> cs endif;
+    if imp_has(syms, "V") and imp_has(syms, "B") then cs <> [s_v_b] -> cs endif;
+    if imp_has(syms, "F") and imp_has(syms, "HH") then cs <> [s_f_h] -> cs endif;
+    if imp_has(syms, "TH") then cs <> [s_th_un] -> cs endif;
+    if imp_has(syms, "DH") then cs <> [s_th_v] -> cs endif;
+    ;;; "see and she": the /sh/ itself, or an S straight before an /i/,
+    ;;; which is the half of the pair Japanese does not keep separate
+    if imp_has(syms, "SH") then cs <> [s_si_shi] -> cs
+    else
+        for i from 1 to n fi_- 1 do
+            if syms(i) == "S" and syms(i fi_+ 1) == "IY" then
+                cs <> [s_si_shi] -> cs; quitloop
+            endif;
+        endfor;
+    endif;
+    if imp_cons_run(syms) >= 3 then cs <> [s_cluster] -> cs endif;
+    if imp_has(syms, "AE") and imp_has(syms, "AH") then cs <> [s_ae_uh] -> cs endif;
+    if imp_has(raw, "AH0") then cs <> [s_schwa] -> cs endif;
+enddefine;
+
+;;; The English items already in the graph, at the level being enriched,
+;;; as [id word] pairs.  This is the mode's whole input: it adds nothing
+;;; the graph does not already name.
+define imp_en_words() -> ws;
+    lvars i, w, ws = [];
+    for i in lp_items do
+        nextunless(lp_ilang(i) == imp_lang and lp_ilevel(i) == imp_level);
+        lp_form_of(i, "latin") -> w;
+        nextunless(w);
+        ws <> [[% i, w %]] -> ws;
+    endfor;
+enddefine;
+
+;;; Which pre-school contrasts nothing at this level exercises.  This is
+;;; curation feedback and not an error: it says what the word list is
+;;; missing, which is the question a curator filling a level actually has.
+;;; s_v_b and s_f_h came back empty on the first hundred words, so the
+;;; list has no word pairing a /v/ with a /b/ or an /f/ with an /h/ --
+;;; true, and worth being told.
+define imp_unexercised(es);
+    lvars es, e, c, i, used = [], miss = [], nodrv = [];
+    for e in es do
+        for c in imp_e_reqs(e) do
+            unless member(c, used) then used <> [^c] -> used endunless;
+        endfor;
+    endfor;
+    for i in lp_items do
+        nextunless(lp_ilang(i) == imp_lang and lp_kind(i) == "sound");
+        nextif(member(i, used));
+        ;;; Two different answers, and telling them apart is the point.
+        ;;; A contrast no RULE derives is not a gap in the word list and
+        ;;; no amount of curation will fill it.
+        if member(i, DERIVABLE) then miss <> [^i] -> miss
+        else nodrv <> [^i] -> nodrv
+        endif;
+    endfor;
+    printf('contrasts exercised at %p: %p of %p\n',
+           [% imp_level, length(used),
+              length(used) + length(miss) + length(nodrv) %]);
+    unless miss == [] then
+        printf('  no word at %p exercises these -- a gap in the word list:\n',
+               [^imp_level]);
+        for c in miss do
+            printf('    %p  %p\n', [% c, lp_gloss_of(c, "en") or '' %]);
+        endfor;
+    endunless;
+    unless nodrv == [] then
+        printf('  not derivable from a pronunciation, so never emitted:\n');
+        for c in nodrv do
+            printf('    %p  %p\n', [% c, lp_gloss_of(c, "en") or '' %]);
+        endfor;
+    endunless;
+enddefine;
+
+;;; Line by line, buffered, and NOT lp_read_file.  That procedure pushes
+;;; every character of the file onto the Pop-11 stack and calls consstring
+;;; at the end, which is fine for a 25KB graph file and dies on CMUdict:
+;;; 3.6 million stack entries is popmemlim.  A line is short, so the
+;;; per-line consstring costs nothing.
+define imp_lines(path, proc);
+    lvars path, proc, c, n;
+    dlocal xml_dev, xml_buf, xml_n = 0, xml_i = 0, xml_eof = false,
+           xml_put = false, xml_line = 1, xml_what = path;
+    sysopen(path, 0, true) -> xml_dev;
+    unless xml_dev then mishap(path, 1, 'import: cannot read source file') endunless;
+    inits(XML_BUF) -> xml_buf;
+    repeat
+        0 -> n;
+        repeat
+            xml_get() -> c;
+            quitif(c == termin or c == `\n`);
+            c; n fi_+ 1 -> n;
+        endrepeat;
+        if n fi_> 0 or c /== termin then proc(consstring(n)) endif;
+        quitif(c == termin);
+    endrepeat;
+    sysclose(xml_dev);
+enddefine;
+
+define imp_cmudict(path, want) -> (es, unresolved);
+    lvars path, want, es = [], unresolved = [], src, i, c, cs,
+          wanted = newproperty([], 512, false, "perm"),
+          pron   = newproperty([], 512, false, "perm"),
+          pair, id, w, word, line, nlines = 0;
+
+    ;;; The wanted words, keyed by word because a property compares keys
+    ;;; with == and two equal strings are two keys.  CMUdict is lowercase
+    ;;; throughout, so the lookup key is too.
+    for pair in want do
+        true -> wanted(consword(uppertolower(hd(tl(pair)) sys_>< '')));
+    endfor;
+
+    imp_lines(path, procedure(line);
+        lvars line, cut, k, word, ps;
+        ;;; a trailing "# place, danish" is a comment, not a phoneme
+        locchar(`#`, 1, line) -> cut;
+        if cut then substring(1, cut fi_- 1, line) -> line endif;
+        imp_trim(line) -> line;
+        returnif(line = '');
+        locchar(`\s`, 1, line) -> k;
+        returnunless(k);
+        nlines fi_+ 1 -> nlines;
+        substring(1, k fi_- 1, line) -> word;
+        ;;; "read(2)" is a second pronunciation of a word whose first is
+        ;;; on its own line.  One form per item, so the variants are
+        ;;; skipped -- skipped rather than preferred, because which
+        ;;; variant a learner should be taught is a judgment CMUdict does
+        ;;; not make and this file will not invent.
+        returnif(locchar(`(`, 1, word));
+        consword(word) -> word;
+        returnunless(wanted(word));
+        returnif(pron(word));               ;;; the first spelling wins
+        imp_split(allbutfirst(k, line)) -> ps;
+        returnif(ps == []);
+        ps -> pron(word);
+    endprocedure);
+
+    for pair in want do
+        hd(pair) -> id; hd(tl(pair)) -> w;
+        consword(uppertolower(w sys_>< '')) -> word;
+        unless pron(word) then
+            unresolved <> [[^id not_found]] -> unresolved;
+            nextloop;
+        endunless;
+        ;;; Only a contrast that IS an item in the graph becomes an edge,
+        ;;; exactly as for kanji: the rule describes the word, the graph
+        ;;; decides whether there is anything to point at.
+        [% for c in imp_contrasts(pron(word)) do
+               if lp_ilang(c) then c endif;
+           endfor %] -> cs;
+        ;;; kind and gloss are false: this mode DECLARES no item, it adds
+        ;;; facts about one the graph already has, so imp_emit writes the
+        ;;; form and the edges and no item/5 line at all.
+        es <> [% imp_entry(id, false, false,
+                           [[% "ipa", '/' <> imp_ipa(pron(word)) <> '/' %]],
+                           false, cs) %] -> es;
+    endfor;
+
+    'CMUdict (' <> (nlines sys_>< '') <> ' lines read)' -> imp_upstream;
+enddefine;
+
+;;; Last line of the file, so that every reader above is compiled before
+;;; the arguments are looked at.
 unless isdefined("langpop_import_lib") then imp_main() endunless;

@@ -108,12 +108,63 @@ check_true('and not what %x would have given',
 ;;; escape is a backslash, so this is one of the few places the two
 ;;; languages disagree about the same character.
 check('a plain atom is quoted', imp_atom('cat'), '\'cat\'');
-check('an apostrophe is doubled, not backslashed',
-      imp_atom('one\'s own'), '\'one\'\'s own\'');
+check('an apostrophe is backslashed, not doubled',
+      imp_atom('one\'s own'), '\'one\\\'s own\'');
 check('a backslash is doubled', imp_atom('a\\b'), '\'a\\\\b\'');
 check('a newline is dropped rather than escaped',
       imp_atom('two\nlines'), '\'twolines\'');
 check('Japanese passes through untouched', imp_atom('ねこ'), '\'ねこ\'');
+
+;;; The checks above compare imp_atom against a shape, and a shape is not
+;;; the contract: the FIRST version of them passed while asserting the
+;;; doubled quote standard Prolog uses, which Poplog Prolog does not
+;;; accept.  It reports the syntax error, skips the clause and carries on,
+;;; so three glosses containing an apostrophe silently never reached the
+;;; graph and check(graph) stayed clean.  So ask the real consumer.
+;;; What standard Prolog says and Poplog Prolog does not accept, written
+;;; out here so the round-trip check below is testing something rather
+;;; than asserting its own opinion.
+define atom_survives_doubled(text) -> ok;
+    lvars text, c, n = 0, q, ok, x;
+    `'`; 1 -> n;
+    for c in_string text do
+        if c == `'` then `'`; `'`; n fi_+ 2 -> n else c; n fi_+ 1 -> n endif;
+    endfor;
+    `'`; n fi_+ 1 -> n;
+    consstring(n) -> q;
+    ;;; The guard is not decoration.  When the clause under test fails to
+    ;;; parse, td/1 is left with NO clauses, and under schema.pl's
+    ;;; unknown(_, error) calling it raises instead of failing -- so the
+    ;;; check for "did not survive" blew up rather than returning false.
+    prolog_compile(stringin('td(\'__guard__\').\ntd(' <> q <> ').\n'
+        <> 'td_all :- td(X), lp_take(X), fail.\ntd_all.\n'));
+    false -> ok;
+    for x in lp_ask("td_all", 0) do
+        unless (prolog_full_deref(x) sys_>< '') = '__guard__' then true -> ok endunless;
+    endfor;
+enddefine;
+
+define atom_survives(text) -> ok;
+    lvars text, ok = false, x;
+    prolog_compile(stringin('tq(\'__guard__\').\ntq(' <> imp_atom(text) <> ').\n'
+        <> 'tq_all :- tq(X), lp_take(X), fail.\ntq_all.\n'));
+    for x in lp_ask("tq_all", 0) do
+        lvars got = prolog_full_deref(x) sys_>< '';
+        nextif(got = '__guard__');
+        if got = text then true -> ok endif;
+    endfor;
+enddefine;
+
+check_true('a plain atom round-trips through prolog_compile',
+           atom_survives('cat'));
+check_true('an atom with an apostrophe round-trips',
+           atom_survives('one\'s own'));
+check_true('an atom with two apostrophes round-trips',
+           atom_survives('one\'s dog\'s bone'));
+check_true('Japanese round-trips',
+           atom_survives('ねこ'));
+check_true('and a doubled quote would NOT have -- which is the whole point',
+           not(atom_survives_doubled('one\'s own')));
 
 check('okurigana notation is not a reading', imp_kun('やす.い'), 'やす');
 check('a prefix marker is not a reading', imp_kun('ひと-'), 'ひと');
@@ -254,8 +305,11 @@ check_true('誕 is not an N5 kanji, so nothing requires it',
 check_true('a hand-written prerequisite is added',
            member("t_yama", imp_e_reqs(bd)));
 
-check_true('an apostrophe in a gloss survives into a quotable atom',
-           issubstring('one\'\'s own', imp_atom(imp_e_gloss(qu))) /== false);
+;;; Through prolog_compile, not against a shape: this fixture's gloss is
+;;; "a gloss with an apostrophe: one's own", which is the case that was
+;;; silently losing clauses.
+check_true('an apostrophe in an upstream gloss survives into the graph',
+           atom_survives(imp_e_gloss(qu)));
 
 ;;; the unresolved ones, in detail
 define un_find(id) -> u;
@@ -302,5 +356,101 @@ check_true('content_built answers for a level that was imported',
 check_true('pre-school was never imported and says so',
            not(any(lp_gens, procedure(g); lvars g;
                hd(tl(tl(g))) == "preschool" endprocedure)));
+
+
+;;; -------------------------------------------------------------- CMUdict
+;;; The enrichment mode: it creates no items, it adds a pronunciation and
+;;; some prerequisite edges to items a committed graph file already
+;;; declared.  So the checks are about the DERIVATION -- an IPA string and
+;;; a set of contrasts out of a row of ARPAbet symbols -- plus the two
+;;; places the file format bites.
+
+check('a stressed vowel takes the mark, and one syllable takes none',
+      imp_ipa(imp_split('S T R IY1 T')), 'strit');
+check('a rhotic vowel is spelled out', imp_ipa(imp_split('W ER1 L D')), 'wɜrld');
+check('an unstressed AH is a schwa, a stressed one is not',
+      imp_ipa(imp_split('M AH1 DH ER0')), 'mˈʌðər');
+check('the dental fricatives are distinguished',
+      imp_ipa(imp_split('TH IH1 NG K')), 'θɪŋk');
+check('a secondary stress is marked differently',
+      imp_ipa(imp_split('L AY1 B R EH2 R IY0')), 'lˈaɪbrˌɛri');
+
+;;; the contrast rules, each on the word that motivated it
+define has_c(ps, c); lvars ps, c; member(c, imp_contrasts(imp_split(ps))) enddefine;
+
+check_true('both phonemes are needed for a minimal pair',
+           has_c('L AY1 B R EH2 R IY0', "s_r_l"));
+check_true('an R with no L is not the r/l exercise',
+           not(has_c('R EH1 D', "s_r_l")));
+check_true('a rhotic vowel carries the R, so world counts',
+           has_c('W ER1 L D', "s_r_l"));
+check_true('TH is its own contrast', has_c('TH IH1 NG K', "s_th_un"));
+check_true('and DH is a different one', has_c('M AH1 DH ER0', "s_th_v"));
+check_true('they are not the same contrast',
+           not(has_c('M AH1 DH ER0', "s_th_un")));
+check_true('three consonants in a row is a cluster',
+           has_c('S T R IY1 T', "s_cluster"));
+check_true('two is not', not(has_c('TH IH1 NG K', "s_cluster")));
+check_true('SH is the see/she contrast', has_c('S T EY1 SH AH0 N', "s_si_shi"));
+check_true('and so is an S straight before an /i/', has_c('S IY1', "s_si_shi"));
+check_true('an unstressed AH is the schwa', has_c('P IY1 P AH0 L', "s_schwa"));
+check_true('a stressed one is not',
+           not(has_c('W AO1 T ER0', "s_schwa")));
+check_true('AE with AH is the cat/cut pair',
+           has_c('F AE1 M AH0 L IY0', "s_ae_uh"));
+check_true('F with HH is the food/hood pair', has_c('HH AE1 F', "s_f_h"));
+check_true('V with B is the vote/boat pair', has_c('V AY1 B', "s_v_b"));
+
+;;; s_final is deliberately NOT derived: it would be true of two words in
+;;; three, and an edge that common tells a reader nothing.  Asserted so
+;;; that adding the obvious rule later fails here first.
+check_true('ending in a consonant is not made into an edge',
+           not(has_c('S T R IY1 T', "s_final")));
+check_true('nor is stress, which needs the shifting pair',
+           not(has_c('L AY1 B R EH2 R IY0', "s_stress")));
+
+;;; the file format
+lvars (ws, un2) = imp_cmudict(FIX <> 'cmudict-sample.dict',
+                              [[e_world 'world'] [e_read 'read']
+                               [e_nosuch 'zzznosuch']]);
+check('the wanted words resolve, and only those', length(ws), 2);
+check('a word not in the dictionary is reported', length(un2), 1);
+check('and says so', hd(tl(hd(un2))), "not_found");
+check_true('the line count comes from the file, not the matches',
+           issubstring('135', imp_upstream) == false);
+
+define cm_find(id) -> e;
+    lvars id, e, x;
+    false -> e;
+    for x in ws do if imp_e_id(x) == id then x -> e; return endif endfor;
+enddefine;
+
+lvars wo = cm_find("e_world"), rd = cm_find("e_read");
+check('the form is ipa, slashed', imp_e_forms(wo), [[ipa '/wɜrld/']]);
+check('an enrichment entry declares no item', imp_e_kind(wo), false);
+check('and carries no gloss', imp_e_gloss(wo), false);
+check('the second pronunciation of a word is skipped, not preferred',
+      imp_e_forms(rd), [[ipa '/rɛd/']]);
+check_true('a # comment does not become a phoneme',
+           not(any(ws, procedure(e); lvars e;
+               issubstring('place', imp_e_forms(e)(1)(2)) /== false endprocedure)));
+
+;;; An enrichment entry names an item on purpose, so it is not a collision.
+check('an enrichment entry is not a collision', length(imp_collisions(ws)), 0);
+
+;;; And the emitter leaves the item fact out.
+lvars ctext = imp_capture(procedure();
+    dlocal imp_lang = "en", imp_level = "a1";
+    imp_emit(ws, 'CMUdict', 'graph/en/generated/test.pl');
+endprocedure);
+check_true('no item fact is written', issubstring('item(e_world', ctext) == false);
+check_true('the form is', issubstring('form(e_world, ipa, \'/wɜrld/\').', ctext) /== false);
+check_true('the edges are',
+           issubstring('requires(e_world, s_r_l).', ctext) /== false);
+check_true('no empty gloss fact is written',
+           issubstring('gloss(e_world', ctext) == false);
+check_true('CMU\'s licence is in the file, and it is not the EDRDG one',
+           issubstring('Carnegie', ctext) /== false
+           and issubstring('ShareAlike', ctext) == false);
 
 test_summary();

@@ -70,11 +70,12 @@ teach a syllabary, a sound contrast and a sentence pattern.
 | `graph/en/ladder.pl` | pre-school → A1 → C1, CEFR bands and section floors | 6 levels |
 | `graph/en/items.pl` | 12 sound contrasts, 12 loanword traps | 27 |
 | `graph/resources.pl` | the catalogue: URLs and check dates, never content | 9 |
+| `graph/en/a1.pl` | 100 A1 words with Japanese glosses, hand-written | 100 |
 | `graph/ja/picks/n5.pl` | which words are N5, by upstream key — the curation | 148 picks |
-| `graph/ja/generated/*.pl` | imported content, a build product, never committed | 251 |
+| `graph/*/generated/*.pl` | imported content, a build product, never committed | 251 + 100 |
 | `viewer/page.html` | the curator's view of all of it, filled by `dump.p` | — |
 
-170 committed items, 421 once the N5 content is built; 12 ladder levels,
+270 committed items, 521 once the content is built; 12 ladder levels,
 17 exit criteria, no integrity violations either way.
 
 Four things make it a graph rather than a table with arrows drawn on it:
@@ -233,6 +234,98 @@ of the curation, stated separately from the student's own count so that a
 client cannot report one as the other. And **0 ready** is correct: every
 imported item requires `hiragana_all`, so the ladder is refusing to start
 N5 before pre-school.
+
+### Three import modes, because the sources differ in what they know
+
+| Source | Licence | Knows | So the selection is |
+| --- | --- | --- | --- |
+| KANJIDIC2 | CC BY-SA 4.0 | the JLPT level of a character | a **rule** — `--jlpt 4` |
+| JMdict | CC BY-SA 4.0 | readings and meanings, no level | a **pick list** |
+| CMUdict | 2-clause BSD | how an English word is pronounced | **nothing** — it enriches |
+
+The third is a different kind of import. It creates no items at all: it
+adds a pronunciation, and the prerequisite edges that pronunciation
+implies, to English words a committed graph file already declared.
+
+```sh
+./poplog basepop11 examples/langpop/import.p --source cmudict \
+    --file ~/langpop-upstream/cmudict.dict --lang en --level a1
+```
+
+**The sound contrast an English word exercises is derivable from how it
+is said.** This is the kanji edge again — 本 is in 日本, so a student who
+cannot read 本 cannot read 日本 — applied to sounds instead of characters.
+`library` has an R and an L in it, so it *is* the /r/–/l/ exercise, and
+that is a fact about the word rather than an opinion about teaching:
+
+```prolog
+form(e_world, ipa, '/wɜrld/').
+requires(e_world, s_r_l).
+
+form(e_street, ipa, '/strit/').
+requires(e_street, s_cluster).
+
+form(e_mother, ipa, '/mˈʌðər/').
+requires(e_mother, s_th_v).
+```
+
+The rules are **selective, and that was measured rather than guessed.** A
+rule for `s_final` — "ends in a consonant", the contrast about not adding
+a vowel after it — is true of 67 of these 100 words, and an edge two
+items in three carry tells a reader nothing and a planner nothing either.
+It is left out, with `s_stress` (which needs the stress-shifting *pair*,
+and one CMUdict entry cannot show one) and `s_rhythm` (a property of a
+sentence). What remains fires on 2% to 14% of the list. The minimal-pair
+rules want *both* phonemes present, since a word with an R and no L is
+not the r/l exercise, just a word with an R in it — and `ER` counts as
+carrying the R, because it is a rhotic vowel and `world` is one of the
+hardest words on the list for a Japanese speaker.
+
+The importer then reports what the list is missing, which is the question
+a curator filling a level actually has — and distinguishes the two
+answers, because one is fixable by curation and the other is not:
+
+```
+contrasts exercised at a1: 7 of 12
+  no word at a1 exercises these -- a gap in the word list:
+    s_v_b  vote and boat
+    s_f_h  food and hood
+  not derivable from a pronunciation, so never emitted:
+    s_final  need, not need-o
+    s_stress  PREsent and preSENT
+    s_rhythm  stress-timed, not mora-timed
+```
+
+### Why English words are committed and Japanese ones are not
+
+The asymmetry is not an inconsistency; it is what the sources know.
+JMdict can be read **backwards** — find the entries whose English gloss
+is `water`, take their Japanese headwords — and that was the obvious way
+to get the Japanese glosses for free. It was measured before it was
+built, and it does not work:
+
+| English | what the reverse lookup returns |
+| --- | --- |
+| water | 水分, お水, ウォーター — and never 水 |
+| think | シンク, the katakana loanword |
+| mountain | ベルグ, マウンテン, 山 — the first is German |
+| very | 迚も, an archaic spelling |
+| remember | 銘記 |
+
+Filtering to JMdict's priority-tagged entries and dropping the
+katakana-only ones cleans up the worst of it (`mountain` → 山) and still
+leaves `water` → 水分, which means *moisture*. An exact match on a gloss
+is not a translation: a bilingual dictionary is organised to explain
+Japanese words in English, and read the other way it finds whichever
+Japanese word happens to carry the bare English word as a gloss — which
+favours archaisms and transliterated loanwords, the latter being exactly
+what the pre-school level warns about. Teaching `water` as 水分 is worse
+than not glossing it at all.
+
+So the Japanese glosses in `graph/en/a1.pl` are ours, typed by hand. No
+licence reaches them, nothing upstream has an opinion about which English
+words are A1, and the importer's job for English is the one thing no
+person should type a hundred times: the pronunciation.
 
 ## Seeing the graph
 
@@ -452,11 +545,11 @@ had been swallowed. That is fixed in `pop/plog/src/prolog_compile.p`
 (commands now apply only in query mode, i.e. at the prompt), with
 `tools/tests/test_prolog_consult.p` to keep it fixed.
 
-## And three Pop-11 ones the importer found
+## And four more the importer found
 
-These are not Prolog. They are three places where Pop-11 does something
-reasonable that is not what the code asked for, and in each case nothing
-warns.
+Three where Pop-11 does something reasonable that is not what the code
+asked for, and one where Poplog Prolog quietly discards a clause. In
+every case nothing warns.
 
 **A property compares its keys with `==`.** So two equal strings are two
 different keys:
@@ -497,6 +590,37 @@ hex formatter written out longhand.
 source name to stamp with `srcname == 'JMdict'`, which is never true, so
 the words file announced itself as `generated(kanjidic2, ...)`. The same
 mistake as the first one, one layer up.
+
+**And one that cost data.** Standard Prolog escapes a quote inside a
+quoted atom by doubling it. Poplog Prolog does not accept that:
+
+```prolog
+d1('doubled''quote').     % FOUND : 'quote'  -- the clause is DROPPED
+d2('backslash\'quote').   % ok
+```
+
+A syntax error in a consulted file is **not fatal** — Prolog reports it,
+skips that clause and carries on — so the first import emitted three
+glosses containing an apostrophe that silently never reached the graph,
+and `--check` still said *no violations*, because no integrity rule says
+an item must have a gloss. The error does print, in a line of loading
+noise, among several hundred others.
+
+Two things came out of that. The escape is a backslash now; and the
+importer **reads back what it wrote** (`imp_verify`), comparing what the
+emitter meant to emit against what the graph actually holds, so any
+emission bug by this route is loud:
+
+```
+LOST w_byouin: gloss missing or wrong
+;;; MISHAP - import: facts written but not in the graph (quoting? syntax?)
+```
+
+The test that should have caught it was asserting the *shape* of
+`imp_atom`'s output — and passing, because it asserted the standard's
+doubled quote, which is wrong here. The checks now round-trip the atom
+through `prolog_compile` and ask the real consumer, including one that
+asserts the doubled form would **not** have survived.
 
 ## Commands
 
