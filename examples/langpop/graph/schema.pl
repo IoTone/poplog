@@ -47,6 +47,31 @@ all_hold(Cond, Action) :- \+ (Cond, \+ Action).
 confused_with(A, B, Why) :- confusable(A, B, Why).
 confused_with(A, B, Why) :- confusable(B, A, Why).
 
+% --- Imported content ----------------------------------------------------
+% A level's content can come from upstream reference data rather than from
+% this directory (examples/langpop/import.p), and a generated file stamps
+% itself with one of these.  The point of the stamp is a distinction the
+% rest of the graph cannot make: a level with no items because nobody has
+% curated it yet and a level with no items because its content was never
+% BUILT look identical to ready/4, and they are not remotely the same
+% thing to say to a student.
+%
+% The clause below matches no real stamp.  It is here because a predicate
+% with no clauses at all RAISES under the unknown(_, error) above, and
+% with nothing imported there would be none -- so every caller of
+% content_built/2 would have failed in the one case it exists to report.
+generated(none, none, none, 0, none).
+
+content_built(Lang, Level) :- generated(_, Lang, Level, N, _), N > 0.
+
+% A level that declares an exit criterion but holds no items.  Not a
+% violation: it is the honest state of a ladder whose upper rungs are
+% still to be written, and check(graph) would then never be clean.  It is
+% reported on its own, by whoever asks.
+level_empty(Lang, Level) :-
+    ladder(Lang, _, Level),
+    \+ item(_, _, Lang, Level, _).
+
 % --- Teaching ------------------------------------------------------------
 % An item is ready when the student does not know it and knows everything
 % it requires.  This is the whole of the tutor's choice, and it is one
@@ -124,6 +149,8 @@ index :- ladder(Lang, N, Level), lp_ladder(Lang, N, Level), fail.
 index :- exit(Lang, Level, C, Th, Ms), lp_exit(Lang, Level, C, Th, Ms), fail.
 index :- resource(R, Lang, Kind, Target, Url, Checked),
          lp_resource(R, Lang, Kind, Target, Url, Checked), fail.
+index :- generated(S, Lang, Level, N, Date), N > 0,
+         lp_generated(S, Lang, Level, N, Date), fail.
 index.
 
 % The prerequisite edges, which index/0 deliberately does not collect: the
@@ -139,6 +166,10 @@ edges.
 criterion_item(recognise(Script), I) :- kana(I, Script, _, _, _).
 criterion_item(skill(S), S).
 criterion_item(Named, I) :- atom(Named), requires(Named, I).
+
+% The ladder rungs that hold nothing, for the --check report.
+empties :- level_empty(Lang, Level), lp_take(empty(Lang, Level)), fail.
+empties.
 
 criteria(Lang, Level) :- exit(Lang, Level, C, Th, Ms), lp_take(crit(C, Th, Ms)), fail.
 criteria(_, _).

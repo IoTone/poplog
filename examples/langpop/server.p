@@ -359,7 +359,19 @@ define lp_m_status(msg) -> res;
                lp_obj([% 'criterion', lp_term_str(c),
                               'kind', 'count',
                               'have', lp_count_mastered("word"),
-                              'want', prolog_full_deref(prolog_arg(1, c)) %])
+                              'want', prolog_full_deref(prolog_arg(1, c)),
+                              ;;; What the graph holds, which is not the
+                              ;;; same as what the student is short of: a
+                              ;;; client that showed 12/800 without this
+                              ;;; would be reporting the curation's state
+                              ;;; as the student's.
+                              'in_graph', lp_count_items("word") %])
+           elseif prolog_complexterm(c) and prolog_functor(c) == "kanji" then
+               lp_obj([% 'criterion', lp_term_str(c),
+                              'kind', 'count',
+                              'have', lp_count_mastered_kanji(),
+                              'want', prolog_full_deref(prolog_arg(1, c)),
+                              'in_graph', lp_count_items("kanji") %])
            elseif prolog_complexterm(c) and prolog_functor(c) == "coverage" then
                lp_obj([% 'criterion', lp_term_str(c),
                               'kind', 'coverage',

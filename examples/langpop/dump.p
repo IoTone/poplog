@@ -87,6 +87,22 @@ define dump_out_str(s);
     for c in_string s do dump_dev(c) endfor;
 enddefine;
 
+;;; \u00XX for a control character.  Not sprintf('%04x'): REF * PRINT
+;;; reserves %x for system use and it prints the raw tagged machine word,
+;;; so this escape used to emit \u00000000000000a9 for a newline -- which
+;;; is not valid JSON and nothing would have caught, since no string in
+;;; the graph has a control character in it today.
+define dump_u(c) -> s;
+    lvars c, s, i, d;
+    '\\u0000' -> s;
+    copy(s) -> s;
+    for i from 0 to 1 do
+        (c fi_>> (i fi_* 4)) fi_&& 15 -> d;
+        (if d < 10 then d fi_+ `0` else d fi_- 10 fi_+ `a` endif)
+            -> subscrs(6 fi_- i, s);
+    endfor;
+enddefine;
+
 define dump_str(x);
     lvars x, c, s = if isword(x) or isstring(x) then x sys_>< '' else x sys_>< '' endif;
     dump_dev(`"`);
@@ -95,7 +111,7 @@ define dump_str(x);
         elseif c == `\\` then dump_out_str('\\\\')
         elseif c == `\n` then dump_out_str('\\n')
         elseif c == `\t` then dump_out_str('\\t')
-        elseif c < 32    then dump_out_str(sprintf('\\u%04x', [^c]))
+        elseif c < 32    then dump_out_str(dump_u(c))
         else   dump_dev(c)                      ;;; UTF-8 passes straight through
         endif;
     endfor;

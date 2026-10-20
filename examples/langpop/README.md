@@ -70,9 +70,12 @@ teach a syllabary, a sound contrast and a sentence pattern.
 | `graph/en/ladder.pl` | pre-school → A1 → C1, CEFR bands and section floors | 6 levels |
 | `graph/en/items.pl` | 12 sound contrasts, 12 loanword traps | 27 |
 | `graph/resources.pl` | the catalogue: URLs and check dates, never content | 9 |
+| `graph/ja/picks/n5.pl` | which words are N5, by upstream key — the curation | 148 picks |
+| `graph/ja/generated/*.pl` | imported content, a build product, never committed | 251 |
 | `viewer/page.html` | the curator's view of all of it, filled by `dump.p` | — |
 
-170 items, 12 ladder levels, 17 exit criteria, no integrity violations.
+170 committed items, 421 once the N5 content is built; 12 ladder levels,
+17 exit criteria, no integrity violations either way.
 
 Four things make it a graph rather than a table with arrows drawn on it:
 
@@ -97,8 +100,139 @@ between 0 and 1 per item per channel, in Pop-11, where it can change
 every turn. The graph holds no student state.
 
 **Every fact carries its provenance.** `own(kana)`, `own(starter_list)`,
-`estimate(community)`, `ets(cefr_mapping)`. `--check` fails any item
-whose source is `unknown`.
+`estimate(community)`, `ets(cefr_mapping)`, `jmdict('1302680')`,
+`kanjidic2(ucs('65e5'), jlpt(4))`. `--check` fails any item whose source
+is `unknown`.
+
+## Filling a level from upstream
+
+The graph above had **one rung**. All 170 items sat at pre-school while
+both ladders declared exit criteria — `kanji(100)`, `vocabulary(800)`,
+four reading-coverage criteria — that nothing in the graph could satisfy.
+A student who finished pre-school walked off the end of it.
+
+`import.p` fills the rungs from upstream reference data. Two things make
+that safe to do, and they are the whole design.
+
+**The repo holds curation, never content.** JMdict and KANJIDIC2 are CC
+BY-SA 4.0 (EDRDG). Share-alike is fine for a dictionary and poison for a
+tutor, which is exactly why the project's decision was *importer in the
+tree, decks never*. So what the importer emits is a **build product**:
+`graph/<lang>/generated/` is gitignored, regenerated on demand, and
+carries upstream's notice in its own header. What *is* committed is
+`graph/<lang>/picks/*.pl` — which entries, at which level, under which
+identity — because that is the teaching judgment, and it is ours.
+
+**An identity is never generated.** An item is its identity and not its
+spelling, so an id minted from upstream would change when upstream
+renumbered, and every belief a student had recorded against it would
+quietly detach. Word ids are written by the curator. The one exception is
+a kanji, whose id is `k_<codepoint>` — and a codepoint is not upstream's
+opinion, which is the same argument `tools/mkkana.py` makes for
+generating the kana table rather than typing it.
+
+The two sources need different treatment, because they differ in what
+they know:
+
+```
+tools/fetch-upstream.sh ~/langpop-upstream
+
+# KANJIDIC2 carries the level, so the selection is a RULE
+./poplog basepop11 examples/langpop/import.p --source kanjidic \
+    --file ~/langpop-upstream/kanjidic2.xml --level n5 --jlpt 4
+
+# JMdict does not, so the selection is a PICK LIST
+./poplog basepop11 examples/langpop/import.p --source jmdict \
+    --file ~/langpop-upstream/JMdict_e --picks graph/ja/picks/n5.pl
+```
+
+KANJIDIC2's `<jlpt>` is the **pre-2010** four-level JLPT, and old level 4
+is exactly what became N5 — official and exact at this end of the ladder,
+unlike old level 3, which split into N4 and N3 with no clean answer. So
+N5's kanji come from upstream wholesale: 103 of them, against the
+ladder's `kanji(100)`, which is as close as a withdrawn syllabus gets.
+N4's cannot, and the importer is not asked to pretend otherwise.
+
+JMdict has no level marking at all, so a pick names an entry one of three
+ways:
+
+```prolog
+pick(w_neko,  ja, n5, word, jmdict_kana('ねこ')).
+pick(w_yomu,  ja, n5, word, jmdict_kanji('読む')).
+pick(w_yama,  ja, n5, word, jmdict('1302680')).
+```
+
+The first two are what a person can write; the third is the escape hatch,
+and it is needed more often than it looks. **An ambiguous key is an error
+with the candidates listed, never a guess:**
+
+```
+AMBIGUOUS w_otoko: jmdict_kanji(男) matches 5 entries --
+    jmdict('1419990')  男  おとこ/おっこ  man, male
+    jmdict('2742850')  男/男の子  おのこ  man, boy
+    jmdict('2742870')  雄/男/夫/牡  お  male
+    jmdict('2742890')  男  なん  son
+    jmdict('2843485')  男  だん  masculine noun
+    -- say which, with pick(w_otoko, ..., jmdict('NNNNNNN')).
+```
+
+28 of the 148 picks came back like that, and the report is what resolved
+them. A tutor that silently taught *chopsticks* for a pick meaning
+*bridge* would be wrong in a way nothing downstream could detect.
+
+**The importer draws one kind of edge by itself.** A word written with a
+kanji the graph already holds requires that kanji — 本 is in 日本, and
+that is not an opinion. 73 of the 148 words gained such an edge:
+
+```prolog
+item(w_tanjoubi, word, ja, n5, jmdict('1419110')).
+form(w_tanjoubi, kanji, '誕生日').
+form(w_tanjoubi, hiragana, 'たんじょうび').
+gloss(w_tanjoubi, en, 'birthday').
+requires(w_tanjoubi, hiragana_all).
+requires(w_tanjoubi, k_751f).          % 生
+requires(w_tanjoubi, k_65e5).          % 日
+```
+
+誕 gets no edge, because it is not an N5 character — the word is then
+taught in kana, which is what a learner does before they meet it. What
+the importer will *not* invent is teaching order between words, even
+though KANJIDIC2 has the radical and stroke data to support a deeper
+prerequisite ordering: which radicals come before which kanji is a claim
+upstream does not make, and 100 edges nobody chose is not a graph anyone
+can reason about. Those few that matter are stated by hand, in the pick
+file, as `pick_requires/2`.
+
+**A level with no content and a level that was never built are not the
+same thing.** Both have no items, and `ready/4` cannot tell them apart,
+so each generated file stamps itself:
+
+```prolog
+generated(kanjidic2, ja, n5, 103, '2026-10-20T17:41:56Z').
+```
+
+`content_built/2` reads that, and `langpop.p`'s `GRAPH_GENERATED` treats
+a missing file as an unbuilt level rather than an error — the one way the
+imported manifest differs from the committed one. Every suite passes both
+with the content and without it.
+
+What the tutor says afterwards, at N5:
+
+```
+David, ja -- level n5
+  vocabulary(800): 0 of 800 words mastered (148 in the graph)
+  kanji(100): 0 of 100 kanji mastered (103 in the graph)
+  0 items ready to teach now
+```
+
+`kanji(100)` is measurable for the first time; until there were kanji in
+the graph it fell through to the measured branch and reported *0% over 0
+answers*, which reads like a student who got everything wrong rather than
+a criterion nothing was counting. `148 in the graph` is the honest state
+of the curation, stated separately from the student's own count so that a
+client cannot report one as the other. And **0 ready** is correct: every
+imported item requires `hiragana_all`, so the ladder is refusing to start
+N5 before pre-school.
 
 ## Seeing the graph
 
@@ -317,6 +451,52 @@ HELP file and said `;;; HELP (A). not found`, with no hint that a clause
 had been swallowed. That is fixed in `pop/plog/src/prolog_compile.p`
 (commands now apply only in query mode, i.e. at the prompt), with
 `tools/tests/test_prolog_consult.p` to keep it fixed.
+
+## And three Pop-11 ones the importer found
+
+These are not Prolog. They are three places where Pop-11 does something
+reasonable that is not what the code asked for, and in each case nothing
+warns.
+
+**A property compares its keys with `==`.** So two equal strings are two
+different keys:
+
+```pop11
+lvars p = newproperty([], 8, [], "perm"), a = 'yama';
+[x] -> p(a);
+p(consstring(`y`,`a`,`m`,`a`,4)) =>      ;;; ** []
+```
+
+The importer keyed 148 wanted headwords by string and every single lookup
+missed, which read back as *matches no entry* for all 148 picks — a
+plausible-looking result, since a missing word is exactly what a bad key
+produces. Words are interned, so the fix is `consword`; the entry side
+then needs a cheap pre-filter (`imp_sig`, the length and first byte) so
+that interning 148 keys does not mean interning three quarters of a
+million headwords to find them.
+
+This is the same shape as the `false`-dropping defect in `lib jsonrpc`:
+a property doing something sensible that the caller did not mean.
+
+**`printf` has no hex conversion.** `REF * PRINT` lists `p P s S c M` and
+`%%`, then says of `b`, `d`, `i` and `x` that they are "reserved for
+system use". `%x` duly prints the raw **tagged machine word**:
+
+```pop11
+sprintf('%x', [16:5C71]) =>      ;;; ** '00000000000171C7'   (23665*4+3)
+```
+
+Every kanji id is minted from a codepoint, so this produced 103 items
+named `k_00000000000171c7` and not one of the word-to-kanji edges
+matched. It also means `dump.p`'s JSON escape for a control character
+was emitting `\u00000000000000a9` for a newline — invalid JSON, latent
+since nothing in the graph has a control character in it. Both now use a
+hex formatter written out longhand.
+
+**`==` on two string literals is `false`.** The emitter decided which
+source name to stamp with `srcname == 'JMdict'`, which is never true, so
+the words file announced itself as `generated(kanjidic2, ...)`. The same
+mistake as the first one, one layer up.
 
 ## Commands
 

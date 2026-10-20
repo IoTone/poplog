@@ -54,6 +54,7 @@ vars
     lp_ladders  = [],                                   ;;; [[lang n level] ...]
     lp_exits    = [],                                   ;;; [[lang level crit th ms] ...]
     lp_rsrc     = [],                                   ;;; [[id lang kind target url checked] ...]
+    lp_gens     = [],                                   ;;; [[source lang level n date] ...]
     lp_journal  = [],
     lp_assigns  = [],
     lp_user     = false,
@@ -167,6 +168,13 @@ define :prolog lp_exit/5(l, lv, c, th, ms, contn);
     chain(contn);
 enddefine;
 
+define :prolog lp_generated/5(sc, l, lv, n, d, contn);
+    lvars sc, l, lv, n, d, contn;
+    lp_gens <> [[% prolog_deref(sc), prolog_deref(l), prolog_deref(lv),
+                   prolog_deref(n), prolog_deref(d) %]] -> lp_gens;
+    chain(contn);
+enddefine;
+
 define :prolog lp_resource/6(r, l, k, t, u, c, contn);
     lvars r, l, k, t, u, c, contn;
     lp_rsrc <> [[% prolog_deref(r), prolog_deref(l), prolog_deref(k),
@@ -206,14 +214,43 @@ lconstant GRAPH_FILES = ['graph/schema.pl' 'graph/resources.pl'
                          'graph/ja/items.pl'
                          'graph/en/ladder.pl' 'graph/en/items.pl'];
 
-define lp_load();
-    lvars f, src = '', s;
+;;; The imported levels.  Each of these is a BUILD PRODUCT written by
+;;; import.p out of upstream reference data; none is committed, and the
+;;; one difference from GRAPH_FILES above is that a MISSING one is not an
+;;; error -- it is a level whose content has not been built, which is a
+;;; thing the graph can say (schema.pl's content_built/2) and the tutor
+;;; can pass on.
+;;;
+;;; A declared list and not a directory scan, for two reasons.  The small
+;;; one is that sys_file_match has a known defect on macOS.  The real one
+;;; is that a curator who adds an import should have to say so here: a
+;;; graph that grew a level because a file appeared in a build directory
+;;; is not a graph anybody can reason about.
+lconstant GRAPH_GENERATED = ['graph/ja/generated/n5-kanji.pl'
+                             'graph/ja/generated/n5-words.pl'];
+
+;;; Load the graph, optionally holding one generated file back.  The
+;;; importer is why that argument exists: it reads the graph to check that
+;;; an id is not already taken, and its own previous output would
+;;; otherwise answer yes to every id it is about to write again.
+define lp_load_except(skip);
+    lvars skip, f, src = '', s;
     for f in GRAPH_FILES do
         lp_read_file(langpop_dir <> f) -> s;
         unless s then mishap(langpop_dir <> f, 1, 'langpop: graph file missing') endunless;
         src <> '\n% ==== ' <> f <> '\n' <> s -> src;
     endfor;
+    for f in GRAPH_GENERATED do
+        nextif(skip and f = skip);
+        lp_read_file(langpop_dir <> f) -> s;
+        nextunless(s);                  ;;; not built: see above
+        src <> '\n% ==== ' <> f <> '\n' <> s -> src;
+    endfor;
     prolog_compile(stringin(src));
+enddefine;
+
+define lp_load();
+    lp_load_except(false);
 enddefine;
 
 ;;; Run a goal and collect whatever it handed to lp_take/1.  Every query
@@ -227,7 +264,16 @@ define lp_ask(/* args */ name, arity) -> answers;
 enddefine;
 
 define lp_index();
+    ;;; The properties are cleared and not merely overwritten.  index/0
+    ;;; only ever ASSIGNS, so a second load left every item of the first
+    ;;; one still answering lp_ilang -- which the importer found the hard
+    ;;; way: it loads the graph twice on purpose, and the second pass
+    ;;; reported all 120 of its own previous ids as already taken.
+    clearproperty(lp_kind); clearproperty(lp_ilang);
+    clearproperty(lp_ilevel); clearproperty(lp_isrc);
+    clearproperty(lp_forms); clearproperty(lp_gl); clearproperty(lp_confs);
     [] -> lp_items; [] -> lp_ladders; [] -> lp_exits; [] -> lp_rsrc;
+    [] -> lp_gens;
     lp_ask("index", 0).erase;
     rev(lp_items) -> lp_items;
 enddefine;
@@ -689,6 +735,42 @@ define lp_count_mastered(kind) -> n;
     endfor;
 enddefine;
 
+;;; The kanji criterion.  NOT lp_count_mastered("grapheme"): the kana are
+;;; graphemes too, and the 92 of them at pre-school would satisfy
+;;; kanji(100) before the student had met a single character.  What counts
+;;; is a grapheme with a kanji form, which is what the import makes.
+;;;
+;;; This arm exists because the import made the criterion measurable for
+;;; the first time.  Until there were kanji in the graph, kanji(100) fell
+;;; through to the measured branch, where criterion_item/2 has no clause
+;;; for a count -- so it reported 0% over 0 answers, which reads like a
+;;; student who has got everything wrong rather than a criterion nothing
+;;; was counting.
+define lp_count_mastered_kanji() -> n;
+    lvars i, n = 0;
+    for i in lp_items do
+        if lp_kind(i) == "grapheme" and lp_ilang(i) == lp_lang
+        and lp_form_of(i, "kanji") and lp_mastered(i) then
+            n + 1 -> n
+        endif;
+    endfor;
+enddefine;
+
+;;; How many of a criterion's countable items the graph even holds, so the
+;;; tutor can say "148 of the 800 are in the graph" rather than implying
+;;; the student is short of 652 they have never been shown.
+define lp_count_items(kind) -> n;
+    lvars i, n = 0;
+    for i in lp_items do
+        if lp_ilang(i) == lp_lang and lp_ilevel(i) == lp_level
+        and (if kind == "kanji" then
+                 lp_kind(i) == "grapheme" and lp_form_of(i, "kanji")
+             else lp_kind(i) == kind endif) then
+            n + 1 -> n
+        endif;
+    endfor;
+enddefine;
+
 define lp_status();
     lvars e, c, th, ms, items, acc, fast, n, want;
     printf('\n  %p, %p -- level %p\n',
@@ -698,8 +780,14 @@ define lp_status();
         hd(tl(tl(e))) -> c; hd(tl(tl(tl(e)))) -> th; hd(tl(tl(tl(tl(e))))) -> ms;
         if prolog_complexterm(c) and prolog_functor(c) == "vocabulary" then
             prolog_full_deref(prolog_arg(1, c)) -> want;
-            printf('    %p: %p of %p words mastered\n',
-                   [% lp_term_str(c), lp_count_mastered("word"), want %]);
+            printf('    %p: %p of %p words mastered (%p in the graph)\n',
+                   [% lp_term_str(c), lp_count_mastered("word"), want,
+                      lp_count_items("word") %]);
+        elseif prolog_complexterm(c) and prolog_functor(c) == "kanji" then
+            prolog_full_deref(prolog_arg(1, c)) -> want;
+            printf('    %p: %p of %p kanji mastered (%p in the graph)\n',
+                   [% lp_term_str(c), lp_count_mastered_kanji(), want,
+                      lp_count_items("kanji") %]);
         elseif prolog_complexterm(c) and prolog_functor(c) == "coverage" then
             printf('    %p: needs the content build (not measured yet)\n',
                    [% lp_term_str(c) %]);

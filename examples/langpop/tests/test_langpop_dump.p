@@ -152,7 +152,12 @@ check_true('the font is named, because the labels are Japanese',
 
 ;;; ------------------------------------------------------------ report
 lvars txt = dump_capture(dump_text);
-check_true('the report counts the items', issubstring('170 items', txt) /== false);
+;;; Against the graph that is loaded, not against a number typed here.
+;;; This used to say '170 items', which was true until the first import
+;;; built a level and then the suite failed on a graph that had grown --
+;;; the one thing it should not care about.
+check_true('the report counts the items',
+           issubstring((length(lp_items) sys_>< '') <> ' items', txt) /== false);
 check_true('the report names a rung', issubstring('preschool', txt) /== false);
 check_true('the report shows a criterion',
            issubstring('recognise(hiragana) >= 0.95', txt) /== false);

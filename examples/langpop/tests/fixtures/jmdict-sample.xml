@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- JMdict created: 2026-10-20 -->
+<!DOCTYPE JMdict [
+	<!ELEMENT JMdict (entry*)>
+	<!ENTITY n "noun (common) (futsuumeishi)">
+	<!ENTITY adj-i "adjective (keiyoushi)">
+]>
+<JMdict>
+<entry>
+<ent_seq>1302680</ent_seq>
+<k_ele><keb>山</keb><ke_pri>ichi1</ke_pri></k_ele>
+<r_ele><reb>やま</reb></r_ele>
+<r_ele><reb>ヤマ</reb></r_ele>
+<sense>
+<pos>&n;</pos>
+<gloss>mountain</gloss>
+<gloss>hill</gloss>
+<gloss g_type="expl">an explanation that is not a translation</gloss>
+</sense>
+<sense>
+<gloss>a second sense, which must not be taken</gloss>
+</sense>
+</entry>
+<entry>
+<ent_seq>2085690</ent_seq>
+<k_ele><keb>山</keb></k_ele>
+<r_ele><reb>さん</reb></r_ele>
+<sense><gloss>Mt.</gloss></sense>
+</entry>
+<entry>
+<ent_seq>1104410</ent_seq>
+<r_ele><reb>コーヒー</reb></r_ele>
+<sense><gloss>coffee</gloss></sense>
+</entry>
+<entry>
+<ent_seq>1419110</ent_seq>
+<k_ele><keb>誕生日</keb></k_ele>
+<r_ele><reb>たんじょうび</reb></r_ele>
+<sense><gloss>birthday</gloss></sense>
+</entry>
+<entry>
+<ent_seq>1234560</ent_seq>
+<k_ele><keb>一人</keb></k_ele>
+<r_ele><reb>ひとり</reb></r_ele>
+<sense><gloss>one person</gloss><gloss>alone &amp; unaccompanied</gloss></sense>
+</entry>
+<entry>
+<ent_seq>9999990</ent_seq>
+<k_ele><keb>試</keb></k_ele>
+<r_ele><reb>ためし</reb></r_ele>
+<sense><gloss>a gloss with an apostrophe: one's own</gloss></sense>
+</entry>
+</JMdict>

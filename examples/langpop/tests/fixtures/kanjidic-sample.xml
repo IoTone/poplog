@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE kanjidic2 [
+	<!-- A trimmed copy of the real DTD, kept because it is the awkward
+	     part: it holds a comment containing ]] and >, and an ENTITY
+	     whose replacement text holds a > as well.  A scanner that
+	     counted brackets alone ran off the end of the file here.
+	     -->
+	<!ELEMENT kanjidic2 (header,character*)>
+	<!ENTITY arrow "a > b">
+]>
+<kanjidic2>
+<header>
+<file_version>4</file_version>
+<database_version>2026-293</database_version>
+<date_of_creation>2026-10-20</date_of_creation>
+</header>
+<character>
+<literal>日</literal>
+<codepoint>
+<cp_value cp_type="ucs">65e5</cp_value>
+<cp_value cp_type="jis208">1-38-71</cp_value>
+</codepoint>
+<radical><rad_value rad_type="classical">72</rad_value></radical>
+<misc>
+<grade>1</grade>
+<stroke_count>4</stroke_count>
+<freq>1</freq>
+<jlpt>4</jlpt>
+</misc>
+<reading_meaning>
+<rmgroup>
+<reading r_type="pinyin">ri4</reading>
+<reading r_type="ja_on">ニチ</reading>
+<reading r_type="ja_on">ジツ</reading>
+<reading r_type="ja_kun">ひ</reading>
+<reading r_type="ja_kun">-び</reading>
+<reading r_type="ja_kun">-か</reading>
+<meaning>day</meaning>
+<meaning>sun</meaning>
+<meaning>Japan</meaning>
+<meaning>counter for days</meaning>
+<meaning>a fifth meaning that must be dropped</meaning>
+<meaning m_lang="fr">jour</meaning>
+<meaning m_lang="es">día</meaning>
+</rmgroup>
+</reading_meaning>
+</character>
+<character>
+<literal>安</literal>
+<codepoint><cp_value cp_type="ucs">5b89</cp_value></codepoint>
+<misc>
+<stroke_count>6</stroke_count>
+<jlpt>4</jlpt>
+</misc>
+<reading_meaning>
+<rmgroup>
+<reading r_type="ja_on">アン</reading>
+<reading r_type="ja_kun">やす.い</reading>
+<meaning>relax</meaning>
+<meaning>cheap</meaning>
+</rmgroup>
+<rmgroup>
+<reading r_type="ja_kun">いつくし.む</reading>
+<meaning>a second group, which must not be mixed in</meaning>
+</rmgroup>
+</reading_meaning>
+</character>
+<character>
+<literal>叡</literal>
+<codepoint><cp_value cp_type="ucs">53e1</cp_value></codepoint>
+<misc>
+<stroke_count>16</stroke_count>
+<jlpt>1</jlpt>
+</misc>
+<reading_meaning>
+<rmgroup>
+<reading r_type="ja_on">エイ</reading>
+<meaning>intelligence</meaning>
+</rmgroup>
+</reading_meaning>
+</character>
+<character>
+<literal>々</literal>
+<codepoint><cp_value cp_type="ucs">3005</cp_value></codepoint>
+<misc><stroke_count>3</stroke_count></misc>
+<reading_meaning>
+<rmgroup><meaning>repetition mark, and no jlpt at all</meaning></rmgroup>
+</reading_meaning>
+</character>
+</kanjidic2>
