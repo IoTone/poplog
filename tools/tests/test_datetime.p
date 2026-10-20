@@ -26,6 +26,20 @@ check_true('iso round trip sweep', ok);
 
 check_true('dt_now plausible', dt_now() > 1750000000);
 
+;;; sys_microtime is the only REAL-time clock with sub-second resolution
+;;; (REF * TIMES, HELP * CLOCK).  It matters that it is real and not CPU
+;;; time: anything timing a wait -- a user typing, a socket, a subprocess
+;;; -- gets nothing useful from systime(), which stops while we wait.
+lvars t_us0 = sys_microtime(), t_cpu0 = systime();
+syssleep(30);                                       ;;; 300ms of real waiting
+lvars elapsed_ms = (sys_microtime() - t_us0) div 1000;
+check_true('sys_microtime agrees with sys_real_time to the second',
+           abs((sys_microtime() div 1000000) - sys_real_time()) <= 1);
+check_true('sys_microtime measures a wait (>=250ms of a 300ms sleep)',
+           elapsed_ms >= 250);
+check_true('and is not CPU time (systime barely moved)',
+           systime() - t_cpu0 < 25);
+
 check_mishaps('bad format', procedure; dt_parse_iso('20260809').erase endprocedure);
 check_mishaps('bad month', procedure; dt_parse_iso('2026-13-01').erase endprocedure);
 check_mishaps('bad time', procedure; dt_parse_iso('2026-08-09T99:00:00').erase endprocedure);
