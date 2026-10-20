@@ -177,11 +177,51 @@ enddefine;
 ;;; later transport (a socket, an MCP host, the voice backend) can call
 ;;; them directly without pretending to be a JSON-RPC client.
 
+;;; Does the tutor think it has met this person?
+;;;
+;;; This is the one thing the TUI could do that the protocol could not,
+;;; which made Proposal B's premise -- the TUI is just a client -- false
+;;; for precisely the feature the project asked for by name: "ahh, is it
+;;; Bob Smith?  No, my mistake, Bob White."  A client got a database
+;;; lookup where the TUI got a teacher.
+;;;
+;;; No session, because this happens BEFORE registration.  It is also a
+;;; read: it creates nothing and registers nobody, so a client is free to
+;;; ignore the answer and go straight to register.
+define lp_m_recognise(msg) -> res;
+    lvars msg, res,
+          user = lp_param(msg, 'student_id'),
+          name = lp_param(msg, 'display_name'),
+          known, other, display, why;
+    unless user and isstring(user) and user /= '' then
+        lp_err(LP_E_PARAMS, 'recognise: student_id needed') -> res; return
+    endunless;
+    consword(lp_norm(user)) -> lp_user;
+    ;;; Loading the typed id first is what makes the guess correct rather
+    ;;; than merely plausible: it settles whether this person is already
+    ;;; known, and it loads THEIR refused guesses, so one that has been
+    ;;; turned down before is not offered again.
+    lp_load_profile(lp_user) -> known;
+    if known then
+        (false, false, false) -> (other, display, why);
+    else
+        lp_roll_guess_full(lp_user, name) -> (other, display, why);
+    endif;
+    jsonrpc_obj([% 'student_id', lp_jkey(lp_user),
+                   'known', known and true,
+                   'guess', if other then
+                                jsonrpc_obj([% 'student_id', lp_jkey(other),
+                                               'display_name', display,
+                                               'matched_on', why %])
+                            else false endif %]) -> res;
+enddefine;
+
 define lp_m_register(msg) -> res;
     lvars msg, res,
           user = lp_param(msg, 'student_id'),
           name = lp_param(msg, 'display_name'),
           lang = lp_param(msg, 'language'),
+          not_me = lp_param(msg, 'not_me'),
           known;
     unless user and isstring(user) and user /= '' then
         lp_err(LP_E_PARAMS, 'register: student_id needed') -> res; return
@@ -192,7 +232,13 @@ define lp_m_register(msg) -> res;
         if name then name else user endif -> lp_display;
         if lang then consword(lang) else "ja" endif -> lp_lang;
         "preschool" -> lp_level;
-        [] -> lp_journal; [] -> lp_assigns; [] -> lp_corrections;
+        ;;; A guess that was turned down is remembered, so the same wrong
+        ;;; name is never offered to this person twice.  Recorded after
+        ;;; lp_display is set, because a correction is a pair of the name
+        ;;; refused and the name it turned out to be.
+        if not_me and isstring(not_me) and not_me /= '' then
+            lp_refuse_guess(not_me);
+        endif;
         lp_roll_add(lp_user, lp_display);
         lp_save();
     endunless;
@@ -562,6 +608,7 @@ enddefine;
 
 ;;; ------------------------------------------------------------ dispatch
 lconstant METHODS = [
+    ['langpop/recognise'     ^lp_m_recognise]
     ['langpop/register'      ^lp_m_register]
     ['langpop/session.open'  ^lp_m_session_open]
     ['langpop/session.close' ^lp_m_session_close]

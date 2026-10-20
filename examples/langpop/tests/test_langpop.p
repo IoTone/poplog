@@ -228,6 +228,92 @@ check_true('and it can be found by id', lp_find_assign(1) and true);
 check('the journal survives', length(lp_journal), 1);
 check('tier survives the round trip', lp_journal(1)(3), 3);
 
+;;; ------------------------------------------------------- recognition
+;;; The teacher is allowed to MISremember.  Offering the nearest name and
+;;; being corrected is how a person recognises somebody, and the
+;;; correction is kept so the same wrong guess is never made twice.
+
+check('an exact match is no distance at all', lp_edit('cat', 'cat'), 0);
+check('a substitution is one', lp_edit('cat', 'cot'), 1);
+check('an insertion is one', lp_edit('dkords', 'dkordss'), 1);
+check('a deletion is one', lp_edit('dkords', 'dkord'), 1);
+check('the textbook case', lp_edit('kitten', 'sitting'), 3);
+check('an empty string costs the whole of the other', lp_edit('', 'ab'), 2);
+
+;;; A transposition is ONE typo.  Plain Levenshtein charges two, which put
+;;; the commonest slip a returning student makes outside the tolerance for
+;;; any short name -- so this is load-bearing, not a nicety.
+check('a transposition is one edit, not two', lp_edit('bsmith', 'bsmiht'), 1);
+check('even at the start', lp_edit('ab', 'ba'), 1);
+check_true('and the tolerance for a six-letter name admits exactly one',
+           lp_edit('bsmith', 'bsmiht') <= lp_edit_tol(6));
+
+check('tolerance is proportional', lp_edit_tol(11), 2);
+check('but never zero', lp_edit_tol(2), 1);
+
+;;; A NAME is not a string.  "Bob Smith" against "Bob White" is three
+;;; edits apart and so outside any sane tolerance -- yet it is the exact
+;;; confusion a person makes, because the two share a given name.
+check('a shared given name is close', lp_name_dist('bob smith', 'bob white'), 1);
+check('two unrelated names are not',
+      lp_name_dist('bob smith', 'robert jones'), 5);
+;;; Strings, not words.  They print identically, which is the third time
+;;; that distinction has cost something in this tree.
+check('a name splits on whitespace',
+      lp_split_name('bob smith'), ['bob' 'smith']);
+
+;;; The guess itself, against a roll on disk.
+'Bob Smith' -> lp_display;
+lp_roll_add("bsmith", 'Bob Smith');
+lp_roll_add("yuki", 'Yuki Tanaka');
+[] -> lp_corrections;
+
+lvars (g1, d1, w1) = lp_roll_guess_full("bwhite", 'Bob White');
+check('a new person is offered the near name', g1, "bsmith");
+check('with the name it would call them', d1, 'Bob Smith');
+check('and says what it matched on', w1, 'the name');
+
+lvars (g2, d2, w2) = lp_roll_guess_full("bsmiht", false);
+check('a typo in a username is recognised', g2, "bsmith");
+check('on the username this time', w2, 'the username');
+
+lvars (g3, d3, w3) = lp_roll_guess_full("carlos", 'Carlos Ruiz');
+check('somebody unrelated is not guessed at', g3, false);
+
+;;; Once refused, never offered again -- which is the difference between
+;;; remembering somebody and guessing at them.
+'Bob White' -> lp_display;
+lp_refuse_guess('Bob Smith');
+lvars (g4, d4, w4) = lp_roll_guess_full("bwhite", 'Bob White');
+check('a refused guess is not repeated', g4, false);
+
+;;; The same keystrokes must produce the same guess.  The old matcher kept
+;;; whichever candidate a property walk happened to reach first, so with
+;;; two students on the roll it guessed by hash order -- a teacher who
+;;; asks "Bob Smith?" on Monday and "Yuki Tanaka?" on Tuesday from the
+;;; same input is not remembering, it is rolling dice.
+[] -> lp_corrections;
+lp_roll_add("bsmitx", 'Bob Smithx');
+lvars i, first = false, stable = true;
+for i from 1 to 8 do
+    lvars (ga, da, wa) = lp_roll_guess_full("bsmit", false);
+    unless first then ga -> first endunless;
+    unless ga == first then false -> stable endunless;
+endfor;
+check_true('the same input gives the same guess every time', stable);
+
+;;; A failed load must leave nothing of the last student behind.  In the
+;;; one-shot TUI that never showed; the server is long-lived and serves
+;;; whoever asks, so binding to a student who does not exist used to
+;;; leave the previous one's journal and refusals in the globals.
+"someone" -> lp_user;
+[{% 1, "s_r_l", "r_minimal_rl", 1700000000000, 'open' %}] -> lp_assigns;
+lp_refuse_guess('Somebody');
+check_false('loading a student who does not exist fails',
+            lp_load_profile("nobody_at_all"));
+check('and leaves no assignments behind', length(lp_assigns), 0);
+check('nor any refused guesses', length(lp_corrections), 0);
+
 sysobey('rm -rf ' <> tmpdir);
 false -> lp_home_dir;
 

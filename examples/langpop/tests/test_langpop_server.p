@@ -68,9 +68,12 @@ enddefine;
 ;;; ------------------------------------------------------------- the door
 check('ping', result('ping', false), 'pong');
 check_true('methods are listable',
-           length(result('langpop/methods', false)) == 11);
+           length(result('langpop/methods', false)) == 12);
 check_true('and the list names them, not just counts them',
            member('langpop/card.render',
+                  [% explode(result('langpop/methods', false)) %]) /== false);
+check_true('recognition is on the wire, not only in the TUI',
+           member('langpop/recognise',
                   [% explode(result('langpop/methods', false)) %]) /== false);
 check('an unknown method is -32601',
       errcode('langpop/nope', false), -32601);
@@ -247,6 +250,70 @@ check('and says it cannot be checked',
       crit('vocabulary(50, hear)')('verifiable'), false);
 check('while still carrying the target',
       crit('vocabulary(50, hear)')('want'), 50);
+
+;;; ----------------------------------------------------------- recognition
+;;; The one thing the TUI could do that the protocol could not, which made
+;;; Proposal B's premise -- the TUI is just a client -- false for exactly
+;;; the feature the project named: "ahh, is it Bob Smith?  No, my mistake,
+;;; Bob White."  A client got a lookup where the TUI got a teacher.
+
+;;; Two people on the roll, one of whom shares a given name with somebody
+;;; about to arrive.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'bsmith',
+                                          'display_name', 'Bob Smith' %])).erase;
+result('langpop/register', jsonrpc_obj([% 'student_id', 'yuki',
+                                          'display_name', 'Yuki Tanaka' %])).erase;
+
+vars rec = result('langpop/recognise',
+                  jsonrpc_obj([% 'student_id', 'bwhite',
+                                 'display_name', 'Bob White' %]));
+check('a new person is not known', rec('known'), false);
+check_true('but is offered the near name', rec('guess') /== false);
+check('by id', rec('guess')('student_id'), 'bsmith');
+check('and by the name it would call them',
+      rec('guess')('display_name'), 'Bob Smith');
+check('and says what it matched on', rec('guess')('matched_on'), 'the name');
+
+;;; A typo in a username that IS on the roll.  This is the case plain
+;;; Levenshtein missed, because it charges two for a transposition.
+vars rec2 = result('langpop/recognise', jsonrpc_obj([% 'student_id', 'bsmiht' %]));
+check_true('a transposed username is recognised', rec2('guess') /== false);
+check('as the same person', rec2('guess')('student_id'), 'bsmith');
+check('on the username this time', rec2('guess')('matched_on'), 'the username');
+
+;;; Somebody already on the roll needs no guessing at.
+vars rec3 = result('langpop/recognise', jsonrpc_obj([% 'student_id', 'yuki' %]));
+check('a known student is known', rec3('known'), true);
+check('and gets no guess', rec3('guess'), false);
+
+;;; And somebody unrelated gets none either -- a teacher who guesses at
+;;; everybody is not remembering anything.
+vars rec4 = result('langpop/recognise',
+                   jsonrpc_obj([% 'student_id', 'carlos',
+                                  'display_name', 'Carlos Ruiz' %]));
+check('an unrelated name is not guessed at', rec4('guess'), false);
+
+;;; The correction is what makes it memory rather than guessing: register
+;;; carries back the name that was refused.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'bwhite',
+                                          'display_name', 'Bob White',
+                                          'not_me', 'Bob Smith' %])).erase;
+vars rec5 = result('langpop/recognise',
+                   jsonrpc_obj([% 'student_id', 'bwhite',
+                                  'display_name', 'Bob White' %]));
+check('after registering they are known', rec5('known'), true);
+
+;;; A different new typo must still be offered Bob Smith -- the refusal
+;;; belongs to the person who made it, not to the roll.
+vars rec6 = result('langpop/recognise', jsonrpc_obj([% 'student_id', 'bsmitj' %]));
+check_true('a refusal is one student\'s, not everyone\'s',
+           rec6('guess') /== false);
+
+check('recognise needs a student_id',
+      errcode('langpop/recognise', jsonrpc_obj([])), -32602);
+check_true('and needs no session, because it happens before one exists',
+           result('langpop/recognise',
+                  jsonrpc_obj([% 'student_id', 'nobody' %])) /== false);
 
 ;;; ---------------------------------------------- assignment and reporting
 ;;; English has items that cannot be checked by typing, which is what

@@ -555,6 +555,14 @@ enddefine;
 define lp_load_profile(user) -> found;
     lvars user, s = lp_read_file(lp_profile_path(user)), o, i, v, e;
     false -> found;
+    ;;; Cleared BEFORE the early return, so that a failed load leaves
+    ;;; nothing of the previous student behind.  In the one-shot TUI that
+    ;;; made no difference; in the server, which is long-lived and serves
+    ;;; whoever asks, binding to a student who does not exist used to
+    ;;; leave the last one's journal, assignments and refused guesses
+    ;;; sitting in the globals.  lp_beliefs is safe either way because
+    ;;; lp_bkey puts the student in the key.
+    [] -> lp_journal; [] -> lp_assigns; [] -> lp_corrections;
     returnunless(s);
     json_parse(s) -> o;
     true -> found;
@@ -565,7 +573,6 @@ define lp_load_profile(user) -> found;
         appproperty(o('beliefs'),
             procedure(k, v); v -> lp_beliefs(consword(k)) endprocedure);
     endif;
-    [] -> lp_journal;
     if o('journal') then
         for i from 1 to length(o('journal')) do
             o('journal')(i) -> e;
@@ -577,7 +584,6 @@ define lp_load_profile(user) -> found;
     ;;; assigning work is that it is done BETWEEN sessions and reported
     ;;; next time.  Saving them without reading them back meant ":report 1"
     ;;; answered "No assignment 1." the following day.
-    [] -> lp_assigns;
     if o('assignments') then
         for i from 1 to length(o('assignments')) do
             o('assignments')(i) -> e;
@@ -585,7 +591,6 @@ define lp_load_profile(user) -> found;
                               e(4), e(5) %}] -> lp_assigns;
         endfor;
     endif;
-    [] -> lp_corrections;
     if o('corrections') then
         for i from 1 to length(o('corrections')) do
             conspair(o('corrections')(i), lp_corrections) -> lp_corrections;
@@ -894,24 +899,156 @@ enddefine;
 ;;; being corrected is how a person recognises somebody, and the
 ;;; correction is kept, so the same wrong guess is never made twice.
 
-define lp_roll_guess(user) -> (other, display);
-    lvars user, r = lp_roll(), u = user sys_>< '', best = false, bd = false,
-          refused, c;
-    (false, false) -> (other, display);
+;;; Edit distance, for recognising a name that was typed slightly wrong.
+;;;
+;;; Damerau-Levenshtein, not plain Levenshtein: an adjacent transposition
+;;; counts as ONE edit.  That is not a refinement, it is the whole point
+;;; of the tolerance -- plain Levenshtein charges two for "bsmiht" against
+;;; "bsmith", which is outside the budget for a six-letter name, so the
+;;; single commonest typo a returning student makes was the one case that
+;;; got no guess at all.
+;;;
+;;; A full table rather than two rolling rows, because the transposition
+;;; rule reaches back two of each.  A roll holds a handful of students on
+;;; somebody's own machine, so this runs a few dozen times at
+;;; registration and never again.
+define lp_edit(a, b) -> d;
+    lvars a, b, la = length(a), lb = length(b), t, i, j, c, d;
+    returnif(la == 0)(lb -> d);
+    returnif(lb == 0)(la -> d);
+    newarray([0 ^la 0 ^lb], 0) -> t;
+    for i from 0 to la do i -> t(i, 0) endfor;
+    for j from 0 to lb do j -> t(0, j) endfor;
+    for i from 1 to la do
+        for j from 1 to lb do
+            if subscrs(i, a) == subscrs(j, b) then 0 else 1 endif -> c;
+            min(min(t(i - 1, j) + 1, t(i, j - 1) + 1), t(i - 1, j - 1) + c)
+                -> t(i, j);
+            if i > 1 and j > 1
+            and subscrs(i, a) == subscrs(j - 1, b)
+            and subscrs(i - 1, a) == subscrs(j, b) then
+                min(t(i, j), t(i - 2, j - 2) + 1) -> t(i, j);
+            endif;
+        endfor;
+    endfor;
+    t(la, lb) -> d;
+enddefine;
+
+;;; How wrong a name may be and still be the same person.  Proportional,
+;;; because one wrong letter in "dk" is a different name while one wrong
+;;; letter in "dkordsmeier" is a slip.
+define lp_edit_tol(n) -> t;
+    lvars n, t = n div 4;
+    if t < 1 then 1 -> t endif;
+enddefine;
+
+;;; Split a name on whitespace.
+define lp_split_name(str) -> l;
+    lvars str, i, start = 0, len = length(str);
+    [% for i from 1 to len + 1 do
+           if i > len or subscrs(i, str) == `\s` then
+               if start > 0 then substring(start, i - start, str) endif;
+               0 -> start;
+           elseif start == 0 then i -> start;
+           endif;
+       endfor %] -> l;
+enddefine;
+
+;;; Distance between two NAMES, which is not the same thing as distance
+;;; between two strings.
+;;;
+;;; "Bob Smith" against "Bob White" is three edits apart and so outside
+;;; any sane tolerance -- yet it is the exact confusion a person makes,
+;;; because the two share a given name.  So the tokens are compared too,
+;;; and a close token counts, with one added so that a whole-name match
+;;; still wins over a shared first name.
+;;;
+;;; This will sometimes offer the wrong person of two who share a first
+;;; name.  That is the behaviour being modelled, not a defect in it: the
+;;; teacher says "Bob Smith?", is told no, and never says it again --
+;;; which is what lp_refuse_guess is for.
+define lp_name_dist(a, b) -> d;
+    lvars a, b, ta, tb, x, y, dd;
+    lp_edit(a, b) -> d;
+    lp_split_name(a) -> ta;
+    lp_split_name(b) -> tb;
+    for x in ta do
+        for y in tb do
+            nextif(length(x) < 2 or length(y) < 2);
+            lp_edit(x, y) + 1 -> dd;
+            if dd < d then dd -> d endif;
+        endfor;
+    endfor;
+enddefine;
+
+;;; The nearest name on the roll to what was typed, or false.
+;;;
+;;; This used to compare the first three characters of the USERNAME and
+;;; keep the first candidate it happened to meet -- and since it walked a
+;;; property, "the first it happened to meet" was arbitrary.  With two
+;;; students on the roll it guessed by hash order, which is not what its
+;;; own comment promised.  Now it scores every candidate and takes the
+;;; best, on the username AND on the display name if one was offered,
+;;; because somebody who registered as dkords may well type David.
+;;;
+;;; Ties break alphabetically.  Not because that is the better guess, but
+;;; because the guess has to be the same one every time: a teacher who
+;;; asks "Bob Smith?" on Monday and "Bob White?" on Tuesday from the same
+;;; keystrokes is not remembering, it is rolling dice.
+define lp_roll_guess_full(user, typed_name) -> (other, display, why);
+    lvars user, typed_name, r = lp_roll(), u = lp_norm(user sys_>< ''),
+          nm = if typed_name then lp_norm(typed_name sys_>< '') else false endif,
+          best = false, bd = false, bw = false, bscore = false;
+    (false, false, false) -> (other, display, why);
     appproperty(r, procedure(k, v);
-        lvars k, v;
-        returnif(k = u);
-        returnunless(length(k) >= 3 and length(u) >= 3);
-        returnunless(substring(1, 3, k) = substring(1, 3, u));
-        unless best then k -> best; v -> bd endunless;
+        lvars k, v, du, dn, score, w, refused, skip = false;
+        returnif(k = u);                            ;;; that is the typed id
+        ;;; a guess already refused by this student is never offered again
+        for refused in lp_corrections do
+            if isvector(refused) and length(refused) >= 1
+            and (refused(1) sys_>< '') = (v sys_>< '') then
+                true -> skip;
+            endif;
+        endfor;
+        returnif(skip);
+        lp_edit(u, lp_norm(k sys_>< '')) -> du;
+        if du <= lp_edit_tol(max(length(u), length(k))) then
+            du -> score; 'the username' -> w;
+        else
+            false -> score; false -> w;
+        endif;
+        if nm and v then
+            lp_name_dist(nm, lp_norm(v sys_>< '')) -> dn;
+            if dn <= lp_edit_tol(max(length(nm), length(v sys_>< '')))
+            and (not(score) or dn < score) then
+                dn -> score; 'the name' -> w;
+            endif;
+        endif;
+        returnunless(score);
+        if not(bscore) or score < bscore
+        or (score == bscore and alphabefore(k, best)) then
+            k -> best; v -> bd; w -> bw; score -> bscore;
+        endif;
     endprocedure);
     returnunless(best);
-    for refused in lp_corrections do
-        if isvector(refused) and length(refused) >= 1 and refused(1) = bd then
-            return
-        endif;
-    endfor;
-    (best, bd) -> (other, display);
+    ;;; A WORD, because a student id is a word everywhere else in here
+    ;;; (lp_user, lp_bkey, the profile path).  The roll's own keys are
+    ;;; strings because they came back through JSON, and handing one of
+    ;;; those out would make the caller's == comparisons quietly fail --
+    ;;; a word and a string with the same characters print identically.
+    (consword(best sys_>< ''), bd, bw) -> (other, display, why);
+enddefine;
+
+;;; The two-result form the TUI has always called.
+define lp_roll_guess(user) -> (other, display);
+    lvars user, w;
+    lp_roll_guess_full(user, false) -> (other, display, w);
+enddefine;
+
+;;; Remember that a guess was wrong, so it is not offered again.
+define lp_refuse_guess(refused_display);
+    lvars refused_display;
+    conspair({% refused_display, lp_display %}, lp_corrections) -> lp_corrections;
 enddefine;
 
 define lp_yes(line);
@@ -934,7 +1071,7 @@ define lp_register(user, display, batch);
         sysflush(popdevout);
         lp_readline() -> line;
         if line /== termin and lp_yes(line) then
-            consword(guess_u) -> lp_user;
+            guess_u -> lp_user;              ;;; already a word
             lp_load_profile(lp_user).erase;
             printf('%p\n', [% lp_line('welcome_back') %]);
             return;

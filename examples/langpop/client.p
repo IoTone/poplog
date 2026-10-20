@@ -78,6 +78,16 @@ define trim(s) -> t;
     if j < i then '' else substring(i, j - i + 1, s) endif -> t;
 enddefine;
 
+;;; A yes, in either language.  The client carries its own copy rather
+;;; than loading langpop.p: it is a client, and the only thing it is
+;;; allowed to know about the tutor is the protocol.
+define yes(line) -> b;
+    lvars line, s = trim(line), b;
+    lowertoupper(s) -> s;        ;;; cheap fold; the tests below are ASCII
+    uppertolower(s) -> s;
+    s = 'y' or s = 'yes' or s = 'はい' or s = 'hai' -> b;
+enddefine;
+
 define split2(s) -> (a, b);
     lvars s, c = locchar(` `, 1, s);
     if c then (substring(1, c - 1, s), trim(allbutfirst(c, s))) -> (a, b)
@@ -274,10 +284,40 @@ define client_main();
         trim(line) -> user;
     endunless;
 
+    ;;; Ask whether the tutor thinks it has met this person before
+    ;;; registering them.  This is the whole point of langpop/recognise
+    ;;; existing: without it a client gets a database lookup where the
+    ;;; in-process TUI gets a teacher, and the one feature the project
+    ;;; asked for by name -- "ahh, is it Bob Smith?" -- was the one thing
+    ;;; only langpop.p could do.
+    lvars not_me = false, rec, g;
+    rpc('langpop/recognise',
+        jsonrpc_obj([% 'student_id', user,
+                       'display_name', name %])) -> rec;
+    if rec and p(rec, 'guess') then
+        p(rec, 'guess') -> g;
+        printf('Ah -- %p?  (y/n) ', [% p(g, 'display_name') %]);
+        sysflush(popdevout);
+        readline() -> line;
+        if line /== termin and yes(line) then
+            ;;; It was them.  Carry on as that student, not a new one.
+            p(g, 'student_id') -> user;
+        else
+            ;;; It was not.  The refused name goes back with the
+            ;;; registration so the tutor never offers it to them again.
+            p(g, 'display_name') -> not_me;
+            printf('My mistake.  And your name?  ');
+            sysflush(popdevout);
+            readline() -> line;
+            if line /== termin and trim(line) /= '' then trim(line) -> name endif;
+        endif;
+    endif;
+
     rpc('langpop/register',
         jsonrpc_obj([% 'student_id', user,
                        'display_name', name or user,
-                       'language', lang %])) -> reg;
+                       'language', lang,
+                       'not_me', not_me %])) -> reg;
     returnunless(reg);
     p(reg, 'teacher') -> lp_teacher;
 

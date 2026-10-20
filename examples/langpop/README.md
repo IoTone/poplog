@@ -690,6 +690,63 @@ Profiles live in `~/.langpop/`: one JSON file per student, plus
 `roll.json`, which is what lets the teacher recognise — and
 misrecognise — somebody.
 
+## The teacher is allowed to misremember
+
+> *"Ideally we start to 'remember' things, and the teacher would say, ahh,
+> is it Bob Smith? No, my mistake, Bob White."*
+
+That is recognition, not lookup, and until now it was the one thing the
+in-process TUI could do that the protocol could not — which made
+Proposal B's premise, *the TUI is just a client*, false for exactly the
+feature the project asked for by name. A client got a database lookup
+where `langpop.p` got a teacher.
+
+`langpop/recognise` closes it. No session, because it happens before
+registration; it creates nothing, so a client may ignore the answer:
+
+```json
+-> {"method":"langpop/recognise",
+    "params":{"student_id":"bwhite","display_name":"Bob White"}}
+<- {"result":{"student_id":"bwhite","known":false,
+              "guess":{"student_id":"bsmith","display_name":"Bob Smith",
+                       "matched_on":"the name"}}}
+```
+
+and `langpop/register` takes `not_me` back, so a refused name is never
+offered to that person again.
+
+**A name is not a string.** `Bob Smith` against `Bob White` is three
+edits apart — outside any sane tolerance — and yet it is the exact
+confusion a person makes, because the two share a given name. So tokens
+are compared as well as whole strings, and a close token counts with one
+added so a whole-name match still wins. This will sometimes offer the
+wrong one of two people sharing a first name, which is the behaviour
+being modelled rather than a defect in it: the teacher asks once, is told
+no, and never asks again.
+
+**A transposition is one typo, not two.** Plain Levenshtein charges two
+for `bsmiht` against `bsmith`, which is outside the budget for any short
+name — so the single commonest slip a returning student makes was the one
+case that got no guess at all. The distance is Damerau-Levenshtein, and
+that is load-bearing rather than a nicety.
+
+**And the same keystrokes must give the same guess.** The old matcher
+compared the first three characters of the username and kept whichever
+candidate a property walk reached first — so with two students on the
+roll it guessed by hash order. A teacher who asks *Bob Smith?* on Monday
+and *Yuki Tanaka?* on Tuesday from the same input is not remembering, it
+is rolling dice. Ties now break alphabetically, not because that is the
+better guess but because it has to be the same one every time.
+
+One thing this turned up on the way. `lp_load_profile` cleared the
+journal, the assignments and the refused guesses *after* its early
+return, so a failed load left the previous student's behind. In the
+one-shot TUI that never showed; the server is long-lived and serves
+whoever asks, so binding to a student who does not exist used to leave
+the last one's work sitting in the globals. Beliefs were never at risk —
+`lp_bkey` puts the student in the key — but the rest was, and it is
+cleared before the return now.
+
 ## B: one protocol is the door
 
 `server.p` serves ten methods over JSON-RPC with line framing — one JSON
