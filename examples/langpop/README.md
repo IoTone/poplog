@@ -195,20 +195,56 @@ passes through `lp_now_ms()`. A `clock_gettime` shim on the
 popcrypto/popsqlite pattern would be a few dozen lines, and that one
 procedure is all that changes.
 
-## One Poplog Prolog behaviour worth knowing
+## Four Poplog Prolog behaviours worth knowing
 
-`prolog_compile` has **reconsult** semantics per predicate: a second file
+**`prolog_compile` has reconsult semantics per predicate.** A second file
 that defines `item/5` silently replaces the clauses the first one gave
 it, and `:- dynamic` does not change that. A seven-file graph loaded
 file-by-file therefore ends up holding only the last file's items — with
 no error. So `lp_load()` concatenates the manifest and compiles once.
 
-Two more, found the same way: Poplog Prolog 3.2 has **no `forall/2`**,
-and an undefined predicate **fails silently** rather than raising — so a
-rule written with `forall` quietly never succeeds. `schema.pl` states
-the idiom once as `all_hold/2`. And a cycle check needs a visited list:
-without one, a two-item cycle has infinitely many proofs and the check
-exhausts `pop_prolog_lim` instead of reporting the cycle.
+**There is no `forall/2`** — not in `pop/plog/lib/`, not in any help
+file. `schema.pl` states the idiom once as `all_hold/2`:
+
+```prolog
+all_hold(Cond, Action) :- \+ (Cond, \+ Action).
+```
+
+**A call to an undefined predicate fails** rather than raising, which is
+how the missing `forall/2` hid: the rule using it simply never succeeded,
+and a level with nothing ready in it looks like a data problem. This one
+is *configurable* and the default is the trap, so `schema.pl` now opens
+with the two lines that turn it off:
+
+```prolog
+:- library(unknown).
+:- unknown(_, error).
+```
+
+See `PLOGHELP UNKNOWN` — `fail` (the default), `error`, `autoload`,
+`debug`. Every graph file is loaded together, so nothing in this graph is
+legitimately undefined, and a misspelled predicate now raises.
+
+**A cycle check needs a visited list.** Without one, a two-item cycle has
+infinitely many proofs and the check exhausts `pop_prolog_lim` instead of
+reporting the cycle — so `reaches/2` carries the path it has walked.
+
+### And one that is a bug, not a behaviour
+
+Twelve words are honoured as **interactive commands while a file is being
+consulted**, not just at the Prolog prompt: `ved help teach ref showlib im
+source cd pwd pop11 bye` (`pop/plog/src/commands.p`). A data file
+containing
+
+```prolog
+help(a).
+```
+
+does not define `help/1`. It tries to open a HELP file, and says
+`;;; HELP (A). not found - try HELP HELPFILES` — with no hint that a
+clause was swallowed. `langpop` hit this with `source/2` as a provenance
+relation and renamed it to `provenance/2`; `help/1` is a name a tutoring
+system reaches for naturally, so this will bite again.
 
 ## Commands
 

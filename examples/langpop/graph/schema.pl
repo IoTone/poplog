@@ -29,8 +29,18 @@
 % and reach Prolog as lp_belief/3 and lp_known/2, because they change
 % every turn and the graph does not.
 
-% --- Poplog Prolog 3.2 has no forall/2, and an undefined predicate fails
-% --- silently rather than erroring -- so state the idiom once, here.
+% A call to an undefined predicate FAILS in Poplog Prolog by default,
+% which hides a typo in a rule as a level with nothing ready in it.  Say
+% so once, here, and a misspelled predicate raises instead (PLOGHELP
+% UNKNOWN).  Every graph file is loaded together, so nothing in this
+% graph is legitimately undefined.
+:- library(unknown).
+:- unknown(_, error).
+
+% Poplog Prolog has no forall/2 -- it is in no library and no help file --
+% so state the idiom once, here.  Under unknown(_, error) above, a rule
+% that reached for forall/2 would now raise rather than quietly never
+% succeed, which is how this was found the slow way.
 all_hold(Cond, Action) :- \+ (Cond, \+ Action).
 
 % Confusability is symmetric; the data states each pair once.
