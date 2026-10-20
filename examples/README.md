@@ -108,11 +108,21 @@ without knowing it is not consulting a table. 170 items, an explicit
 prerequisite DAG, provenance on every fact, and three tiers of evidence whose
 ceilings make "I did it" unable to reach mastery by arithmetic.
 
+It comes in two shapes: the whole thing in one process, and the same engine
+behind one JSON-RPC protocol with the TUI demoted to a client that has no
+privileges a phone app would not have — including no access to the answer it
+is asking the student for, and no say in how long they took.
+
 ```sh
 ./poplog ./target/pop/basepop11 examples/langpop/langpop.p           # Japanese
 ./poplog ./target/pop/basepop11 examples/langpop/langpop.p --lang en # English
 ./poplog ./target/pop/basepop11 examples/langpop/langpop.p --check    # check the graph
-tools/test-libs.sh examples/langpop/tests/test_langpop.p             # 46 checks
+
+./poplog ./target/pop/basepop11 examples/langpop/server.p --port 7801 &
+./poplog ./target/pop/basepop11 examples/langpop/client.p --port 7801 --user bob
+
+tools/test-libs.sh examples/langpop/tests/test_langpop.p \
+                   examples/langpop/tests/test_langpop_server.p      # 118 checks
 ```
 
 See [`langpop/README.md`](langpop/README.md) for the schema, the two

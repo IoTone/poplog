@@ -6,18 +6,30 @@ start: **Japanese** for a Western learner and **English** for a Japanese
 test-taker. Both begin at a level below the bottom of the official
 ladder, because that is where learners actually begin.
 
-This is **Proposal A** of the [design](https://claude.ai/code/artifact/7c9aa285-6747-4ec8-927a-a25c94f89919):
-one heap, three languages. The graph is Prolog, the overlay and the TUI
-are Pop-11, and nothing leaves the process — no server, no model, no
-network. Proposal B puts the same engine behind one protocol; the point
-of building A first is that when it is wrong, it is wrong in one address
-space.
+Two programs, from the [design](https://claude.ai/code/artifact/7c9aa285-6747-4ec8-927a-a25c94f89919)'s
+first two proposals:
+
+**A — one heap, three languages.** `langpop.p`: the graph is Prolog, the
+overlay and the TUI are Pop-11, and nothing leaves the process. No
+server, no model, no network. When A is wrong it is wrong in one address
+space, which is why it was built first.
+
+**B — one protocol is the door.** `server.p` + `client.p`: the same
+engine, unchanged, behind JSON-RPC. The TUI becomes a client with no
+privileges a phone app would not have.
 
 ```sh
+# A: the whole thing in one process
 ./poplog basepop11 examples/langpop/langpop.p                   # Japanese, with Aoi
 ./poplog basepop11 examples/langpop/langpop.p --lang en          # English, with Mr Hill
 ./poplog basepop11 examples/langpop/langpop.p --check            # integrity-check the graph
-tools/test-libs.sh examples/langpop/tests/test_langpop.p         # 46 checks
+
+# B: the same session, over a protocol
+./poplog basepop11 examples/langpop/server.p --port 7801 &
+./poplog basepop11 examples/langpop/client.p --port 7801 --user bob
+
+tools/test-libs.sh examples/langpop/tests/test_langpop.p \
+                   examples/langpop/tests/test_langpop_server.p   # 55 + 63 checks
 ```
 
 A session, in full:
@@ -269,10 +281,76 @@ Profiles live in `~/.langpop/`: one JSON file per student, plus
 `roll.json`, which is what lets the teacher recognise — and
 misrecognise — somebody.
 
+## B: one protocol is the door
+
+`server.p` serves ten methods over JSON-RPC with line framing — one JSON
+value per line, which is what MCP uses over stdio, so an MCP host can
+speak to it with no shim. `--port N` for TCP, nothing for stdio.
+
+| Method | |
+| --- | --- |
+| `langpop/register` | a student, by username; no password, because this is a local tool |
+| `langpop/session.open` / `session.close` | a session is a row, not a process |
+| `langpop/plan` | what is ready now, and why that order |
+| `langpop/next` | the question — **and not its answer** |
+| `langpop/answer` | the judging, which stays on this side |
+| `langpop/explain` | the derivation: prerequisites, provenance, belief |
+| `langpop/status` | the level's exit criteria, measured |
+| `langpop/assign` / `report` | work to do elsewhere, and what came of it |
+
+Three things are deliberately on the server's side of the line, and each
+one is a property the design would lose if it moved:
+
+**The answer never leaves.** `langpop/next` returns the prompt; the
+client cannot tell whether what the student typed was right until
+`langpop/answer` says so. A protocol that hands over the answer key is a
+quiz file, not a tutor, and no later check of it means anything.
+
+**The clock is the server's.** `langpop/next` starts it, `langpop/answer`
+stops it. Every pre-school exit criterion has a millisecond budget, and a
+client that could send `latency_ms: 1` would make the speed half of each
+one worthless. The reply says which clock was used
+(`latency_source: "server"`), and the client's own figure is a fallback
+for a caller that never asked a question — a batch import, a test.
+
+**The tier is decided from the evidence, not chosen.** A client reports
+`ok` or `17/20`; the server decides that the first is tier 3 and the
+second tier 2. Anything else is refused rather than quietly filed as
+compliance, because `"18 out of 20"` written without a slash means a
+result, and recording it as "I did it" would throw the number away and
+cap the item at 0.50 without saying so.
+
+Errors are typed, so a client can tell a mistake it made from a bug in
+here: `-32602` invalid params, `-32001` no such session, `-32002` no such
+student, `-32003` no such item, `-32004` no such assignment. A mishap
+stays a mishap — that is a bug, and `jsonrpc_serve` turns it into
+`-32603` for the client while a test still sees it break.
+
+`client.p` is the same session as A to look at, and holds no graph, no
+beliefs and no judgment — 288 lines of asking and printing. That is the
+only honest test of an API: the reference client has no private door.
+
+The protocol suite drives the handler over a `sys_socket_pair` with both
+ends in one process, the idiom `tools/tests/test_jsonrpc.p` uses, so
+there are no forks, no ports and no sleeps. 63 checks, including that
+`langpop/next` does not leak the answer anywhere in its reply — not just
+in a field called `answer`.
+
 ## What A deliberately does not have
 
-No server, no API, no model, no speech, no rendering, no generated
-content, no DCG, no kanji, no spaced repetition. Judging is exact match
-on a string, which is the correct amount of cleverness for a level where
-the right answer *is* a string. Everything else is Proposal B onwards,
-and the thing to learn from A is which of those we actually miss.
+No model, no speech, no rendering, no generated content, no DCG, no
+kanji, no spaced repetition. Judging is exact match on a string, which is
+the correct amount of cleverness for a level where the right answer *is*
+a string. (A had no server either; B is that gap closed.) Proposal C — a
+model that may classify and rank but never assert into the graph — stays
+behind a flag until B has been used in anger.
+
+What building B cost, which is the useful number: the engine needed three
+changes, and two of them were bugs A had and nobody had noticed.
+Assignments were written to the profile and never read back, so a student
+who was given work on Monday was told "No assignment 1." on Tuesday —
+which is the entire assignment model, broken in the one place a local TUI
+never looks. `lp_measure` returned Pop-11 ratios rather than floats, which
+compare equal to the float they denote (so the tests passed) and cannot be
+serialised at all. The third was a data-dir override, so the suite can
+write profiles somewhere other than a real person's home.

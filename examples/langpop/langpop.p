@@ -330,8 +330,13 @@ define lp_measure(items, latency_ms) -> (acc, fast, n);
             if e(5) <= latency_ms then quick + 1 -> quick endif;
         endif;
     endfor;
+    ;;; Floats, not Pop-11 ratios.  right / n on two integers is an exact
+    ;;; rational here, which prints oddly, compares equal to the float it
+    ;;; denotes (so a test does not notice), and cannot be serialised at
+    ;;; all -- json_generate refuses it as an "unsupported item", which is
+    ;;; how the server found this.
     if n == 0 then (0.0, 0.0, 0) -> (acc, fast, n)
-    else (right / n, quick / n, n) -> (acc, fast, n)
+    else ((right * 1.0) / n, (quick * 1.0) / n, n) -> (acc, fast, n)
     endif;
 enddefine;
 
@@ -381,10 +386,22 @@ enddefine;
 ;;; Persistence is a file per student plus one roll, because the roll is
 ;;; what lets the teacher recognise somebody -- and misrecognise them.
 
+;;; Where profiles live.  Overridable because two callers need it to be:
+;;; the test suite, which must not write into a real person's home, and
+;;; the server (server.p --data DIR), which may hold a different roll
+;;; than the one the local TUI uses.
+vars lp_home_dir = false;
+
 define lp_home() -> d;
-    lvars d = systranslate('HOME');
-    unless d then '.' -> d endunless;
-    d <> '/.langpop/' -> d;
+    lvars d;
+    if lp_home_dir then
+        lp_home_dir -> d;
+        unless d /= '' and d(length(d)) == `/` then d <> '/' -> d endunless;
+    else
+        systranslate('HOME') -> d;
+        unless d then '.' -> d endunless;
+        d <> '/.langpop/' -> d;
+    endif;
 enddefine;
 
 define lp_profile_path(user) -> p;
@@ -452,6 +469,18 @@ define lp_load_profile(user) -> found;
             o('journal')(i) -> e;
             conspair({% consword(e(1)), consword(e(2)), e(3), e(4), e(5), e(6) %},
                      lp_journal) -> lp_journal;
+        endfor;
+    endif;
+    ;;; Assignments outlive the session on purpose: the whole point of
+    ;;; assigning work is that it is done BETWEEN sessions and reported
+    ;;; next time.  Saving them without reading them back meant ":report 1"
+    ;;; answered "No assignment 1." the following day.
+    [] -> lp_assigns;
+    if o('assignments') then
+        for i from 1 to length(o('assignments')) do
+            o('assignments')(i) -> e;
+            lp_assigns <> [{% e(1), consword(e(2)), consword(e(3)),
+                              e(4), e(5) %}] -> lp_assigns;
         endfor;
     endif;
     [] -> lp_corrections;
@@ -902,6 +931,7 @@ define lp_main();
         elseif a = '--user' then consword(hd(tl(args))) -> user; tl(tl(args)) -> args;
         elseif a = '--name' then hd(tl(args)) -> display; tl(tl(args)) -> args;
         elseif a = '--batch' then true -> batch; tl(args) -> args;
+        elseif a = '--data' then hd(tl(args)) -> lp_home_dir; tl(tl(args)) -> args;
         elseif a = '--check' then true -> checkonly; tl(args) -> args;
         else conspair(a, rest) -> rest; tl(args) -> args;
         endif;

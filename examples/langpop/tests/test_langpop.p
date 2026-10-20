@@ -154,4 +154,36 @@ check('every integrity check fires on a broken graph',
       [cycle item_without_form item_without_source level_not_on_ladder
        requires_crosses_language requires_from_above requires_unknown_item]);
 
+;;; ------------------------------------------------------- persistence
+;;; Assignments are the one thing that MUST outlive a session: the work
+;;; is done between sessions and reported next time.  They were being
+;;; written to the profile and never read back, so ":report 1" answered
+;;; "No assignment 1." the following day.
+lvars tmpdir = '/tmp/langpop-test-' sys_>< sys_real_time() sys_>< '/';
+tmpdir -> lp_home_dir;
+
+"saver" -> lp_user;
+'Saver' -> lp_display;
+"en" -> lp_lang;
+[] -> lp_journal;
+[{% 1, "s_r_l", "r_minimal_rl", 1700000000000, 'open' %}] -> lp_assigns;
+lp_record("s_r_l", "hear", 3, true, 0);
+lp_save();
+
+[] -> lp_assigns;
+[] -> lp_journal;
+false -> lp_display;
+check_true('a profile reloads', lp_load_profile("saver"));
+check('display name survives', lp_display, 'Saver');
+check('one assignment survives', length(lp_assigns), 1);
+check('its item survives as a word', lp_assigns(1)(2), "s_r_l");
+check('its resource survives', lp_assigns(1)(3), "r_minimal_rl");
+check('its status survives', lp_assigns(1)(5), 'open');
+check_true('and it can be found by id', lp_find_assign(1) and true);
+check('the journal survives', length(lp_journal), 1);
+check('tier survives the round trip', lp_journal(1)(3), 3);
+
+sysobey('rm -rf ' <> tmpdir);
+false -> lp_home_dir;
+
 test_summary();
