@@ -44,14 +44,31 @@ exload popgfx []
         pop_gfx_mouse_down(b)                       :int,
         pop_gfx_fps()                               :float,
         pop_gfx_spec()                              :exptr,
+        pop_gfx_font_path()                         :exptr,
     ;
 endexload;
 
 ;;; C float params need single-float pop values
 define lconstant f(x); number_coerce(x, 0.0s0) enddefine;
 
+;;; Which font file the atlas loaded, or false for ImGui's ASCII-only
+;;; default -- i.e. whether gfx_text can draw anything but Latin.
+define gfx_font() -> path;
+    lvars p = exacc pop_gfx_font_path();
+    if p == 0 then false else exacc_ntstring(p) endif -> path;
+enddefine;
+
 define gfx_init(title, w, h);
-    exacc pop_gfx_init(title, w, h) /== 0
+    lvars ok = exacc pop_gfx_init(title, w, h) /== 0;
+    ;;; Say it once, here, rather than let it be discovered a glyph at a
+    ;;; time: gfx_text takes UTF-8, but a glyph the atlas does not hold
+    ;;; draws as nothing at all.  pop_gfx_font_init loads a CJK-capable
+    ;;; font when it can find one (pop/extern/lib/imgui_font.cpp).
+    if ok and gfx_font() == false then
+        printf(';;; popgfx: no font file found -- text is ASCII only.\n');
+        printf(';;; popgfx: run tools/fetch-gfx-font.sh, or set POPLOG_GFX_FONT.\n');
+    endif;
+    ok
 enddefine;
 
 define gfx_shutdown();    exacc pop_gfx_shutdown()       enddefine;
@@ -102,6 +119,7 @@ define gfx_rewind(m);     exacc pop_gfx_rewind(m) enddefine;
 ;;; stats / config introspection (for HUD badges etc.)
 define gfx_fps();   exacc pop_gfx_fps() enddefine;          ;;; smoothed frames/sec
 define gfx_spec();  exacc_ntstring(exacc pop_gfx_spec()) enddefine;  ;;; backend+GPU
+
 
 ;;; one frame: pump + draw; false once the window has been closed
 define gfx_step();

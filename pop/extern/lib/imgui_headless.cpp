@@ -15,6 +15,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "imgui_backend.h"
 
 /* implemented in imgui_backend_sdl.cpp (SDL/OpenGL backend only) */
@@ -35,6 +36,14 @@ static void build_scene(void)
     pop_gfx_draw_circle(400, 250, 120, amber, 2.0f);
     pop_gfx_fill_circle(400, 250, 6, amber);
     pop_gfx_draw_arc(400, 250, 160, 200.0f, 340.0f, white, 2.0f);
+
+    /* A UTF-8 line in an otherwise empty band at the bottom (y >= 455), so a
+     * validator can count pixels THERE and know whether the font atlas can
+     * draw more than ASCII.  Before pop_gfx_font_init() this band came out
+     * completely blank while the rest of the scene rendered perfectly --
+     * which is exactly how the defect hid.  See
+     * docs/bugs/imgui-atlas-ascii-only.md */
+    pop_gfx_draw_text(60, 470, white, "日本語 ひらがな カタカナ 1234");
 }
 
 int main(int argc, char **argv)
@@ -49,11 +58,22 @@ int main(int argc, char **argv)
         fprintf(stderr, "gfx-headless: pop_gfx_init failed (no usable GL stack)\n");
         return 2;
     }
+    /* Captured before shutdown: which font the atlas actually loaded. */
+    const char *font_found = pop_gfx_font_path();
+    static char font_buf[1024];
+    if (font_found != NULL) {
+        snprintf(font_buf, sizeof font_buf, "%s", font_found);
+        font_found = font_buf;
+    }
+    const char *font = font_found;
+
     build_scene();
     int ok = pop_gfx_render_to_ppm(out);
     pop_gfx_shutdown();
 
     if (!ok) { fprintf(stderr, "gfx-headless: render/readback failed\n"); return 2; }
     printf("gfx-headless: wrote %s\n", out);
+    /* The validator reads this to decide whether the CJK band is meaningful. */
+    printf("gfx-headless: font %s\n", font ? font : "none");
     return 0;
 }

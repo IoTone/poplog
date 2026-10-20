@@ -29,8 +29,12 @@ tools/ci-watch.log
 # Vendored third-party source (fetched by tools/fetch-imgui.sh, not committed)
 /pop/extern/imgui/
 
+# Vendored font (fetched by tools/fetch-gfx-font.sh, not committed)
+/pop/extern/fonts/
+
 # Standalone smoke-test binaries (make gfx-smoke / make jit-smoke)
 /gfx-smoke
+/gfx-font-test
 /jit-smoke
 
 # nix build output symlinks
