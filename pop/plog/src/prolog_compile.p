@@ -23,6 +23,7 @@ vars
 
 weak vars
     prologfiletypes,
+    procedure ( prolog_read_command, ),
 ;
 
 ;;; ========================================================================
@@ -236,6 +237,23 @@ define lconstant prolog_syscompile(input, mode);
 
     ;;; set compile mode for this file, and reset default for nested calls
     dlocal (prolog_compile_mode, default_compile_mode) = (mode, "reconsult");
+
+    ;;; The command words (ved, help, teach, ref, showlib, im, source, cd,
+    ;;; pwd, pop11, bye -- see commands.p) are an interactive convenience,
+    ;;; and honouring them while READING A FILE swallows any clause whose
+    ;;; head uses one of those functors.  A data file containing
+    ;;;
+    ;;;     help(a).
+    ;;;
+    ;;; did not define help/1: it tried to open a HELP file and reported
+    ;;; "HELP (A). not found", giving no hint that a clause had been eaten.
+    ;;; So commands stay switched on only for query mode, which is the
+    ;;; interactive top level where they were meant to be used.  This is
+    ;;; the same thing prolog_read/0 and read/1 already do (iopreds.p) and
+    ;;; prolog_readterm/0 does for Pop-11 callers (parse.p).
+    unless mode == "query" then
+        dlocal weakref prolog_read_command = #_< identfn(%false%) >_#;
+    endunless;
     ;;; set file type and prompt appropriate to the mode
     dlocal pop_default_type = prolog_file_type();
     dlocal popprompt = if mode == "query" then '?- ' else '| ' endif;
