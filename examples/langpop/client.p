@@ -90,6 +90,7 @@ define help();
     printf('  :plan            what is ready now\n');
     printf('  :why <item>      the derivation, from the graph\n');
     printf('  :status          the exit criteria of this level, measured\n');
+    printf('  :card <item>     ask the tutor to draw it\n');
     printf('  :assign          something to do away from the keyboard\n');
     printf('  :report <n> ok | 17/20\n');
     printf('  :quit            close the session and stop\n');
@@ -143,6 +144,32 @@ define show_plan();
                [% p(it, 'form'), p(it, 'kind'), p(it, 'belief') %]);
     endfor;
     printf('  ... %p ready in all\n', [% p(pl, 'ready_count') %]);
+enddefine;
+
+;;; The card is rendered and stored on the SERVER.  When the two are the
+;;; same machine -- which is every run of this pair today -- the client can
+;;; open the file it was handed.  When they are not, the path is still the
+;;; honest answer: the client says where it is rather than pretending it
+;;; can show it, and a remote client that wants the bytes needs a method
+;;; that sends them, which card.render deliberately is not.
+define show_card(item);
+    lvars item, c = rpc('langpop/card.render',
+                        jsonrpc_obj([% 'item', item, 'style', 'word' %])),
+          path, opener;
+    returnunless(c);
+    p(c, 'path') -> path;
+    printf('\n  %p  (%p x %p %p)\n',
+           [% path, p(c, 'width'), p(c, 'height'), p(c, 'format') %]);
+    unless sys_file_exists(path) then
+        printf('  The tutor drew it on its own machine; I cannot reach it.\n');
+        return;
+    endunless;
+    for opener in ['/usr/bin/open' '/usr/bin/xdg-open' '/usr/bin/see'] do
+        if sys_file_exists(opener) then
+            sysobey(opener <> ' ' <> path); return;
+        endif;
+    endfor;
+    printf('  No viewer here; the file is on disk.\n');
 enddefine;
 
 define show_why(item);
@@ -279,6 +306,8 @@ define client_main();
             elseif cmd = 'why' then
                 if arg = '' then printf('  :why <item id>\n') else show_why(arg) endif
             elseif cmd = 'status' then show_status()
+            elseif cmd = 'card' then
+                if arg = '' then printf('  :card <item id>\n') else show_card(arg) endif
             elseif cmd = 'assign' then do_assign()
             elseif cmd = 'report' then do_report(arg)
             else printf('  I do not know ":%p".  Try :help\n', [^cmd])

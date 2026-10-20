@@ -391,6 +391,92 @@ there are no forks, no ports and no sleeps. 63 checks, including that
 `langpop/next` does not leak the answer anywhere in its reply — not just
 in a field called `answer`.
 
+## The item as a picture
+
+A terminal can print あ. It cannot print あ at 150 points with its reading
+in furigana position above it, which is the one view that teaches a glyph
+rather than naming it. So `langpop/card.render` is a **method**, not a TUI
+feature: the TUI shells out to `open(1)` like anybody else, and a
+non-Pop-11 caller gets the identical picture by the identical route.
+
+```
+:card hi_a                                   # the TUI, either front end
+{"method":"langpop/card.render","params":{"item":"w_neko"}}
+  -> {"item":"w_neko","style":"word","path":"…/cards/w_neko-word.svg",
+      "width":640,"height":400,"format":"svg"}
+```
+
+**V1 renders SVG, and the design said raster.** That is a deliberate
+departure. The design specified `gfx_text` over a Noto Sans JP atlas drawn
+headless — but no headless path exists that Pop-11 can drive:
+`tools/validate-gfx-headless.sh` runs a standalone C++ harness
+(`pop/extern/lib/imgui_headless.cpp`) that draws one hard-coded scene, and
+the Pop-11 `gfx_*` surface needs `pop_gfx_init`, which opens a window.
+Turning that into a renderer langpop can call means new C exports, a build
+flag and a PPM-to-PNG step, on Linux only — a graphics-backend change, not
+a langpop change.
+
+SVG keeps every property `card.render` was asked for and costs none of
+that. The text is drawn from the font, by the viewer, named as a family
+rather than rasterised here; the output is **deterministic and diffable in
+CI**, which a GPU rasterisation is not; it opens on all four platforms
+with no graphics build; and it carries its own provenance line. The
+design's rule survives intact: *if the output contains text the student is
+asked to read, it came from the font.*
+
+What SVG genuinely cannot do is the other two styles — stroke order wants
+line drawing frame by frame. Those answer with `-32005`, a code of their
+own, so a client can tell "that does not exist yet" from "you asked
+wrongly".
+
+### What goes on the card
+
+The term is the form the student has to recognise, and the line above it
+is whatever helps them get there. Which form that is depends on the item,
+and the four kinds in the graph want four different answers:
+
+| Item | Term | Above it |
+| --- | --- | --- |
+| kana grapheme `hi_a` | あ | `a` |
+| starter word `w_gakkou` | がっこう | `gakkou` |
+| loanword trap `t_mansion` | マンション | `manshon` |
+| sound contrast `s_r_l` | `/r/ - /l/` | ラ行では区別されない |
+
+The last one is the interesting case. A sound contrast has an IPA form and
+nothing else, so the IPA *is* the term — and the line above it is the
+**Japanese** gloss, because the learner reads Japanese and the point of
+the card is the distinction their own language does not make.
+
+Three details that are not decoration:
+
+- **The term shrinks to fit.** マンション at the full 150pt is half again
+  as wide as the card. The width is estimated from two classes (a CJK or
+  kana glyph is one em square by design; Latin in this face averages a
+  little over half that), and the fitted size is floored, not rounded —
+  rounding up is how a fitted term still overflows by a point or two.
+- **A gloss that only repeats the reading is dropped.** A kana grapheme's
+  English gloss *is* its romaji, so printing both puts `a` on the card
+  twice and says nothing the second time.
+- **Each font family is quoted.** An unquoted multi-word family name is
+  not valid CSS; a strict renderer drops the whole list and the kana come
+  out as boxes.
+
+### Why determinism was the point
+
+`tests/test_langpop_card.p` renders the same item twice and compares the
+bytes. That check is the whole argument for this approach: a rendering
+regression becomes a failing diff rather than something somebody notices
+months later. 43 checks over the term rule, the SVG, the escaping, the
+fitting and the refusals.
+
+The path in the reply is on the **server's** filesystem. Where client and
+server share one — every run of the pair today — the client opens the file
+it was handed. Where they do not, the path is still the honest answer: the
+client says where it is rather than pretending, and a remote client that
+wants the bytes needs a method that sends them, which `card.render`
+deliberately is not. A card is a file on disk, cached by item; putting it
+down a JSON-RPC line would make every call pay for it.
+
 ## What A deliberately does not have
 
 No model, no speech, no rendering, no generated content, no DCG, no

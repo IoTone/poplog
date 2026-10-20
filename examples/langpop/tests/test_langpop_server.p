@@ -68,7 +68,10 @@ enddefine;
 ;;; ------------------------------------------------------------- the door
 check('ping', result('ping', false), 'pong');
 check_true('methods are listable',
-           length(result('langpop/methods', false)) == 10);
+           length(result('langpop/methods', false)) == 11);
+check_true('and the list names them, not just counts them',
+           member('langpop/card.render',
+                  [% explode(result('langpop/methods', false)) %]) /== false);
 check('an unknown method is -32601',
       errcode('langpop/nope', false), -32601);
 
@@ -282,6 +285,42 @@ vars why2 = result('langpop/explain',
                    jsonrpc_obj([% 'session_id', sess2('session_id'),
                                   'item', 'hi_a' %]));
 check_true('a belief recorded last session is still there', why2('belief') > 0.0);
+
+;;; ---------------------------------------------------------- card.render
+;;; A card needs no session: it is a picture of the GRAPH, and nothing on
+;;; it depends on who is looking.
+lvars card = result('langpop/card.render',
+                    lp_obj([% 'item', 'w_neko', 'style', 'word' %]));
+check('card: the item it drew', card('item'), 'w_neko');
+check('card: the style', card('style'), 'word');
+check('card: the format', card('format'), 'svg');
+check('card: width', card('width'), 640);
+check('card: height', card('height'), 400);
+check_true('card: a path came back', isstring(card('path')));
+check_true('card: and the file is there', sys_file_exists(card('path')));
+check_true('card: the file holds the glyph',
+           issubstring('ねこ', lp_read_file(card('path'))) /== false);
+
+;;; The style defaults, so the smallest possible call works.
+check('card: style defaults to word',
+      result('langpop/card.render', lp_obj([% 'item', 'hi_a' %]))('style'),
+      'word');
+
+check('card: no item is a params error',
+      errcode('langpop/card.render', lp_obj([])), -32602);
+check('card: an unknown item is an item error',
+      errcode('langpop/card.render', lp_obj([% 'item', 'nonesuch' %])), -32003);
+check('card: an item with nothing to draw is an item error',
+      errcode('langpop/card.render', lp_obj([% 'item', 'mora_count' %])), -32003);
+check('card: an unknown style is a params error',
+      errcode('langpop/card.render',
+              lp_obj([% 'item', 'hi_a', 'style', 'hologram' %])), -32602);
+
+;;; A style from the design that is not built yet gets its own code, so a
+;;; client can tell "you asked wrongly" from "that does not exist yet".
+check('card: a designed but unbuilt style is -32005',
+      errcode('langpop/card.render',
+              lp_obj([% 'item', 'hi_a', 'style', 'stroke' %])), -32005);
 
 jsonrpc_close(client); jsonrpc_close(server);
 sysobey('rm -rf ' <> tmpdir);

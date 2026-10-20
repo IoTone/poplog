@@ -801,12 +801,42 @@ define lp_register(user, display, batch);
     printf('%p, then.  We begin at %p.\n', [% lp_display, lp_level %]);
 enddefine;
 
+;;; ----------------------------------------------------------------- cards
+;;; card.p is loaded on demand: a session that never asks for a card pays
+;;; nothing for it, and the TUI works unchanged if the file is absent.
+vars lp_card_loaded = false;
+
+define lp_show_card(i);
+    lvars i, path, w, h, why;
+    ;;; pop11_compile and not `load`: load is a syntax word that takes the
+    ;;; rest of the line as a literal filename, so `load (dir <> 'card.p')`
+    ;;; tries to open a file called "(dir<>card.p)".
+    unless lp_card_loaded then
+        pop11_compile(langpop_dir <> 'card.p');
+        true -> lp_card_loaded;
+    endunless;
+    lp_card_render(i, "word") -> (path, w, h, why);
+    if why = 'no_such_item' then
+        printf('  I have no item called %p.\n', [^i]);
+    elseif why = 'no_written_form' then
+        printf('  %p has nothing written to draw -- it is a skill.\n', [^i]);
+    elseif why then
+        printf('  I cannot draw that: %p\n', [^why]);
+    else
+        printf('  %p  (%p x %p)\n', [% path, w, h %]);
+        unless lp_card_open(path) then
+            printf('  No viewer here; the file is on disk.\n');
+        endunless;
+    endif;
+enddefine;
+
 ;;; ------------------------------------------------------------- the session
 define lp_help();
     printf('\n  <enter>          the next thing to learn\n');
     printf('  :plan            what is ready now, and why that order\n');
     printf('  :why <item>      the derivation: prerequisites, source, belief\n');
     printf('  :status          the exit criteria of this level, measured\n');
+    printf('  :card <item>     draw it, and open it in the system viewer\n');
     printf('  :assign          something to do away from the keyboard\n');
     printf('  :report <n> ok   done it (compliance)\n');
     printf('  :report <n> 17/20  done it, with a result\n');
@@ -888,6 +918,9 @@ define lp_session();
                 if arg = '' then printf('  :why <item id>\n')
                 else lp_why(consword(arg)) endif;
             elseif cmd = 'status' then lp_status();
+            elseif cmd = 'card' then
+                if arg = '' then printf('  :card <item id>\n')
+                else lp_show_card(consword(arg)) endif;
             elseif cmd = 'assign' then lp_assign().erase;
             elseif cmd = 'report' then
                 lp_split2(arg) -> (a2, outcome);

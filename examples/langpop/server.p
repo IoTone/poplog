@@ -23,6 +23,7 @@
 
 vars langpop_lib = true;                ;;; no TUI session from langpop.p
 load 'examples/langpop/langpop.p';
+load 'examples/langpop/card.p';         ;;; langpop/card.render
 
 uses jsonrpc;
 
@@ -76,12 +77,15 @@ enddefine;
 ;;; the spec reserves for the implementation.  They are distinguished
 ;;; because a client does different things about them: fix the call, open
 ;;; a session, register, or tell the student the item does not exist.
+;;; -32005 is the one that is not the caller's fault: the method and the
+;;; argument are both real and the thing behind them is not built yet.
 lconstant
     LP_E_PARAMS     = -32602,
     LP_E_SESSION    = -32001,
     LP_E_STUDENT    = -32002,
     LP_E_ITEM       = -32003,
     LP_E_ASSIGNMENT = -32004,
+    LP_E_UNBUILT    = -32005,
 ;
 
 define lp_err(code, text) -> o;
@@ -480,6 +484,45 @@ define lp_m_session_close(msg) -> res;
                    'answers_recorded', length(lp_journal) %]) -> res;
 enddefine;
 
+define lp_m_card_render(msg) -> res;
+    lvars msg, res, item = lp_param(msg, 'item'),
+          style = lp_param(msg, 'style'), path, w, h, why;
+    unless item then
+        lp_err(LP_E_PARAMS, 'card.render: item needed') -> res; return
+    endunless;
+    consword(item sys_>< '') -> item;
+    consword(if style then style sys_>< '' else 'word' endif) -> style;
+
+    ;;; No session.  A card is a picture of the GRAPH -- nothing on it
+    ;;; depends on who is looking, and nothing about it is recorded -- so
+    ;;; requiring a session would be a privilege check protecting nothing.
+    lp_card_render(item, style) -> (path, w, h, why);
+
+    if why = 'no_such_item' then
+        lp_err(LP_E_ITEM, 'no such item: ' <> (item sys_>< '')) -> res
+    elseif why = 'no_written_form' then
+        lp_err(LP_E_ITEM, 'nothing to draw: ' <> (item sys_>< '')
+                          <> ' has no written form') -> res
+    elseif why = 'no_such_style' then
+        lp_err(LP_E_PARAMS, 'no such style: ' <> (style sys_>< '')
+                            <> ' (word, stroke, sentence)') -> res
+    elseif why = 'style_not_built' then
+        lp_err(LP_E_UNBUILT, 'style not built yet: ' <> (style sys_>< '')
+                             <> ' needs the graphics path') -> res
+    elseif why then
+        lp_err(LP_E_PARAMS, 'card.render: ' <> why) -> res
+    else
+        ;;; The path is on the SERVER's filesystem.  A client sharing it
+        ;;; can open the file; one that does not has to ask for the bytes,
+        ;;; which this method deliberately does not send -- a card is a
+        ;;; file on disk, cached by item, and sending it down a JSON-RPC
+        ;;; line would make every call pay for it.
+        lp_obj([% 'item', lp_jkey(item), 'style', lp_jkey(style),
+                       'path', path, 'width', w, 'height', h,
+                       'format', 'svg' %]) -> res
+    endif;
+enddefine;
+
 ;;; ------------------------------------------------------------ dispatch
 lconstant METHODS = [
     ['langpop/register'      ^lp_m_register]
@@ -492,6 +535,7 @@ lconstant METHODS = [
     ['langpop/status'        ^lp_m_status]
     ['langpop/assign'        ^lp_m_assign]
     ['langpop/report'        ^lp_m_report]
+    ['langpop/card.render'   ^lp_m_card_render]
 ];
 
 define lp_method(name) -> p;
