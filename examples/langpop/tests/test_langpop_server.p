@@ -47,7 +47,7 @@ enddefine;
 define raw(method, params) -> line;
     lvars method, params, dev, buf = inits(1), got, n = 0;
     rpc_id + 1 -> rpc_id;
-    jsonrpc_write(client, lp_obj([% 'jsonrpc', '2.0', 'id', rpc_id,
+    jsonrpc_write(client, jsonrpc_obj([% 'jsonrpc', '2.0', 'id', rpc_id,
                                     'method', method, 'params', params %]));
     lp_rpc_handle(server, jsonrpc_read(server));
     jsonrpc_device(client) -> dev;
@@ -161,14 +161,14 @@ check('a wrong answer is still tier 1', wrong('tier'), 1);
 ;;; absence meant.  Checked against the raw line, since a reparse would
 ;;; lose the distinction all over again.
 lvars raw_wrong = raw('langpop/answer',
-                      lp_obj([% 'session_id', sid, 'item', 'hi_a',
+                      jsonrpc_obj([% 'session_id', sid, 'item', 'hi_a',
                                 'answer', 'zz' %]));
 check_true('"correct":false is on the wire',
            issubstring('"correct":false', raw_wrong) and true);
 check_true('"mastered":false too',
            issubstring('"mastered":false', raw_wrong) and true);
 lvars raw_why = raw('langpop/explain',
-                    lp_obj([% 'session_id', sid, 'item', 'hi_ka' %]));
+                    jsonrpc_obj([% 'session_id', sid, 'item', 'hi_ka' %]));
 check_true('a prerequisite that is not known says so',
            issubstring('"known":false', raw_why) and true);
 ;;; The latency is the server's, measured from the question it asked --
@@ -290,7 +290,7 @@ check_true('a belief recorded last session is still there', why2('belief') > 0.0
 ;;; A card needs no session: it is a picture of the GRAPH, and nothing on
 ;;; it depends on who is looking.
 lvars card = result('langpop/card.render',
-                    lp_obj([% 'item', 'w_neko', 'style', 'word' %]));
+                    jsonrpc_obj([% 'item', 'w_neko', 'style', 'word' %]));
 check('card: the item it drew', card('item'), 'w_neko');
 check('card: the style', card('style'), 'word');
 check('card: the format', card('format'), 'svg');
@@ -303,24 +303,24 @@ check_true('card: the file holds the glyph',
 
 ;;; The style defaults, so the smallest possible call works.
 check('card: style defaults to word',
-      result('langpop/card.render', lp_obj([% 'item', 'hi_a' %]))('style'),
+      result('langpop/card.render', jsonrpc_obj([% 'item', 'hi_a' %]))('style'),
       'word');
 
 check('card: no item is a params error',
-      errcode('langpop/card.render', lp_obj([])), -32602);
+      errcode('langpop/card.render', jsonrpc_obj([])), -32602);
 check('card: an unknown item is an item error',
-      errcode('langpop/card.render', lp_obj([% 'item', 'nonesuch' %])), -32003);
+      errcode('langpop/card.render', jsonrpc_obj([% 'item', 'nonesuch' %])), -32003);
 check('card: an item with nothing to draw is an item error',
-      errcode('langpop/card.render', lp_obj([% 'item', 'mora_count' %])), -32003);
+      errcode('langpop/card.render', jsonrpc_obj([% 'item', 'mora_count' %])), -32003);
 check('card: an unknown style is a params error',
       errcode('langpop/card.render',
-              lp_obj([% 'item', 'hi_a', 'style', 'hologram' %])), -32602);
+              jsonrpc_obj([% 'item', 'hi_a', 'style', 'hologram' %])), -32602);
 
 ;;; A style from the design that is not built yet gets its own code, so a
 ;;; client can tell "you asked wrongly" from "that does not exist yet".
 check('card: a designed but unbuilt style is -32005',
       errcode('langpop/card.render',
-              lp_obj([% 'item', 'hi_a', 'style', 'stroke' %])), -32005);
+              jsonrpc_obj([% 'item', 'hi_a', 'style', 'stroke' %])), -32005);
 
 jsonrpc_close(client); jsonrpc_close(server);
 sysobey('rm -rf ' <> tmpdir);

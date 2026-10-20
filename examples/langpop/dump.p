@@ -78,7 +78,7 @@ enddefine;
 ;;; Not json_generate: this file's whole job is to be read by a human or
 ;;; a viewer, so key order and indentation are the output, and a property
 ;;; -backed object has neither (it is also what lost every `false` from
-;;; the server's replies -- see server.p's lp_obj).  Prolog atoms arrive
+;;; the server's replies, until lib jsonrpc was fixed).  Prolog atoms arrive
 ;;; as WORDS, which json_generate rejects outright.
 vars dump_dev = false;
 
