@@ -49,7 +49,23 @@ floors_known(Level) :- floor(en, Level, _, _).
 exit(en, preschool, sound_contrasts,       0.90, 3000).
 exit(en, preschool, no_katakana_reading,   0.85, 3000).
 exit(en, preschool, final_consonants,      0.85, 3000).
-exit(en, a2, vocabulary(1000),             0.80, 4000).
+
+% --- Counts, by channel ---------------------------------------------------
+% graph/ja/ladder.pl argues this at length and the argument is the same
+% here, with one difference worth noting: this ladder was already built
+% with the counterweight, since coverage(reading, _) and
+% coverage(listening, _) below are not counts at all.  Only the one
+% vocabulary criterion needed splitting.
+%
+% The 5000 at B2 is what a strong reader is usually reckoned to carry,
+% and it is an estimate.  It sits beside a coverage criterion rather than
+% replacing it, because coverage is the better measure and a count is
+% what a learner will actually track -- stating both is how the ladder
+% says that the number is a proxy.
+exit(en, a2, vocabulary(1000, read),       0.80, 4000).
+exit(en, a2, vocabulary(1000, hear),       0.80, 4000).
+exit(en, b2, vocabulary(5000, read),       0.80, 3500).
+exit(en, b2, vocabulary(3000, hear),       0.80, 3500).
 exit(en, b1, coverage(reading, 0.95),      0.80, 4000).
 exit(en, b2, coverage(reading, 0.98),      0.80, 3500).
 exit(en, b2, coverage(listening, 0.95),    0.80, 3500).
@@ -57,3 +73,4 @@ exit(en, b2, coverage(listening, 0.95),    0.80, 3500).
 provenance(band(en, _, _, _), cefr_toeic_correspondence).
 provenance(floor(en, b2, _, _), ets(cefr_mapping)).
 provenance(exit(en, _, coverage(_, _), _, _), nation(2006)).
+provenance(exit(en, _, vocabulary(_, _), _, _), estimate(community)).

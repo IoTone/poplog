@@ -100,6 +100,56 @@ place — and the kana table is generated from Unicode codepoints
 between 0 and 1 per item per channel, in Pop-11, where it can change
 every turn. The graph holds no student state.
 
+**A word is not known because you can read it.** An item is judged on a
+list of channels — a character is `[read]`, a word is `[read hear]`, a
+sound contrast is `[hear]`, a pattern is `[produce]` — and the exit
+criteria name the channel they measure:
+
+```prolog
+exit(ja, n5, vocabulary(800, read), 0.80, 4000).
+exit(ja, n5, vocabulary(800, hear), 0.80, 4000).
+exit(ja, n5, kanji(103, read),      0.80, 4000).
+```
+
+This is the one axis that enumerates, so it is the one that gets ground:
+a vocabulary count goes up while listening rots, and every JLPT level has
+a 聴解 section the count does not touch. The belief store was always per
+channel; what was wrong was that **one** channel decided whether a word
+was known, which made *can read it* the engine's definition of knowing a
+word.
+
+Unlocking and passing stay separate questions. `lp_primary/1` is the
+**gate** — the head of the channel list, and what opens the prerequisite
+graph — because for reading something built on reading, reading is
+enough. If the gate demanded every channel then, with no way to verify
+`hear`, nothing would ever unlock and the ladder could not be climbed.
+Passing a level is what the exit criteria are for, and they now report
+two numbers instead of averaging them into a comfortable one.
+
+**And the tool says what it cannot check.** `hear` is not in
+`VERIFIABLE`, because there is no audio anywhere in langpop:
+
+```
+vocabulary(50, read): 0 of 50 words mastered (40 in the graph)
+vocabulary(50, hear): cannot be checked here -- needs audio (40 in the graph)
+```
+
+Reporting *0 of 50* would read as a student who has learned nothing, when
+what is true is that nothing here can measure it; `langpop/status`
+carries `"verifiable": false` so a client cannot show the tool's limit as
+the student's ability. A self-report cannot buy the score either — it is
+tier 2, capped below `MASTERY` by arithmetic. The consequence is that
+langpop can say *your reading is at N2 and I cannot certify your
+listening*, which is true.
+
+That gap is widest exactly where it matters most, and it is written up
+rather than left implicit:
+[`docs/projects/langpop-pronunciation.md`](../../docs/projects/langpop-pronunciation.md)
+— for a Japanese speaker learning English, all twelve sound contrasts are
+unprobeable, so `sound_contrasts` can never be mastered and
+`exit(en, preschool, sound_contrasts, ...)` can never be met. That chain
+was already true; the channel split stopped it being quiet.
+
 **Every fact carries its provenance.** `own(kana)`, `own(starter_list)`,
 `estimate(community)`, `ets(cefr_mapping)`, `jmdict('1302680')`,
 `kanjidic2(ucs('65e5'), jlpt(4))`. `--check` fails any item whose source

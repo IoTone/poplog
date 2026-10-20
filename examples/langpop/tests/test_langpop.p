@@ -102,6 +102,51 @@ check_true('one verified answer then settles it',
            (lp_record("s_r_l", "hear", 1, true, 500),
             lp_mastered("s_r_l")));
 
+;;; ----------------------------------------------------------- channels
+;;; A word you can only READ is the vocabulary-book pathology, and it used
+;;; to be the engine's definition of knowing a word: one channel decided.
+;;; Now an item is judged on a list, and the gate is only its head.
+"channels" -> lp_user;
+
+check('a character is read', lp_channels("hi_a"), [read]);
+check('a word is read AND heard', lp_channels("w_neko"), [read hear]);
+check('a sound contrast is heard, or it is nothing', lp_channels("s_r_l"), [hear]);
+check('a pattern is produced', lp_channels("p_kore_wa_desu"), [produce]);
+check('the gate is the head of the list', lp_primary("w_neko"), "read");
+
+;;; The split that matters: reading a word is not hearing it.
+lp_record("w_neko", "read", 1, true, 500);
+lp_record("w_neko", "read", 1, true, 500);
+lp_record("w_neko", "read", 1, true, 500);
+lp_record("w_neko", "read", 1, true, 500);
+check_true('four verified reads master it on read', lp_mastered_on("w_neko", "read"));
+check_false('and not on hear', lp_mastered_on("w_neko", "hear"));
+check_true('the gate opens, because reading unlocks reading',
+           lp_mastered("w_neko"));
+check('so it counts toward the reading criterion',
+      lp_count_mastered("word", "read"), 1);
+check('and not toward the listening one',
+      lp_count_mastered("word", "hear"), 0);
+
+;;; Unlocking and passing are different questions and must not be merged.
+;;; If the gate demanded every channel then, with no way to check `hear`,
+;;; nothing would ever unlock and the ladder could not be climbed.
+check_true('read can be checked here', lp_verifiable("read"));
+check_false('hear cannot -- there is no audio', lp_verifiable("hear"));
+
+;;; A self-report cannot buy a listening score either: tier 2 is capped
+;;; below MASTERY by arithmetic, so an unverifiable channel stays
+;;; unverified however much the student claims.
+lp_record("w_mizu", "hear", 2, true, 0);
+lp_record("w_mizu", "hear", 2, true, 0);
+lp_record("w_mizu", "hear", 2, true, 0);
+lp_record("w_mizu", "hear", 2, true, 0);
+lp_record("w_mizu", "hear", 2, true, 0);
+check_true('a self-report moves the listening belief',
+           lp_bel("w_mizu", "hear") > 0.5);
+check_false('but cannot reach mastery on it',
+            lp_mastered_on("w_mizu", "hear"));
+
 ;;; Only verified evidence is measured against an exit criterion: a
 ;;; self-report moves a belief but must not move the level's score.
 "measure" -> lp_user;

@@ -145,6 +145,16 @@ enddefine;
 
 ;;; One item, as the protocol describes it.  Every client needs the same
 ;;; five things, and none of them is the answer.
+;;; One object of channel -> belief, for every channel the item is judged
+;;; on.  A word has two, so a client can see a reading belief of 0.9
+;;; beside a listening belief of 0.0 instead of one number.
+define lp_belief_obj(i) -> o;
+    lvars i, ch;
+    jsonrpc_obj([% for ch in lp_channels(i) do
+                       lp_jkey(ch); lp_bel(i, ch);
+                   endfor %]) -> o;
+enddefine;
+
 define lp_item_json(i) -> o;
     lvars i, o;
     jsonrpc_obj([% 'item', lp_jkey(i),
@@ -153,7 +163,12 @@ define lp_item_json(i) -> o;
                    'level', lp_jkey(lp_ilevel(i)),
                    'gloss', lp_jstr(lp_gloss_of(i, "en")),
                    'belief', lp_bel(i, lp_primary(i)),
-                   'mastered', lp_mastered(i) %]) -> o;
+                   'mastered', lp_mastered(i),
+                   ;;; Every channel, not just the gate.  A client that
+                   ;;; only ever saw the gate would rebuild the same
+                   ;;; single-number view this change exists to undo.
+                   'channel', lp_jkey(lp_primary(i)),
+                   'beliefs', lp_belief_obj(i) %]) -> o;
 enddefine;
 
 ;;; ---------------------------------------------------------- the methods
@@ -354,9 +369,18 @@ define lp_m_status(msg) -> res;
            nextunless(hd(e) == lp_lang and hd(tl(e)) == lp_level);
            hd(tl(tl(e))) -> c; hd(tl(tl(tl(e)))) -> th; hd(tl(tl(tl(tl(e))))) -> ms;
            if prolog_complexterm(c) and prolog_functor(c) == "vocabulary" then
+               lvars vch = prolog_deref(prolog_arg(2, c));
                jsonrpc_obj([% 'criterion', lp_term_str(c),
                               'kind', 'count',
-                              'have', lp_count_mastered("word"),
+                              'channel', lp_jkey(vch),
+                              ;;; A client must be able to tell "zero so
+                              ;;; far" from "nothing here can measure
+                              ;;; this".  Without the flag it would show
+                              ;;; a listening score of 0 of 800 and be
+                              ;;; reporting the tool's limit as the
+                              ;;; student's ability.
+                              'verifiable', lp_verifiable(vch) and true,
+                              'have', lp_count_mastered("word", vch),
                               'want', prolog_full_deref(prolog_arg(1, c)),
                               ;;; What the graph holds, which is not the
                               ;;; same as what the student is short of: a
@@ -365,9 +389,12 @@ define lp_m_status(msg) -> res;
                               ;;; as the student's.
                               'in_graph', lp_count_items("word") %])
            elseif prolog_complexterm(c) and prolog_functor(c) == "kanji" then
+               lvars kch = prolog_deref(prolog_arg(2, c));
                jsonrpc_obj([% 'criterion', lp_term_str(c),
                               'kind', 'count',
-                              'have', lp_count_mastered_kanji(),
+                              'channel', lp_jkey(kch),
+                              'verifiable', lp_verifiable(kch) and true,
+                              'have', lp_count_mastered_kanji(kch),
                               'want', prolog_full_deref(prolog_arg(1, c)),
                               'in_graph', lp_count_items("kanji") %])
            elseif prolog_complexterm(c) and prolog_functor(c) == "coverage" then

@@ -220,10 +220,33 @@ check('mastery is stated, not implied', why('mastery_threshold'), 0.8);
 ;;; --------------------------------------------------------------- status
 vars st = result('langpop/status', jsonrpc_obj([% 'session_id', sid %]));
 check('status is per level', st('level'), 'preschool');
-check('with every exit criterion', length(st('criteria')), 6);
+check('with every exit criterion', length(st('criteria')), 7);
 check('a measured one carries its latency budget',
       st('criteria')(1)('latency_ms'), 2000);
-check('and the vocabulary one is a count', st('criteria')(6)('kind'), 'count');
+
+;;; Found by name, not by index.  The index moved the moment the count
+;;; criteria were split by channel, and a positional assertion fails for
+;;; a reason that has nothing to do with what it was checking.
+define crit(name) -> c;
+    lvars name, c = false, x;
+    for x in [% explode(st('criteria')) %] do
+        if x('criterion') = name then x -> c; return endif;
+    endfor;
+enddefine;
+
+check_true('the reading vocabulary criterion is there', crit('vocabulary(50, read)') /== false);
+check('and it is a count', crit('vocabulary(50, read)')('kind'), 'count');
+check('and it names its channel', crit('vocabulary(50, read)')('channel'), 'read');
+check('and says it can be checked', crit('vocabulary(50, read)')('verifiable'), true);
+
+;;; The point of the channel split: a client must be able to tell "zero so
+;;; far" from "nothing here can measure this", or it reports the tool's
+;;; limit as the student's ability.
+check_true('the listening one is there too', crit('vocabulary(50, hear)') /== false);
+check('and says it cannot be checked',
+      crit('vocabulary(50, hear)')('verifiable'), false);
+check('while still carrying the target',
+      crit('vocabulary(50, hear)')('want'), 50);
 
 ;;; ---------------------------------------------- assignment and reporting
 ;;; English has items that cannot be checked by typing, which is what

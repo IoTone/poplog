@@ -81,22 +81,76 @@ define lp_bkey(user, item, ch) -> k;
     consword((user sys_>< '') <> '|' <> (item sys_>< '') <> '|' <> (ch sys_>< '')) -> k;
 enddefine;
 
-;;; The channel an item is judged on.  A sound is heard, a pattern is
-;;; produced, everything else is read.  Three beliefs per item exist in
-;;; the store; this is the one that gates the prerequisite graph.
-define lp_primary(item) -> ch;
+;;; CHANNELS, and why a word has more than one.
+;;;
+;;; A word you can only READ is the whole pathology of vocabulary-book
+;;; study: the count is the one axis that enumerates, so it is the one
+;;; that gets ground, and listening rots while the number goes up.  The
+;;; belief store has always been per item per channel -- what was wrong
+;;; was that one channel decided whether a word was known, which made
+;;; "can read it" the engine's definition of knowing a word.
+;;;
+;;; So an item is judged on a LIST of channels, gate first:
+;;;
+;;;   grapheme  [read]            a character is read
+;;;   word      [read hear]       and a word is both
+;;;   sound     [hear]            a contrast is heard or it is nothing
+;;;   pattern   [produce]         a pattern is produced
+;;;   skill     [read]            a roll-up over whatever it requires
+define lp_channels(item) -> chs;
     lvars item, k = lp_kind(item);
-    if k == "sound" then "hear"
-    elseif k == "pattern" then "produce"
-    else "read"
-    endif -> ch;
+    if     k == "sound"   then [hear]
+    elseif k == "pattern" then [produce]
+    elseif k == "word"    then [read hear]
+    else                       [read]
+    endif -> chs;
 enddefine;
+
+;;; The GATE channel: the one that decides whether the prerequisite graph
+;;; opens.  Deliberately not the same question as whether the level has
+;;; been passed, and the two must not be merged.
+;;;
+;;; Unlocking asks "may I proceed to something built on this?", and for
+;;; reading something built on reading, reading is enough -- if the gate
+;;; demanded every channel, then with no way to verify `hear` nothing
+;;; would ever unlock and the ladder could not be climbed at all.
+;;; Passing a level asks "have you actually learned this?", and that is
+;;; what the exit criteria are for; they now name their channel, so a
+;;; reading vocabulary of 5000 beside a listening vocabulary of 1500 is
+;;; reported as two numbers instead of being averaged into a comfortable
+;;; one.
+define lp_primary(item) -> ch;
+    lvars item;
+    hd(lp_channels(item)) -> ch;
+enddefine;
+
+;;; Which channels this build can actually check.  `hear` is absent
+;;; because there is no audio anywhere in langpop, and that is a fact
+;;; about the tool rather than about the language -- which is why it is
+;;; here and not in the graph.
+;;;
+;;; The consequence is deliberate.  A listening criterion can be driven
+;;; by an assignment and a self-reported result, which is tier 2 and
+;;; capped below MASTERY, so it can never be claimed to mastery.  The
+;;; system therefore says "your reading is at N2 and I cannot certify
+;;; your listening", which is true, and better than a single number that
+;;; quietly averages the two.  See docs/projects/langpop-pronunciation.md
+;;; for what would have to exist to change this.
+lconstant VERIFIABLE = [read produce];
+
+define lp_verifiable(ch); lvars ch; member(ch, VERIFIABLE) enddefine;
 
 define lp_bel(item, ch) -> b;
     lvars item, ch;
     lp_beliefs(lp_bkey(lp_user, item, ch)) -> b;
 enddefine;
 
+define lp_mastered_on(item, ch);
+    lvars item, ch;
+    lp_bel(item, ch) >= MASTERY
+enddefine;
+
+;;; Mastered FOR THE PURPOSE OF UNLOCKING -- see lp_primary above.
 define lp_mastered(item);
     lvars item;
     lp_bel(item, lp_primary(item)) >= MASTERY
@@ -728,10 +782,11 @@ define lp_report(id, outcome) -> ok;
 enddefine;
 
 ;;; ----------------------------------------------------------------- status
-define lp_count_mastered(kind) -> n;
-    lvars kind, i, n = 0;
+define lp_count_mastered(kind, ch) -> n;
+    lvars kind, ch, i, n = 0;
     for i in lp_items do
-        if lp_kind(i) == kind and lp_ilang(i) == lp_lang and lp_mastered(i) then
+        if lp_kind(i) == kind and lp_ilang(i) == lp_lang
+        and lp_mastered_on(i, ch) then
             n + 1 -> n
         endif;
     endfor;
@@ -748,11 +803,11 @@ enddefine;
 ;;; for a count -- so it reported 0% over 0 answers, which reads like a
 ;;; student who has got everything wrong rather than a criterion nothing
 ;;; was counting.
-define lp_count_mastered_kanji() -> n;
-    lvars i, n = 0;
+define lp_count_mastered_kanji(ch) -> n;
+    lvars ch, i, n = 0;
     for i in lp_items do
         if lp_kind(i) == "grapheme" and lp_ilang(i) == lp_lang
-        and lp_form_of(i, "kanji") and lp_mastered(i) then
+        and lp_form_of(i, "kanji") and lp_mastered_on(i, ch) then
             n + 1 -> n
         endif;
     endfor;
@@ -774,7 +829,7 @@ define lp_count_items(kind) -> n;
 enddefine;
 
 define lp_status();
-    lvars e, c, th, ms, items, acc, fast, n, want;
+    lvars e, c, th, ms, items, acc, fast, n, want, ch;
     printf('\n  %p, %p -- level %p\n',
            [% lp_display or (lp_user sys_>< ''), lp_lang, lp_level %]);
     for e in lp_exits do
@@ -782,13 +837,23 @@ define lp_status();
         hd(tl(tl(e))) -> c; hd(tl(tl(tl(e)))) -> th; hd(tl(tl(tl(tl(e))))) -> ms;
         if prolog_complexterm(c) and prolog_functor(c) == "vocabulary" then
             prolog_full_deref(prolog_arg(1, c)) -> want;
-            printf('    %p: %p of %p words mastered (%p in the graph)\n',
-                   [% lp_term_str(c), lp_count_mastered("word"), want,
-                      lp_count_items("word") %]);
+            prolog_deref(prolog_arg(2, c)) -> ch;
+            if lp_verifiable(ch) then
+                printf('    %p: %p of %p words mastered (%p in the graph)\n',
+                       [% lp_term_str(c), lp_count_mastered("word", ch), want,
+                          lp_count_items("word") %]);
+            else
+                ;;; Said rather than scored.  Reporting 0 of 800 would
+                ;;; read as a student who has learned nothing, when what
+                ;;; is true is that nothing here can measure it.
+                printf('    %p: cannot be checked here -- needs audio (%p in the graph)\n',
+                       [% lp_term_str(c), lp_count_items("word") %]);
+            endif;
         elseif prolog_complexterm(c) and prolog_functor(c) == "kanji" then
             prolog_full_deref(prolog_arg(1, c)) -> want;
+            prolog_deref(prolog_arg(2, c)) -> ch;
             printf('    %p: %p of %p kanji mastered (%p in the graph)\n',
-                   [% lp_term_str(c), lp_count_mastered_kanji(), want,
+                   [% lp_term_str(c), lp_count_mastered_kanji(ch), want,
                       lp_count_items("kanji") %]);
         elseif prolog_complexterm(c) and prolog_functor(c) == "coverage" then
             printf('    %p: needs the content build (not measured yet)\n',
