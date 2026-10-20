@@ -295,10 +295,26 @@ enddefine;
 
 ;;; --- message builders ---------------------------------------------------
 
-;;; jsonrpc_obj([% 'key', val, ... %]) -> property with string keys
+;;; jsonrpc_obj([% 'key', val, ... %]) -> object with string keys
+;;;
+;;; A json_object and not a property, because assigning a property its
+;;; DEFAULT value removes the key -- and the default here was false, so
+;;; every false this built was silently dropped from the reply:
+;;;
+;;;     jsonrpc_obj([% 'a', 1, 'flag', false %])  wrote  {"a":1}
+;;;
+;;; A reader could not tell that from a reply that never mentioned the
+;;; field, and nor could the sender: p('flag') reads back as false either
+;;; way.  Two callers in this tree were affected (see HELP * JSONRPC and
+;;; docs/bugs/jsonrpc-obj-drops-false.md); one of them was sending a
+;;; CompletionList without its required isIncomplete member.
+;;;
+;;; json_object also keeps insertion order, so 'jsonrpc' leads the reply
+;;; rather than landing wherever the hash put it.  Lookup becomes linear,
+;;; which is the right trade for objects of this size.
 define jsonrpc_obj(l) -> p;
     lvars k, v;
-    newmapping([], 8, false, true) -> p;
+    json_object() -> p;
     until l == [] do
         dest(l) -> (k, l);
         dest(l) -> (v, l);
@@ -377,7 +393,11 @@ define jsonrpc_serve(conn, handler);
             jsonrpc_error(conn, json_null, -32700, 'parse error');
             nextloop;
         endif;
-        nextunless(isproperty(msg));
+        ;;; A message must be a JSON object.  Either representation counts:
+        ;;; json_parse builds properties by default and json_objects when
+        ;;; json_ordered_objects is on, and a server that turned that flag
+        ;;; on used to have every one of its requests silently skipped.
+        nextunless(isproperty(msg) or isjson_object(msg));
         safe_handle(handler, conn, msg);
     endrepeat;
 enddefine;
