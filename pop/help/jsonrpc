@@ -44,10 +44,33 @@ jsonrpc_read(CONN) -> MSG
     frame or unparseable JSON (never a mishap, whatever arrives).
 
 jsonrpc_write(CONN, ITEM)
-jsonrpc_obj([% KEY, VALUE, ... %]) -> PROPERTY
 jsonrpc_respond(CONN, ID, RESULT)
 jsonrpc_error(CONN, ID, CODE, MESSAGE)
 jsonrpc_notify(CONN, METHOD, PARAMS)
+
+jsonrpc_obj([% KEY, VALUE, ... %]) -> OBJECT
+    A JSON object with string keys, applied and updated like a property:
+    OBJECT(KEY) reads a member, VALUE -> OBJECT(KEY) sets one, and an
+    absent key gives false.  Members come out in the order they went in.
+
+    It is a json_object (LIB * JSON) and NOT a property, and the
+    difference is load-bearing: assigning a property its default value
+    REMOVES the key, so a property whose default is false cannot hold a
+    false member at all.  Built on a property, as this was until Oct
+    2026, every false silently vanished --
+
+        jsonrpc_obj([% 'a', 1, 'flag', false %])   wrote   {"a":1}
+
+    -- and nothing could see it, because OBJECT('flag') reads back as
+    false whether the member is false or missing.  A test therefore has
+    to assert on the GENERATED TEXT or on the bytes; json_parse builds a
+    property too, so a reparsed reply loses the distinction again.
+    See docs/bugs/jsonrpc-obj-drops-false.md.
+
+    A false member is not an absent one.  JSON-RPC itself does not care,
+    but the protocols carried over it do: an LSP CompletionList must
+    carry isIncomplete, and a reader cannot distinguish "not incomplete"
+    from a server that does not implement the field.
 
 SERVING
 

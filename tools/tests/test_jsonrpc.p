@@ -34,6 +34,35 @@ check('obj number', o('a'), 1);
 check('obj missing', o('nope'), false);
 check('obj empty', jsonrpc_obj([])('x'), false);
 
+;;; A false VALUE is not an absent key, and the object has to be able to
+;;; say so.  Reading it back cannot tell: o('flag') and o('nope') are both
+;;; false whichever way this is built, which is why these checks are on
+;;; the GENERATED TEXT.  jsonrpc_obj was a property, and assigning a
+;;; property its default value removes the key -- the default was false,
+;;; so every false went missing on the wire and nothing could see it.
+vars f = jsonrpc_obj([% 'a', 1, 'flag', false, 'b', 2 %]);
+check('false is a value, not an absence',
+      json_generate(f), '{"a":1,"flag":false,"b":2}');
+check('true survives too', json_generate(jsonrpc_obj([% 'flag', true %])),
+      '{"flag":true}');
+check('json_null is still null, not false',
+      json_generate(jsonrpc_obj([% 'x', json_null %])), '{"x":null}');
+
+;;; Insertion order, which a hash table could not promise.  RFC 8259 does
+;;; not require it, but a reply whose members come out in a stable order
+;;; is one a human can read and a transcript can diff.
+check('members keep the order they were given',
+      json_generate(jsonrpc_obj([% 'jsonrpc', '2.0', 'id', 1, 'result', 'ok' %])),
+      '{"jsonrpc":"2.0","id":1,"result":"ok"}');
+
+;;; The two shapes in this tree that were losing a member.  Both are now
+;;; correct for free, because the builder is.
+check('an LSP CompletionList keeps its required isIncomplete',
+      json_generate(jsonrpc_obj([% 'isIncomplete', false, 'items', {} %])),
+      '{"isIncomplete":false,"items":[]}');
+check('an MCP tool result keeps isError on success',
+      json_generate(jsonrpc_obj([% 'isError', false %])), '{"isError":false}');
+
 ;;; --- line framing over a socketpair -------------------------------------
 
 vars ca, cb;
@@ -183,6 +212,46 @@ jsonrpc_close(qs);
 jsonrpc_read(qc) -> m;
 check('stop: answered the stop request', m('result'), 'stopping');
 check('stop: read nothing after it', jsonrpc_read(qc), termin);
+
+;;; --- false all the way to the wire --------------------------------------
+;;; The checks above are on generated text; this one reads the bytes off
+;;; the socket, because that is the only place the claim is really made.
+vars wa, wb;
+sys_socket_pair(`u`, `S`, false) -> (wa, wb);
+jsonrpc_respond(jsonrpc_wrap(wb, "line"), 7,
+                jsonrpc_obj([% 'correct', false, 'item', 'hi_a' %]));
+vars wbuf = inits(1), wgot, wn = 0;
+repeat
+    sysread(wa, wbuf, 1) -> wgot;
+    quitif(wgot == 0 or wbuf(1) == `\n`);
+    wbuf(1); wn + 1 -> wn;
+endrepeat;
+vars wire = consstring(wn);
+check('a false reaches the wire',
+      wire, '{"jsonrpc":"2.0","id":7,"result":{"correct":false,"item":"hi_a"}}');
+sysclose(wa); sysclose(wb);
+
+;;; --- an ordered-object server is still served --------------------------
+;;; json_parse builds json_objects rather than properties when this flag
+;;; is on, and the serve loop used to drop anything that was not a
+;;; property -- so turning the flag on silently ignored every request.
+define ordered_handler(c, msg);
+    jsonrpc_respond(c, msg('id'), 'heard');
+enddefine;
+
+vars oa, ob;
+sys_socket_pair(`u`, `S`, false) -> (oa, ob);
+vars oc = jsonrpc_wrap(oa, "line"), os = jsonrpc_wrap(ob, "line");
+jsonrpc_write(oc, jsonrpc_obj([% 'method', 'ping', 'id', 1 %]));
+sys_socket_shutdown(oa, 1);         ;;; EOF for the server, replies still reach us
+procedure;
+    dlocal json_ordered_objects = true;
+    jsonrpc_serve(os, ordered_handler);
+endprocedure();
+jsonrpc_close(os);
+jsonrpc_read(oc) -> m;
+check('a request parsed as a json_object is still dispatched',
+      m and m('result'), 'heard');
 
 jsonrpc_close(cl);
 jsonrpc_close(qc);
