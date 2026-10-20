@@ -126,6 +126,13 @@ index :- resource(R, Lang, Kind, Target, Url, Checked),
          lp_resource(R, Lang, Kind, Target, Url, Checked), fail.
 index.
 
+% The prerequisite edges, which index/0 deliberately does not collect: the
+% tutor never needs the whole DAG, only ready/4's one-level check, so the
+% overlay would carry 200 pairs nothing reads.  The exporters do need them
+% (dump.p), and they ask for them once.
+edges :- requires(I, Pre), lp_take(requires(I, Pre)), fail.
+edges.
+
 % Which items a level's exit criterion is measured over.  A criterion that
 % is a count (vocabulary(N), coverage(Axis, Fraction)) has no item set and
 % is answered by the driver instead.

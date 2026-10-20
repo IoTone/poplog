@@ -70,6 +70,7 @@ teach a syllabary, a sound contrast and a sentence pattern.
 | `graph/en/ladder.pl` | pre-school → A1 → C1, CEFR bands and section floors | 6 levels |
 | `graph/en/items.pl` | 12 sound contrasts, 12 loanword traps | 27 |
 | `graph/resources.pl` | the catalogue: URLs and check dates, never content | 9 |
+| `viewer/page.html` | the curator's view of all of it, filled by `dump.p` | — |
 
 170 items, 12 ladder levels, 17 exit criteria, no integrity violations.
 
@@ -98,6 +99,60 @@ every turn. The graph holds no student state.
 **Every fact carries its provenance.** `own(kana)`, `own(starter_list)`,
 `estimate(community)`, `ets(cefr_mapping)`. `--check` fails any item
 whose source is `unknown`.
+
+## Seeing the graph
+
+The tutor reads the graph one item at a time, chosen for one student. That
+is the right view for teaching and the wrong one for **curating**:
+`check(graph)` catches the seven things that are wrong by definition, and
+everything else is a judgment, which needs to see the thing. A
+prerequisite edge pointing somewhere silly looks exactly like one that
+does not.
+
+`dump.p` is the reader. It starts no session, registers no student and
+records no evidence, so what it shows is the shape of the graph and
+nobody's progress:
+
+```
+./poplog basepop11 examples/langpop/dump.p --html --out /tmp/graph.html
+./poplog basepop11 examples/langpop/dump.p                 # JSON on stdout
+./poplog basepop11 examples/langpop/dump.p --dot | dot -Tsvg -o graph.svg
+./poplog basepop11 examples/langpop/dump.p --text          # a report
+./poplog basepop11 examples/langpop/dump.p --lang ja       # one language
+```
+
+`--html` is the one to reach for: it inlines the dump into
+`viewer/page.html` and writes **one file** that opens by double-clicking
+it. That is not a convenience — a browser refuses `fetch()` of a sibling
+file under `file://`, so a viewer that loaded its data separately would
+need a web server before it showed anybody anything. `viewer/page.html`
+is deliberately a fragment with an embed marker in it, so the standalone
+file and the shared copy are the same page rather than two that drift.
+
+The page lays the DAG out in **prerequisite order** — one row per
+topological layer, earliest first, which is the order a teacher has to
+follow — and shows one item's three relations at a time: what must come
+first, what it unlocks, and what it is confused with. Confusable pairs are
+drawn always and in a different colour from prerequisites, because the two
+edge kinds mean opposite things (*teach after* versus *do not teach
+together*) and a viewer that drew them alike would be worse than none.
+
+Two things the exporter needed that the tutor did not:
+
+- **`edges/0` in `schema.pl`.** `index/0` collects every relation except
+  `requires/2`, because `ready/4` only ever asks the one-level question and
+  the overlay would otherwise carry 423 pairs nothing reads. The exporters
+  ask for them once.
+- **`--lang` drops an edge unless both ends survive the filter.** The
+  English katakana traps are confusable *with* Japanese kana, so narrowing
+  to `en` has to drop those pairs rather than half-emit them and leave the
+  viewer with arrows into nothing.
+
+`tests/test_langpop_dump.p` reads the output back rather than the source:
+52 checks over the parsed JSON, the DOT and the standalone page. Three of
+them compare **bytes**, because a mangled encoding parses perfectly and
+comes out wrong — a JSON round trip cannot tell あ from mojibake, and the
+glyphs are the content.
 
 ## The boundary: Pop-11 procedures *are* Prolog predicates
 
