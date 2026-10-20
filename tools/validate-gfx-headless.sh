@@ -45,7 +45,8 @@ with open(sys.argv[1], 'rb') as f:
 print(sum(1 for i in range(0, len(d) - 2, 3) if d[i] > 120 or d[i+1] > 120 or d[i+2] > 120))
 PY
 )
-rm -f "$OUT"
+# NB: the image is NOT removed here -- the CJK band check below reads it too,
+# and every exit path from here on removes it.
 
 if [ "${bright:-0}" -le 1000 ]; then
     echo "GFX HEADLESS FAILED: image blank or near-blank ($bright bright px)"

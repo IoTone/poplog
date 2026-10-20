@@ -66,8 +66,8 @@ found by searching, in order:
 | | |
 | --- | --- |
 | `$POPLOG_GFX_FONT` | an explicit choice always wins |
-| `$usepop/pop/extern/fonts/NotoSansJP.ttf` | fetched by `tools/fetch-gfx-font.sh` |
-| `pop/extern/fonts/NotoSansJP.ttf` | the same, run from the build tree |
+| `$usepop/pop/extern/fonts/NotoSansJP-Regular.otf` | fetched by `tools/fetch-gfx-font.sh` |
+| `pop/extern/fonts/NotoSansJP-Regular.otf` | the same, run from the build tree |
 | the OS's own CJK font | Arial Unicode / Hiragino on macOS; Noto CJK or IPAex on Linux |
 
 and if none is readable it calls `AddFontDefault()` — the old behaviour —
@@ -83,10 +83,31 @@ it to be discovered a glyph at a time:
 that turns out not to be a font returns NULL instead of asserting inside
 the process.
 
-No font is committed. `tools/fetch-gfx-font.sh` pins Noto Sans JP (SIL
-OFL 1.1) by **commit** and verifies a **sha256** before installing, into a
-gitignored `pop/extern/fonts/`, with `OFL.txt` fetched alongside it — the
-same posture as `tools/fetch-imgui.sh`.
+No font is committed. `tools/fetch-gfx-font.sh` pins Noto Sans JP Regular
+(SIL OFL 1.1) by **release tag**, verifies a **sha256** of both the archive
+and the extracted face before installing into a gitignored
+`pop/extern/fonts/`, and keeps the `LICENSE` beside it — the same posture as
+`tools/fetch-imgui.sh`.
+
+### Fetch the static face, not the variable one
+
+Google Fonts ships Noto Sans JP as a single `NotoSansJP[wght].ttf`, which is
+one file and no archive — and it is the wrong choice here. ImGui rasterises
+with **stb_truetype, which has no variable-axis support**, so it renders the
+font's default instance, a light weight. Same string, same size, measured in
+the headless harness on Ubuntu 22.04:
+
+| Font | peak intensity | px > 120 | px > 200 |
+| --- | --- | --- | --- |
+| `NotoSansJP[wght].ttf` (variable) | 205 | 83 | 1 |
+| `NotoSansJP-Regular.otf` (static) | 255 | 496 | 213 |
+| the system `NotoSansCJK-Regular.ttc` | 255 | 496 | 213 |
+
+The static face matches the system font exactly; the variable one renders
+visibly thinner. It is legible either way — this was a quality call, not a
+failure — but thin strokes are the one thing a learner reading kanji cannot
+afford, so the fetch pins the static Regular (4.4 MB, extracted from the
+25 MB release archive, which is discarded).
 
 ## Verifying
 
@@ -128,13 +149,27 @@ harness prints `font none` and the band check SKIPs rather than fails.
 
 ## Platforms
 
-The atlas test and the Metal link were run here (macOS 15, arm64):
-`make gfx-smoke` builds and links the whole Metal stack with the loader
-in it. The SDL3 path is a one-line call in the same place and was
-**not compiled here** — no SDL3 on this machine — so the Linux CI run is
-what confirms it, along with the band check above. The band-counting logic
-itself was exercised against synthetic PPMs with and without text (2,560
-px vs 0 px, pass vs fail).
+**macOS 15, arm64:** the atlas test, and `make gfx-smoke` builds and links
+the whole Metal stack with the loader in it.
+
+**Ubuntu 22.04, x86_64 (red5buntu):** the SDL3 path compiled, linked and
+rendered. SDL3 3.4.18 was built from source into a user prefix (22.04
+predates SDL3 and the box has no passwordless sudo, so no system package was
+touched), then the committed recipe was run straight out of `Makefile.in`:
+
+```
+GFX HEADLESS VALIDATED: rendered 9886 bright px with no display/GPU.
+GFX FONT VALIDATED: 83 px of Japanese text drawn from pop/extern/fonts/...
+```
+
+Rendered headless through SDL's `offscreen` driver and Mesa llvmpipe — no
+display, no GPU, no compositor. The band was then cropped out of the PPM and
+looked at: `日本語 ひらがな カタカナ 1234`, legible.
+
+The same binary with every font candidate hidden found the system Noto CJK
+instead, which is the fallback path working; the ASCII-only path is the one
+`gfx-font-test` covers, since a Linux box with no CJK font at all is hard to
+arrange on purpose.
 
 ## What it would have cost langpop
 

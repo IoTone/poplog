@@ -79,11 +79,11 @@ docs/bugs/imgui-atlas-ascii-only.md).
 The backend now loads a real font at gfx_init, looking for the first
 readable file among:
 
-    $POPLOG_GFX_FONT                        an explicit choice wins
-    $usepop/pop/extern/fonts/NotoSansJP.ttf  ./tools/fetch-gfx-font.sh
-    the operating system's own CJK font      (Arial Unicode or Hiragino
-                                             on macOS; Noto CJK or
-                                             IPAex on Linux)
+    $POPLOG_GFX_FONT                    an explicit choice wins
+    $usepop/pop/extern/fonts/           ./tools/fetch-gfx-font.sh
+    the operating system's own CJK font (Arial Unicode or Hiragino on
+                                         macOS; Noto CJK or IPAex on
+                                         Linux)
 
 and falls back to the ASCII-only default if it finds none, saying so
 once at gfx_init.
@@ -97,6 +97,12 @@ gfx_font() -> STRING or false
 
     or point POPLOG_GFX_FONT at any .ttf/.otf/.ttc you have a licence
     for.  Nothing is committed to the repository.
+
+    Prefer a STATIC face.  ImGui rasterises with stb_truetype, which has
+    no variable-axis support, so a variable font renders at its default
+    instance -- for Noto Sans JP that is a light weight, measurably
+    thinner than the static Regular (peak intensity 205 against 255).
+    Legible, but not what you want for kanji.
 
     Glyphs are rasterised on demand (Dear ImGui 1.92's dynamic atlas),
     so there is nothing to pre-declare and no cost for a range you

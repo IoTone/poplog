@@ -22,6 +22,14 @@
  *   4. the OS's own CJK font         -- so a user who fetched nothing still
  *                                       gets Japanese if the system has it
  *
+ * A STATIC face is what gets fetched, deliberately.  stb_truetype, which is
+ * what ImGui rasterises with, has no variable-axis support: hand it a
+ * variable font and it renders the default instance, which for Noto Sans JP
+ * is a light weight.  Measured headless, same string and size, the variable
+ * file peaked at intensity 205 (1 px above 200) against the static Regular's
+ * 255 (213 px above 200).  Thin strokes are the one thing a learner reading
+ * kanji cannot afford.
+ *
  * Nothing is bundled in the repository: the font is fetched at build time
  * like ImGui itself (tools/fetch-gfx-font.sh pins Noto Sans JP, SIL OFL 1.1,
  * by commit and sha256), and pop/extern/fonts/ is gitignored.
@@ -65,7 +73,7 @@ extern "C" int pop_gfx_font_init(void)
 {
     ImGuiIO &io = ImGui::GetIO();
     const char *cands[16];
-    static char vendored[1024];
+    static char vendored[1024], vendored2[1024];
     int n = 0;
 
     g_font_path[0] = '\0';
@@ -77,9 +85,13 @@ extern "C" int pop_gfx_font_init(void)
     const char *usepop = getenv("usepop");
     if (usepop != NULL && *usepop != '\0') {
         snprintf(vendored, sizeof vendored,
-                 "%s/pop/extern/fonts/NotoSansJP.ttf", usepop);
+                 "%s/pop/extern/fonts/NotoSansJP-Regular.otf", usepop);
         cands[n++] = vendored;
+        snprintf(vendored2, sizeof vendored2,
+                 "%s/pop/extern/fonts/NotoSansJP.ttf", usepop);
+        cands[n++] = vendored2;          /* what older trees fetched */
     }
+    cands[n++] = "pop/extern/fonts/NotoSansJP-Regular.otf";
     cands[n++] = "pop/extern/fonts/NotoSansJP.ttf";
 
 #ifdef __APPLE__
