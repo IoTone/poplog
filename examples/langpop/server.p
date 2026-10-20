@@ -86,7 +86,7 @@ lconstant
 
 define lp_err(code, text) -> o;
     lvars code, text, o;
-    jsonrpc_obj([% 'langpop_error', true, 'code', code, 'message', text %]) -> o;
+    lp_obj([% 'langpop_error', true, 'code', code, 'message', text %]) -> o;
 enddefine;
 
 define lp_is_err(o);
@@ -110,6 +110,27 @@ define lp_jstr(x) -> s;
     if x == false or isundef(x) then json_null else lp_jkey(x) endif -> s;
 enddefine;
 
+;;; Replies are built as ORDERED json objects, not as properties.
+;;;
+;;; jsonrpc_obj builds a property, and a Pop-11 property cannot tell a
+;;; member whose value is false from a member that is not there: both read
+;;; back as false, so json_generate never writes them.  Every false field
+;;; therefore vanished off the wire -- "correct": false simply was not in
+;;; the reply to a wrong answer, and a prerequisite that was NOT known
+;;; came out as {"item": "hi_a"} with the "known" flag missing.  A client
+;;; reading result.correct got nothing and had to guess what absence
+;;; meant, which is precisely the ambiguity a protocol exists to remove.
+;;;
+;;; json_object() keeps its members as pairs, so false survives -- and it
+;;; keeps insertion order too, which makes a captured transcript readable.
+define lp_obj(l) -> o;
+    lvars l, o = json_object();
+    until l == [] do
+        hd(tl(l)) -> o(hd(l));
+        tl(tl(l)) -> l;
+    enduntil;
+enddefine;
+
 define lp_vec(l) -> v;
     lvars l, x;
     consvector(#| for x in l do x endfor |#) -> v;
@@ -124,7 +145,7 @@ enddefine;
 ;;; five things, and none of them is the answer.
 define lp_item_json(i) -> o;
     lvars i, o;
-    jsonrpc_obj([% 'item', lp_jkey(i),
+    lp_obj([% 'item', lp_jkey(i),
                    'form', lp_jkey(lp_any_form(i)),
                    'kind', lp_jkey(lp_kind(i)),
                    'level', lp_jkey(lp_ilevel(i)),
@@ -159,7 +180,7 @@ define lp_m_register(msg) -> res;
         lp_save();
     endunless;
     lp_load_persona(if lp_lang == "en" then 'hill' else 'aoi' endif);
-    jsonrpc_obj([% 'student_id', lp_jkey(lp_user),
+    lp_obj([% 'student_id', lp_jkey(lp_user),
                    'display_name', lp_display,
                    'language', lp_jkey(lp_lang),
                    'level', lp_jkey(lp_level),
@@ -177,7 +198,7 @@ define lp_m_session_open(msg) -> res;
         lp_err(LP_E_STUDENT, 'no such student: register first') -> res; return
     endunless;
     lp_new_session(student) -> sid;
-    jsonrpc_obj([% 'session_id', sid,
+    lp_obj([% 'session_id', sid,
                    'teacher', lp_teacher_name(),
                    ;;; A student with no history has not been here before,
                    ;;; whatever the roll says -- "welcome back" to someone
@@ -210,7 +231,7 @@ define lp_m_plan(msg) -> res;
     lvars msg, res, i, n = 0, limit = lp_param(msg, 'limit') or 12,
           s = lp_need_session(msg);
     returnif(lp_is_err(s))(s -> res);
-    jsonrpc_obj([% 'level', lp_jkey(lp_level),
+    lp_obj([% 'level', lp_jkey(lp_level),
                    'ready_count', length(lp_plan()),
                    'items', lp_vec([% for i in lp_plan() do
                                           n + 1 -> n;
@@ -225,7 +246,7 @@ define lp_m_next(msg) -> res;
     returnif(lp_is_err(s))(s -> res);
     lp_choose(lp_plan()) -> item;
     unless item then
-        jsonrpc_obj([% 'item', json_null,
+        lp_obj([% 'item', json_null,
                        'note', 'nothing here can be checked by typing -- try assign' %])
             -> res;
         return;
@@ -238,7 +259,7 @@ define lp_m_next(msg) -> res;
     ;;; cannot reach.
     item -> s(3);
     lp_now_ms() -> s(4);
-    jsonrpc_obj([% 'item', lp_jkey(item),
+    lp_obj([% 'item', lp_jkey(item),
                    'shape', lp_jkey(shape),
                    'prompt', lp_jkey(prompt),
                    'options', lp_vec([% lvars o; for o in options do lp_jkey(o) endfor %]),
@@ -278,7 +299,7 @@ define lp_m_answer(msg) -> res;
     lp_record(item, lp_primary(item), 1, correct, used);
     unless correct then lp_mistook(item, typed) -> other endunless;
     lp_save();
-    jsonrpc_obj([% 'item', lp_jkey(item),
+    lp_obj([% 'item', lp_jkey(item),
                    'correct', correct,
                    'reply', if correct then lp_line('praise')
                             elseif other then lp_line('almost')
@@ -308,10 +329,10 @@ define lp_m_explain(msg) -> res;
     endunless;
     lp_ask(item, "why", 1) -> answers;
     [% for a in answers do
-           jsonrpc_obj([% 'item', lp_jkey(prolog_full_deref(prolog_arg(1, a))),
+           lp_obj([% 'item', lp_jkey(prolog_full_deref(prolog_arg(1, a))),
                           'known', prolog_functor(a) == "known" %])
        endfor %] -> pres;
-    jsonrpc_obj([% 'item', lp_jkey(item),
+    lp_obj([% 'item', lp_jkey(item),
                    'form', lp_jkey(lp_any_form(item)),
                    'kind', lp_jkey(lp_kind(item)),
                    'level', lp_jkey(lp_ilevel(item)),
@@ -331,18 +352,18 @@ define lp_m_status(msg) -> res;
            nextunless(hd(e) == lp_lang and hd(tl(e)) == lp_level);
            hd(tl(tl(e))) -> c; hd(tl(tl(tl(e)))) -> th; hd(tl(tl(tl(tl(e))))) -> ms;
            if prolog_complexterm(c) and prolog_functor(c) == "vocabulary" then
-               jsonrpc_obj([% 'criterion', lp_term_str(c),
+               lp_obj([% 'criterion', lp_term_str(c),
                               'kind', 'count',
                               'have', lp_count_mastered("word"),
                               'want', prolog_full_deref(prolog_arg(1, c)) %])
            elseif prolog_complexterm(c) and prolog_functor(c) == "coverage" then
-               jsonrpc_obj([% 'criterion', lp_term_str(c),
+               lp_obj([% 'criterion', lp_term_str(c),
                               'kind', 'coverage',
                               'note', 'needs the content build' %])
            else
                lp_ask(c, "criterion_items", 1) -> items;
                lp_measure(items, ms) -> (acc, fast, n);
-               jsonrpc_obj([% 'criterion', lp_term_str(c),
+               lp_obj([% 'criterion', lp_term_str(c),
                               'kind', 'measured',
                               'accuracy', acc,
                               'within_latency', fast,
@@ -351,7 +372,7 @@ define lp_m_status(msg) -> res;
                               'latency_ms', ms %])
            endif;
        endfor %] -> crits;
-    jsonrpc_obj([% 'display_name', lp_display,
+    lp_obj([% 'display_name', lp_display,
                    'language', lp_jkey(lp_lang),
                    'level', lp_jkey(lp_level),
                    'ready_count', length(lp_plan()),
@@ -372,13 +393,13 @@ define lp_m_assign(msg) -> res;
         quitloop;
     endfor;
     unless a then
-        jsonrpc_obj([% 'assignment_id', json_null,
+        lp_obj([% 'assignment_id', json_null,
                        'note', 'everything ready for you can be checked here' %])
             -> res;
         return;
     endunless;
     lp_save();
-    jsonrpc_obj([% 'assignment_id', a(1),
+    lp_obj([% 'assignment_id', a(1),
                    'item', lp_jkey(a(2)),
                    'form', lp_jkey(lp_any_form(a(2))),
                    'gloss', lp_jstr(lp_gloss_of(a(2), "en")),
@@ -439,7 +460,7 @@ define lp_m_report(msg) -> res;
            if e(1) == id then {% e(1), e(2), e(3), e(4), 'reported' %} else e endif
        endfor %] -> lp_assigns;
     lp_save();
-    jsonrpc_obj([% 'assignment_id', id,
+    lp_obj([% 'assignment_id', id,
                    'accepted', true,
                    'tier', tier,
                    'fraction', frac or json_null,
@@ -454,7 +475,7 @@ define lp_m_session_close(msg) -> res;
     returnif(lp_is_err(s))(s -> res);
     lp_save();
     false -> lp_sessions(consword(sid sys_>< ''));
-    jsonrpc_obj([% 'saved', true,
+    lp_obj([% 'saved', true,
                    'signoff', lp_line('signoff'),
                    'answers_recorded', length(lp_journal) %]) -> res;
 enddefine;

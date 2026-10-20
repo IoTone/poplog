@@ -40,6 +40,26 @@ define result(method, params) -> r;
     reply('result') -> r;
 enddefine;
 
+;;; The reply as BYTES, before anyone parses it.  This matters because
+;;; json_parse builds a property too, so a false that never reached the
+;;; wire and a false that did look identical once parsed -- the only
+;;; place the difference exists is the line itself.
+define raw(method, params) -> line;
+    lvars method, params, dev, buf = inits(1), got, n = 0;
+    rpc_id + 1 -> rpc_id;
+    jsonrpc_write(client, lp_obj([% 'jsonrpc', '2.0', 'id', rpc_id,
+                                    'method', method, 'params', params %]));
+    lp_rpc_handle(server, jsonrpc_read(server));
+    jsonrpc_device(client) -> dev;
+    repeat
+        sysread(dev, buf, 1) -> got;
+        quitif(got == 0);
+        quitif(buf(1) == `\n`);
+        buf(1); n + 1 -> n;
+    endrepeat;
+    consstring(n) -> line;
+enddefine;
+
 define errcode(method, params) -> c;
     lvars method, params, reply = call(method, params), e = reply('error');
     if e then e('code') else false endif -> c;
@@ -128,6 +148,26 @@ vars wrong = result('langpop/answer',
 check_false('a wrong answer is wrong', wrong('correct'));
 check('and now the expected answer may be shown', isstring(wrong('expected')), true);
 check('a wrong answer is still tier 1', wrong('tier'), 1);
+;;; A false that is ON the wire, not merely absent from it: jsonrpc_obj
+;;; builds a property, where false and missing are the same thing, so
+;;; every false field used to disappear from the reply.
+;;; A false that is ON the wire, not merely absent from it.  jsonrpc_obj
+;;; builds a property, where false and missing are the same value, so
+;;; every false field used to vanish from the reply: a wrong answer came
+;;; back with no "correct" member at all, leaving a client to guess what
+;;; absence meant.  Checked against the raw line, since a reparse would
+;;; lose the distinction all over again.
+lvars raw_wrong = raw('langpop/answer',
+                      lp_obj([% 'session_id', sid, 'item', 'hi_a',
+                                'answer', 'zz' %]));
+check_true('"correct":false is on the wire',
+           issubstring('"correct":false', raw_wrong) and true);
+check_true('"mastered":false too',
+           issubstring('"mastered":false', raw_wrong) and true);
+lvars raw_why = raw('langpop/explain',
+                    lp_obj([% 'session_id', sid, 'item', 'hi_ka' %]));
+check_true('a prerequisite that is not known says so',
+           issubstring('"known":false', raw_why) and true);
 ;;; The latency is the server's, measured from the question it asked --
 ;;; not the 900ms the client claimed above.
 check('the server timed it, not the client', wrong('latency_source'), 'server');

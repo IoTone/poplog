@@ -921,6 +921,15 @@ define lp_check() -> bad;
     lp_ask("graph", "check", 1) -> bad;         ;;; ?- check(graph).
 enddefine;
 
+;;; Poplog wraps terminal output at poplinewidth (70 by default), and
+;;; hard-breaks at poplinemax, inserting a newline and a TAB.  That is
+;;; sensible for a listing and wrong for a tutor: it had been cutting the
+;;; resource URLs an assignment hands out, mid-token, so a student could
+;;; not copy one -- `checked 2026-10-1\n\t9)`.  Nothing here wants
+;;; automatic wrapping; what needs wrapping is wrapped by hand.
+4000 -> poplinewidth;
+4096 -> poplinemax;
+
 define lp_main();
     lvars args = poparglist, a, user = false, display = false,
           batch = false, checkonly = false, rest = [];
