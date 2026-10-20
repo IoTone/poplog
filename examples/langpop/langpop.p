@@ -291,15 +291,16 @@ define lp_term_str(t) -> s;
 enddefine;
 
 ;;; ------------------------------------------------------------- evidence
-;;; There is no wall-clock millisecond timer in Pop-11: systime() is CPU
-;;; time (it barely moves while we wait for a human) and sys_real_time()
-;;; is whole seconds.  So latency is measured in seconds and stored in
-;;; milliseconds, and every latency the engine records passes through
-;;; here -- when a clock_gettime shim arrives (the popcrypto/popsqlite
-;;; pattern), this procedure is the only thing that changes.
+;;; Latency is load-bearing here -- every pre-school exit criterion has a
+;;; millisecond budget -- so it needs a REAL clock and not a CPU one.
+;;; systime() is CPU time and barely moves while we wait for a human to
+;;; type; sys_microtime() is microseconds of wall clock since the epoch
+;;; (REF * TIMES, and now HELP * CLOCK, which did not mention it -- which
+;;; is why this first shipped measuring whole seconds).  Measured at
+;;; 354,849us across a 350ms sleep, with systime() at 0 over the same wait.
 define lp_now_ms() -> ms;
     lvars ms;
-    sys_real_time() * 1000 -> ms;
+    sys_microtime() div 1000 -> ms;
 enddefine;
 
 define lp_record(item, ch, tier, correct, latency_ms);

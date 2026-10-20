@@ -174,26 +174,37 @@ made again. Offering the nearest name and being corrected is how a
 person recognises somebody; a lookup that is either right or empty is
 not memory.
 
-## Two gaps found in the tree while building this
+## Three things this found in the tree, and what came of them
 
-Both are real, both are bounded, and neither is langpop's to fix alone.
+Building the thing is what turned these up, and none of them is langpop's
+to carry.
 
-**No font is loaded by either ImGui backend.** `pop/extern/lib/imgui_backend.mm`
-and `imgui_backend_sdl.cpp` both use ImGui's built-in atlas, which is
-ASCII. UTF-8 strings are accepted, but a glyph that is not in the atlas
-does not appear, so `gfx_text` would draw Japanese as blanks today. The
-fix is to load a Japanese range at `gfx_init` with a licence-clean face
-(Noto Sans JP, SIL OFL 1.1), fetched at build time the way
-`tools/fetch-imgui.sh` fetches ImGui. Card rendering waits on that.
+**No font was loaded by either ImGui backend** — so `gfx_text` took UTF-8
+and drew Japanese as blank space, with no error. Both backends went
+`CreateContext()` → renderer init, leaving ImGui's built-in ASCII atlas in
+place. **Fixed**: `pop/extern/lib/imgui_font.cpp` loads a CJK-capable face
+(`tools/fetch-gfx-font.sh` pins Noto Sans JP, SIL OFL 1.1, by commit and
+sha256; the OS's own font is the fallback), `gfx_font()` reports which
+file, and `make gfx-font-test` asserts both halves without needing a
+display. See `docs/bugs/imgui-atlas-ascii-only.md`. Card rendering is no
+longer blocked.
 
-**There is no wall-clock millisecond timer.** `systime()` is CPU time —
-it barely moves while we wait for a human — and `sys_real_time()` is
-whole seconds. Latency is load-bearing here (every pre-school exit
-criterion has a millisecond budget), so for now it is measured in
-seconds and stored in milliseconds, and every latency the engine records
-passes through `lp_now_ms()`. A `clock_gettime` shim on the
-popcrypto/popsqlite pattern would be a few dozen lines, and that one
-procedure is all that changes.
+**A millisecond wall clock was there all along.** I first wrote
+`lp_now_ms()` against `sys_real_time()` — whole seconds — having concluded
+from `HELP CLOCK` that nothing finer existed. `REF TIMES` has
+`sys_microtime()`, which is microseconds of real time, and HELP CLOCK
+simply never mentioned it. **Fixed** in the help file, with three checks
+in `test_datetime.p` holding the real-vs-CPU distinction down; langpop now
+uses it, and the latency criteria mean what they say.
+
+**Twelve words were honoured as interactive commands while a file was
+being consulted.** `source/2` as a provenance relation made the graph fail
+to load with an error naming a goal the file does not contain; `help(a).`
+tries to open a HELP file. **Fixed** in `pop/plog/src/prolog_compile.p`,
+with the first test suite for the Prolog subsystem in this fork
+(`tools/tests/test_prolog_consult.p`). See
+`docs/bugs/prolog-commands-swallow-clauses.md`. The relation here is still
+called `provenance/2`, which reads better anyway.
 
 ## Four Poplog Prolog behaviours worth knowing
 
@@ -229,22 +240,16 @@ legitimately undefined, and a misspelled predicate now raises.
 infinitely many proofs and the check exhausts `pop_prolog_lim` instead of
 reporting the cycle — so `reaches/2` carries the path it has walked.
 
-### And one that is a bug, not a behaviour
+### And one that was a bug, now fixed
 
-Twelve words are honoured as **interactive commands while a file is being
-consulted**, not just at the Prolog prompt: `ved help teach ref showlib im
-source cd pwd pop11 bye` (`pop/plog/src/commands.p`). A data file
-containing
-
-```prolog
-help(a).
-```
-
-does not define `help/1`. It tries to open a HELP file, and says
-`;;; HELP (A). not found - try HELP HELPFILES` — with no hint that a
-clause was swallowed. `langpop` hit this with `source/2` as a provenance
-relation and renamed it to `provenance/2`; `help/1` is a name a tutoring
-system reaches for naturally, so this will bite again.
+Twelve words used to be honoured as **interactive commands while a file
+was being consulted**, not just at the Prolog prompt: `ved help teach ref
+showlib im source cd pwd pop11 bye` (`pop/plog/src/commands.p`). A data
+file containing `help(a).` did not define `help/1` — it tried to open a
+HELP file and said `;;; HELP (A). not found`, with no hint that a clause
+had been swallowed. That is fixed in `pop/plog/src/prolog_compile.p`
+(commands now apply only in query mode, i.e. at the prompt), with
+`tools/tests/test_prolog_consult.p` to keep it fixed.
 
 ## Commands
 
