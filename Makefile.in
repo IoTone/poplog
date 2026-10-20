@@ -31,7 +31,8 @@ ifeq (${GFX_CONF},imgui)
 # (syscomp/os_comms.p, Darwin branch) writes into poplink_cmnd as lazy
 # shell expansions -- empty when unset, so non-gfx links are unaffected.
 XL_FLAG=-nox
-GFX_LINK_OBJS = ${popexlib}/imgui_backend.o ${popexlib}/imgui.o \
+GFX_LINK_OBJS = ${popexlib}/imgui_backend.o ${popexlib}/imgui_font.o \
+                ${popexlib}/imgui.o \
                 ${popexlib}/imgui_draw.o ${popexlib}/imgui_tables.o \
                 ${popexlib}/imgui_widgets.o ${popexlib}/imgui_impl_metal.o \
                 ${popexlib}/imgui_impl_osx.o
@@ -50,7 +51,8 @@ else ifeq (${GFX_CONF},imgui-sdl)
 XL_FLAG=-nox
 GFX_CXX        = c++
 GFX_INCLUDES   = -I${GFX_IMGUI} -I${GFX_IMGUI}/backends -Ipop/extern/lib @@GFX_SDL_CFLAGS@@
-GFX_LINK_OBJS  = ${popexlib}/imgui_backend_sdl.o ${popexlib}/imgui.o \
+GFX_LINK_OBJS  = ${popexlib}/imgui_backend_sdl.o ${popexlib}/imgui_font.o \
+                 ${popexlib}/imgui.o \
                  ${popexlib}/imgui_draw.o ${popexlib}/imgui_tables.o \
                  ${popexlib}/imgui_widgets.o ${popexlib}/imgui_impl_sdl3.o \
                  ${popexlib}/imgui_impl_opengl3.o
@@ -84,7 +86,7 @@ GFX_IMGUI_SRCS ?= ${GFX_IMGUI}/imgui.cpp ${GFX_IMGUI}/imgui_draw.cpp \
                   ${GFX_IMGUI}/imgui_tables.cpp ${GFX_IMGUI}/imgui_widgets.cpp \
                   ${GFX_IMGUI}/backends/imgui_impl_metal.mm \
                   ${GFX_IMGUI}/backends/imgui_impl_osx.mm
-GFX_GLUE_SRC   ?= pop/extern/lib/imgui_backend.mm
+GFX_GLUE_SRC   ?= pop/extern/lib/imgui_backend.mm pop/extern/lib/imgui_font.cpp
 
 # Standalone smoke test: build + link the whole graphics stack into a window and
 # render a few frames (no Poplog needed) -- proves the --experimental-gfx
@@ -96,6 +98,22 @@ gfx-smoke:
 	    ${GFX_GLUE_SRC} pop/extern/lib/imgui_smoke.mm ${GFX_IMGUI_SRCS} \
 	    ${GFX_FRAMEWORKS} -o gfx-smoke
 
+# Font/atlas check: does the atlas actually hold Japanese glyphs?  No window,
+# no GPU, no SDL, no Poplog -- ImGui core only, so it runs anywhere clang++
+# does, and it asserts BOTH halves: ImGui's default atlas has no HIRAGANA A,
+# and pop_gfx_font_init() gives it one.  See docs/bugs/imgui-atlas-ascii-only.md
+#   ./tools/fetch-imgui.sh && ./tools/fetch-gfx-font.sh
+#   make gfx-font-test && ./gfx-font-test
+.PHONY: gfx-font-test
+gfx-font-test:
+	@test -f ${GFX_IMGUI}/imgui.cpp || { echo "Run ./tools/fetch-imgui.sh first."; exit 1; }
+	${GFX_CXX} -std=c++17 -O1 -I${GFX_IMGUI} -Ipop/extern/lib \
+	    pop/extern/lib/imgui_font_test.cpp pop/extern/lib/imgui_font.cpp \
+	    ${GFX_IMGUI}/imgui.cpp ${GFX_IMGUI}/imgui_draw.cpp \
+	    ${GFX_IMGUI}/imgui_tables.cpp ${GFX_IMGUI}/imgui_widgets.cpp \
+	    -o gfx-font-test
+	@echo "Built ./gfx-font-test -- run it (no display needed)."
+
 # Linux/Unix smoke: SDL3 + OpenGL3.  Usage:
 #   ./tools/fetch-imgui.sh && make gfx-smoke-sdl && ./gfx-smoke-sdl
 # SDL3 headers/libs via pkg-config (set PKG_CONFIG_PATH if not on the system).
@@ -104,7 +122,8 @@ gfx-smoke-sdl:
 	@test -f ${GFX_IMGUI}/imgui.cpp || { echo "Run ./tools/fetch-imgui.sh first."; exit 1; }
 	${GFX_CXX} -std=c++17 -O2 \
 	    -I${GFX_IMGUI} -I${GFX_IMGUI}/backends -Ipop/extern/lib $(shell pkg-config --cflags sdl3) \
-	    pop/extern/lib/imgui_backend_sdl.cpp pop/extern/lib/imgui_smoke.cpp \
+	    pop/extern/lib/imgui_backend_sdl.cpp pop/extern/lib/imgui_font.cpp \
+	    pop/extern/lib/imgui_smoke.cpp \
 	    ${GFX_IMGUI}/imgui.cpp ${GFX_IMGUI}/imgui_draw.cpp \
 	    ${GFX_IMGUI}/imgui_tables.cpp ${GFX_IMGUI}/imgui_widgets.cpp \
 	    ${GFX_IMGUI}/backends/imgui_impl_sdl3.cpp ${GFX_IMGUI}/backends/imgui_impl_opengl3.cpp \
@@ -121,7 +140,8 @@ gfx-headless:
 	@test -f ${GFX_IMGUI}/imgui.cpp || { echo "Run ./tools/fetch-imgui.sh first."; exit 1; }
 	${GFX_CXX} -std=c++17 -O2 \
 	    -I${GFX_IMGUI} -I${GFX_IMGUI}/backends -Ipop/extern/lib $(shell pkg-config --cflags sdl3) \
-	    pop/extern/lib/imgui_backend_sdl.cpp pop/extern/lib/imgui_headless.cpp \
+	    pop/extern/lib/imgui_backend_sdl.cpp pop/extern/lib/imgui_font.cpp \
+	    pop/extern/lib/imgui_headless.cpp \
 	    ${GFX_IMGUI}/imgui.cpp ${GFX_IMGUI}/imgui_draw.cpp \
 	    ${GFX_IMGUI}/imgui_tables.cpp ${GFX_IMGUI}/imgui_widgets.cpp \
 	    ${GFX_IMGUI}/backends/imgui_impl_sdl3.cpp ${GFX_IMGUI}/backends/imgui_impl_opengl3.cpp \
@@ -274,6 +294,9 @@ ${popexlib}/imgui_draw.o: ${GFX_IMGUI}/imgui_draw.cpp stamp_dirs_and_symlinks
 ${popexlib}/imgui_tables.o: ${GFX_IMGUI}/imgui_tables.cpp stamp_dirs_and_symlinks
 	${GFX_CXX} -std=c++17 -O2 ${GFX_INCLUDES} -c $< -o $@
 ${popexlib}/imgui_widgets.o: ${GFX_IMGUI}/imgui_widgets.cpp stamp_dirs_and_symlinks
+	${GFX_CXX} -std=c++17 -O2 ${GFX_INCLUDES} -c $< -o $@
+# The CJK font loader: plain C++, shared by both backends (imgui_font.cpp)
+${popexlib}/imgui_font.o: pop/extern/lib/imgui_font.cpp stamp_dirs_and_symlinks
 	${GFX_CXX} -std=c++17 -O2 ${GFX_INCLUDES} -c $< -o $@
 # macOS (Metal + Cocoa) glue + backends -- ObjC++
 ${popexlib}/imgui_backend.o: pop/extern/lib/imgui_backend.mm stamp_dirs_and_symlinks

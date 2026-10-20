@@ -71,6 +71,24 @@ A procedure returning the number of seconds since 00:00 GMT on 1 January
 SYS_CONVERT_DATE q.v.
 
 
+--- SYS_MICROTIME -----------------------------------------------------
+
+    sys_microtime() -> <integer>
+
+The same instant as SYS_REAL_TIME, in MICROSECONDS since 00:00 GMT on 1
+January 1970 (a biginteger).  This is the one to use for timing anything
+that waits -- a reply from a user, a socket, a subprocess -- because it
+measures REAL time, where SYSTIME measures only the CPU time spent
+inside Poplog and barely moves while you wait:
+
+    lvars t0 = sys_microtime();
+    ;;; ... read a line the user has to type ...
+    (sys_microtime() - t0) div 1000 =>      ;;; elapsed milliseconds
+
+See REF * TIMES for the full description.  For an elapsed-CPU-time
+figure instead, use SYSTIME or TIMEDIFF below.
+
+
 --- SYSCANTIMER --------------------------------------------------------
 
     syscantimer()

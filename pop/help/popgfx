@@ -56,7 +56,8 @@ gfx_circle(CX, CY, R, C, THICKNESS)
 gfx_fill_circle(CX, CY, R, C)
 gfx_text(X, Y, C, STRING)
     Append a primitive to the canvas.  Coordinates may be any numbers;
-    they are passed to C as single floats.
+    they are passed to C as single floats.  STRING is UTF-8: see
+    "Text and fonts" below before drawing anything but ASCII.
 
 gfx_mark() -> MARK
 gfx_rewind(MARK)
@@ -64,6 +65,53 @@ gfx_rewind(MARK)
     gfx_rewind truncates the canvas back to a previously returned
     mark, removing everything drawn since.  Used by LIB * RC_MOUSE
     for rubber-banding.
+
+
+-- Text and fonts -----------------------------------------------------
+
+gfx_text takes UTF-8, and so does the backend, but a character can only
+be drawn if the font atlas holds a glyph for it -- and a missing glyph
+is NOT an error, it is blank space.  Dear ImGui's built-in font is
+ProggyClean, i.e. ASCII, so up to Jun 2026 gfx_text(x, y, c, 'あ') drew
+nothing at all and said nothing about it (see
+docs/bugs/imgui-atlas-ascii-only.md).
+
+The backend now loads a real font at gfx_init, looking for the first
+readable file among:
+
+    $POPLOG_GFX_FONT                    an explicit choice wins
+    $usepop/pop/extern/fonts/           ./tools/fetch-gfx-font.sh
+    the operating system's own CJK font (Arial Unicode or Hiragino on
+                                         macOS; Noto CJK or IPAex on
+                                         Linux)
+
+and falls back to the ASCII-only default if it finds none, saying so
+once at gfx_init.
+
+gfx_font() -> STRING or false
+    The font file the atlas loaded, or false if it fell back to the
+    ASCII-only default -- i.e. whether gfx_text can draw more than
+    Latin.  Fetch a font with
+
+        ./tools/fetch-gfx-font.sh      (Noto Sans JP, SIL OFL 1.1)
+
+    or point POPLOG_GFX_FONT at any .ttf/.otf/.ttc you have a licence
+    for.  Nothing is committed to the repository.
+
+    Prefer a STATIC face.  ImGui rasterises with stb_truetype, which has
+    no variable-axis support, so a variable font renders at its default
+    instance -- for Noto Sans JP that is a light weight, measurably
+    thinner than the static Regular (peak intensity 205 against 255).
+    Legible, but not what you want for kanji.
+
+    Glyphs are rasterised on demand (Dear ImGui 1.92's dynamic atlas),
+    so there is nothing to pre-declare and no cost for a range you
+    never draw.
+
+    To check an installation without opening a window:
+
+        ./tools/fetch-imgui.sh && ./tools/fetch-gfx-font.sh
+        make gfx-font-test && ./gfx-font-test
 
 
 -- Mouse --------------------------------------------------------------

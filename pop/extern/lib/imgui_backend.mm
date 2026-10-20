@@ -129,6 +129,10 @@ int pop_gfx_init(const char *title, int width, int height)
         ImGui::CreateContext();
         ImGui::GetIO().IniFilename = NULL;             /* no imgui.ini for host */
         ImGui::StyleColorsDark();
+        /* A font with CJK coverage, BEFORE the renderer init: ImGui's own
+         * atlas is ASCII, so pop_gfx_draw_text() accepted UTF-8 and drew
+         * nothing for it (imgui_font.cpp). */
+        pop_gfx_font_init();
         ImGui_ImplMetal_Init(g_device);
         ImGui_ImplOSX_Init(g_view);
 

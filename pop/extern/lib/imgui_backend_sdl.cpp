@@ -128,6 +128,10 @@ int pop_gfx_init(const char *title, int width, int height)
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;               /* no imgui.ini      */
     ImGui::StyleColorsDark();
+    /* A font with CJK coverage, BEFORE the renderer init: ImGui's own atlas
+     * is ASCII, so pop_gfx_draw_text() accepted UTF-8 and drew nothing for
+     * it (imgui_font.cpp). */
+    pop_gfx_font_init();
     ImGui_ImplSDL3_InitForOpenGL(g_window, g_glctx);
     ImGui_ImplOpenGL3_Init(g_glsl_version);
 

@@ -66,6 +66,16 @@ float pop_gfx_mouse_x(void);
 float pop_gfx_mouse_y(void);
 int   pop_gfx_mouse_down(int button);  /* 0=left 1=right 2=middle; 1 if down */
 
+/* --- fonts -------------------------------------------------------------- */
+/* Called by pop_gfx_init between ImGui::CreateContext() and the renderer
+ * init.  Loads a font with CJK coverage so pop_gfx_draw_text can draw the
+ * UTF-8 it already accepts; returns 1 if a font file was found, 0 if it fell
+ * back to ImGui's ASCII-only default.  pop_gfx_font_path reports which file
+ * (NULL when the default was used).  See imgui_font.cpp. */
+int         pop_gfx_font_init(void);
+const char *pop_gfx_font_path(void);
+float       pop_gfx_font_size(void);
+
 /* --- introspection / stats --------------------------------------------- */
 float       pop_gfx_fps(void);   /* smoothed frames/sec (ImGui's running avg) */
 const char *pop_gfx_spec(void);  /* one-line backend + renderer/GPU spec      */
