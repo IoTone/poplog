@@ -296,9 +296,23 @@ the right answer today. Stage 1 is therefore the only stage that can be
 debugged without first deciding whether the model or the plumbing is
 wrong.
 
-### Stage 0 — `say(Item)`, so the student can hear it
+### Stage 0 — `say(Item)`, so the student can hear it — **shipped**
 
 Kokoro behind a cache. No assessment, no verdict, no microphone.
+
+**Built 2026-10-21**: `examples/langpop/audio.p`, `--audio <level>`, the
+TUI's `:say`, `langpop/audio.say` as the 18th method, and 60 checks in
+`test_langpop_audio.p`. The engine runs with no model installed and says
+`no voice for ja`, which is the state CI is in. See the README section
+*Stage 0 of audio: the student can hear it* for the shape of the config,
+the cache key and what has no sound.
+
+What remains of this stage is **not wiring**: whether Kokoro's Japanese
+is good enough to teach pronunciation with. `--audio` writes a page with
+every file on it for exactly that judgement, and macOS `say -v Kyoko` is
+configured the same way as something to compare against.
+
+Below is what the stage was planned as; it is what got built.
 
 - **Shape it like `card.render`.** A file per item, generated on demand
   and kept, exactly as the card exporter caches an SVG per item. The
@@ -317,6 +331,12 @@ Kokoro behind a cache. No assessment, no verdict, no microphone.
   18th method is a smaller change than an audio transport.
 - **The listening test gates this stage**, per §3: Kokoro's *Japanese*
   judged by ear before it teaches anyone pronunciation.
+
+One thing the build added that the plan did not call for: a **sidecar
+JSON per wav**, naming the item, text, voice, model and command. The plan
+said `manifest`, which would have been one file read, modified and
+rewritten per render; a sidecar cannot be raced, and it goes stale with
+the file it describes instead of outliving it in an index.
 
 **It does not make `hear` verifiable.** Playing a sound and checking a
 student heard it are different claims, and the ladder must keep saying

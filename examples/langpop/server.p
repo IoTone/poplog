@@ -25,6 +25,7 @@ vars langpop_lib = true;                ;;; no TUI session from langpop.p
 load 'examples/langpop/langpop.p';
 load 'examples/langpop/card.p';         ;;; langpop/card.render
 load 'examples/langpop/sheet.p';        ;;; langpop/sheet.render
+load 'examples/langpop/audio.p';        ;;; langpop/audio.say
 
 uses jsonrpc;
 
@@ -974,6 +975,68 @@ define lp_m_audit(msg) -> res;
         endfor %]) %]) -> res;
 enddefine;
 
+;;; ---------------------------------------------------------------- audio
+;;; Stage 0 of docs/projects/langpop-audio.md: the student hears a correct
+;;; model of the item.  No verdict, no session, nothing recorded -- the
+;;; sound of an item is a property of the GRAPH, like a card, so this
+;;; method is as stateless as langpop/card.render and for the same reason.
+;;;
+;;; A PATH, NOT BYTES, again like card.render: the audio is a file on
+;;; disk cached by item, and putting a wav down a JSON-RPC line would
+;;; make every caller pay for it in base64.
+;;;
+;;; Synthesising is the DEFAULT, and the opt-out is a positive flag:
+;;; `cached_only: true`.  It is not a `render: false`, because lp_param
+;;; cannot tell a JSON false from an absent key -- both arrive as the
+;;; Pop-11 false -- so a `render` parameter would read every client that
+;;; omitted it as one that had switched rendering off.  The question path
+;;; passes cached_only and so never waits on a model load.
+define lp_m_audio_say(msg) -> res;
+    lvars msg, res, item = lp_param(msg, 'item'),
+          cached = lp_param(msg, 'cached_only'),
+          path, made, why, cfg, text, twhy;
+    unless item then
+        lp_err(LP_E_PARAMS, 'audio.say: item needed') -> res; return
+    endunless;
+    consword(item sys_>< '') -> item;
+    unless lp_kind(item) then
+        lp_err(LP_E_ITEM, 'no such item: ' <> (item sys_>< '')) -> res; return
+    endunless;
+
+    if cached then lp_audio_path(item) -> (path, why); false -> made;
+    else lp_audio_make(item) -> (path, made, why);
+    endif;
+
+    if why = 'no_spoken_form' then
+        lp_err(LP_E_ITEM, 'nothing to say: ' <> (item sys_>< '')
+                          <> ' has no spoken form') -> res
+    elseif why = 'has_blank' then
+        lp_err(LP_E_ITEM, 'nothing to say: ' <> (item sys_>< '')
+                          <> ' is a pattern with a blank in it') -> res
+    elseif why = 'no_voice' then
+        lp_err(LP_E_UNBUILT, 'no voice for ' <> (lp_ilang(item) sys_>< '')
+                             <> ': name one in ' <> lp_audio_conf_path()) -> res
+    elseif why = 'voice_failed' then
+        lp_err(LP_E_UNBUILT, 'the voice command wrote nothing') -> res
+    elseif why = 'not_generated' then
+        ;;; Not an error: the caller asked what was cached and nothing is.
+        jsonrpc_obj([% 'item', lp_jkey(item), 'generated', false,
+                       'path', false %]) -> res
+    elseif why then
+        lp_err(LP_E_UNBUILT, 'audio.say: ' <> why) -> res
+    else
+        lp_voice(lp_ilang(item)) -> cfg;
+        lp_audio_text(item) -> (text, twhy);
+        jsonrpc_obj([% 'item', lp_jkey(item),
+                       'lang', (lp_ilang(item) sys_>< ''),
+                       'generated', true,
+                       'rendered_now', made,
+                       'path', path, 'format', 'wav',
+                       'text', text,
+                       'voice', cfg(2), 'model', cfg(3) %]) -> res
+    endif;
+enddefine;
+
 lconstant METHODS = [
     ['langpop/recognise'     ^lp_m_recognise]
     ['langpop/register'      ^lp_m_register]
@@ -992,6 +1055,7 @@ lconstant METHODS = [
     ['langpop/report'        ^lp_m_report]
     ['langpop/card.render'   ^lp_m_card_render]
     ['langpop/sheet.render'  ^lp_m_sheet_render]
+    ['langpop/audio.say'     ^lp_m_audio_say]
 ];
 
 define lp_method(name) -> p;

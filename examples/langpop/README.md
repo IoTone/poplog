@@ -26,6 +26,7 @@ privileges a phone app would not have.
 ./poplog basepop11 examples/langpop/langpop.p --audit            # which rungs can be climbed
 ./poplog basepop11 examples/langpop/langpop.p --chart hiragana   # a page to print
 ./poplog basepop11 examples/langpop/langpop.p --zine --user bob  # a booklet to fold
+./poplog basepop11 examples/langpop/langpop.p --audio preschool  # make the sound files
 
 # B: the same session, over a protocol
 ./poplog basepop11 examples/langpop/server.p --port 7801 &
@@ -1818,6 +1819,7 @@ asserts the doubled form would **not** have survived.
 | `:sheet` | today's work, as a page to print |
 | `:chart <script>` | hiragana, katakana or youon, on one page |
 | `:zine` | the study plan, as a booklet to fold |
+| `:say <item>` | hear it said, if a voice is installed |
 | `:assign` | something to do away from the keyboard |
 | `:report <n> ok` | done it (tier 3) |
 | `:report <n> 17/20` | done it, with a result (tier 2) |
@@ -2064,6 +2066,127 @@ client says where it is rather than pretending, and a remote client that
 wants the bytes needs a method that sends them, which `card.render`
 deliberately is not. A card is a file on disk, cached by item; putting it
 down a JSON-RPC line would make every call pay for it.
+
+## Stage 0 of audio: the student can hear it
+
+The first compounding factor in `docs/projects/langpop-pronunciation.md`
+is not a measurement problem. It is that a learner has *little exposure
+to correct pronunciation* — so asking someone to produce a sound we
+declined to let them hear is a test of material we never taught.
+
+So the first audio that ships is **output**, and it carries no verdict:
+
+```sh
+./poplog basepop11 examples/langpop/langpop.p --audio preschool
+```
+
+```
+audio: 188 made, 0 already cached in ~/.langpop/audio/ja/
+  8 not said: no_spoken_form
+  3 not said: has_blank
+audio: listen at ~/.langpop/audio/ja/listen-preschool.html
+```
+
+**It does not make `hear` verifiable**, and `--audit` still says
+`needs_audio` for every criterion on that channel. Playing a sound and
+checking that somebody heard it are different claims, and nothing in
+`audio.p` touches a belief. The plan for the half that does measure is
+`docs/projects/langpop-audio.md`.
+
+### The voice is a command, not a dependency
+
+Kokoro is the chosen model — 82M parameters, Apache-licensed weights,
+CPU, Japanese among its voices — but nothing in the engine knows that.
+The voice is a command named in `~/.langpop/audio.conf`, the way `card.p`
+shells out to `open(1)`:
+
+```json
+{"ja": {"cmd":   "kokoro --voice %v --text-file %i --out %o",
+        "voice": "jf_alpha",
+        "model": "kokoro-82m-v1.0"}}
+```
+
+`%i` is a file holding the text, `%o` the wav to write, `%v` the voice.
+**The text goes through a file and never onto the command line**: the
+words are Japanese and the shell is not, and a quoting bug in a tutor
+would be a quoting bug in whatever the shell made of ひらがな.
+
+Nothing is installed, imported or vendored. A machine with no model
+configured answers `no voice for ja` and goes on teaching exactly as it
+did — which is the state every fresh checkout and every CI run is in, and
+the state most of the 60 checks in `test_langpop_audio.p` are about.
+
+To hear the pipeline work before wiring Kokoro up, macOS already has a
+Japanese voice:
+
+```json
+{"ja": {"cmd": "/usr/bin/say -v Kyoko -f %i -o %o --file-format=WAVE --data-format=LEI16@22050",
+        "voice": "Kyoko", "model": "macos-say"}}
+```
+
+That is not a teaching voice and it is not meant to be one. It is
+something to compare Kokoro *against*, which is easier than judging a
+voice in the absolute.
+
+### `model` is declared, not detected
+
+An external command cannot be asked what weights it loaded. So the
+config declares it, and the declaration is part of the cache key:
+
+    ~/.langpop/audio/ja/hi_a-Kyoko-3936002.wav
+
+`{item, voice, model, text}`, three of them in the name in full and the
+fourth as a hash of the text. A line edited in the config is a cache
+invalidated — which is the honest behaviour, because what we cached is
+what the config *said*. The key being the **filename** means there is no
+index to keep in step with the directory: a corrected `form/3` writes a
+new name and the old file simply stops being reachable, rather than being
+served to a student as the reading of a word we have since fixed.
+
+Beside each wav is a sidecar JSON naming the item, the text, the voice,
+the model and the command that made it — provenance that goes stale with
+the file it describes instead of outliving it in a manifest.
+
+### Nothing is synthesised inside a question
+
+`lp_audio_path/1` answers from the cache and never runs a model.
+`lp_audio_make/1` is the one that does, and `--audio <level>` calls it
+ahead of time. On the wire the same distinction is a positive flag,
+`cached_only: true`, and **not** a `render: false` — `lp_param` cannot
+tell an absent key from a JSON `false`, so a `render` parameter would
+read every client that omitted it as one switching rendering off.
+
+The reason for the rule is visible in the numbers: 188 items took **89
+seconds** with `say`, nearly all of it process startup. Half a second is
+not much; half a second in the middle of a question is a tutor that feels
+broken.
+
+### What has no sound, and why that is right
+
+Eleven of the 199 pre-school items are not said, and the report names
+both reasons:
+
+- **8 skills** — `mora_count`, `youon`, `hiragana_all`. An abstraction
+  has no utterance.
+- **3 patterns** — `これは___です`. A voice would read the gap aloud, or
+  swallow it silently, and either way the student hears a sentence that
+  is not the item.
+
+Japanese is read from **kana**, never romaji: a voice handed `gakkou`
+reads English. English is read from the latin form and **never from the
+IPA**, which is a notation and not a word — a voice handed `/wɜrld/` says
+something, and it is not *world*. That last one means the twelve sound
+contrasts have no sound of their own, which is correct: `/l/` is not
+something a voice can pronounce in isolation. It is heard through the
+words that exercise it, and the graph already links them.
+
+### The listening test is the part that is not wiring
+
+Whether Kokoro's Japanese is good enough to teach pronunciation *with* is
+a question for an ear, not a benchmark — for teaching, the model's own
+accent is the product. So `--audio` also writes a page with every file on
+it, the voice and model named at the top, and one question: *does it
+sound like a person reading, and would you learn to say it this way?*
 
 ## What A deliberately does not have
 

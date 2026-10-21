@@ -3073,6 +3073,55 @@ define lp_show_card(i);
     endif;
 enddefine;
 
+;;; ----------------------------------------------------------------- audio
+;;; audio.p on the same terms as card.p: loaded on demand, absent without
+;;; consequence.  A tutor whose Japanese voice is not installed asks the
+;;; same questions it asked yesterday.
+vars lp_audio_loaded = false;
+
+define lp_load_audio();
+    unless lp_audio_loaded then
+        pop11_compile(langpop_dir <> 'audio.p');
+        true -> lp_audio_loaded;
+    endunless;
+enddefine;
+
+;;; :say DOES synthesise, where a question never would.  The rule is
+;;; about not making a student wait mid-question; here the student asked
+;;; for the sound and is waiting on purpose.
+define lp_show_say(i);
+    lvars i, path, made, why;
+    lp_load_audio();
+    unless lp_kind(i) then
+        printf('  I have no item called %p.\n', [^i]); return;
+    endunless;
+    unless lp_audio_ready(lp_ilang(i)) then
+        printf('  I have no %p voice.  Name one in %p -- the shape is in\n',
+               [% lp_ilang(i), lp_audio_conf_path() %]);
+        printf('  the header of examples/langpop/audio.p.\n');
+        return;
+    endunless;
+    lp_audio_make(i) -> (path, made, why);
+    if why = 'no_spoken_form' then
+        printf('  %p is a skill, not a sound -- there is nothing to say.\n',
+               [^i]);
+    elseif why = 'has_blank' then
+        printf('  %p is a pattern with a blank in it; I would be reading\n',
+               [^i]);
+        printf('  the gap aloud.\n');
+    elseif why = 'voice_failed' then
+        printf('  The voice ran and wrote nothing.  Check the command in %p.\n',
+               [% lp_audio_conf_path() %]);
+    elseif why then
+        printf('  I cannot say that: %p\n', [^why]);
+    else
+        printf('  %p%p\n', [% path, if made then '' else '  (cached)' endif %]);
+        unless lp_audio_play(path) then
+            printf('  No player here; the file is on disk.\n');
+        endunless;
+    endif;
+enddefine;
+
 ;;; ------------------------------------------------------------- the session
 define lp_help();
     printf('\n  <enter>          the next thing to learn\n');
@@ -3083,6 +3132,7 @@ define lp_help();
     printf('  :oops            that answer was an accident -- ask me again later\n');
     printf('  :aids            which helps are on (slip, oops, later)\n');
     printf('  :card <item>     draw it, and open it in the system viewer\n');
+    printf('  :say <item>      hear it said, if a voice is installed\n');
     printf('  :sheet           today\'s work, as a page to print\n');
     printf('  :zine            the study plan, as a booklet to fold\n');
     printf('  :chart <script>  hiragana, katakana or youon, on one page\n');
@@ -3221,6 +3271,9 @@ define lp_session();
             elseif cmd = 'card' then
                 if arg = '' then printf('  :card <item id>\n')
                 else lp_show_card(consword(arg)) endif;
+            elseif cmd = 'say' then
+                if arg = '' then printf('  :say <item id>\n')
+                else lp_show_say(consword(arg)) endif;
             elseif cmd = 'assign' then lp_assign().erase;
             elseif cmd = 'report' then
                 lp_split2(arg) -> (a2, outcome);
@@ -3380,7 +3433,7 @@ enddefine;
 define lp_main();
     lvars args = poparglist, a, user = false, display = false,
           batch = false, checkonly = false, auditonly = false,
-          sheetonly = false, rest = [];
+          sheetonly = false, audioonly = false, rest = [];
     find_dir() -> langpop_dir;
     until args == [] do
         hd(args) -> a;
@@ -3395,6 +3448,8 @@ define lp_main();
             consword(hd(tl(args))) -> sheetonly; tl(tl(args)) -> args;
         elseif a = '--sheet' then "today" -> sheetonly; tl(args) -> args;
         elseif a = '--zine' then "zine" -> sheetonly; tl(args) -> args;
+        elseif a = '--audio' then
+            consword(hd(tl(args))) -> audioonly; tl(tl(args)) -> args;
         else conspair(a, rest) -> rest; tl(args) -> args;
         endif;
     enduntil;
@@ -3404,6 +3459,13 @@ define lp_main();
     ;;; Before the check, because a hollow rung is a fact about the
     ;;; graph and wants no student bound to it.
     if auditonly then lp_audit_show(); return endif;
+    ;;; Ahead of time, and with no student: the audio of an item is a
+    ;;; property of the graph, like a card.
+    if audioonly then
+        lp_load_audio();
+        lp_audio_show(audioonly);
+        return;
+    endif;
     ;;; A chart needs no student; today's sheet needs one, and says so
     ;;; rather than drawing an empty page under somebody's name.
     if sheetonly then

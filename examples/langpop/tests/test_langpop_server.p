@@ -68,7 +68,7 @@ enddefine;
 ;;; ------------------------------------------------------------- the door
 check('ping', result('ping', false), 'pong');
 check_true('methods are listable',
-           length(result('langpop/methods', false)) == 17);
+           length(result('langpop/methods', false)) == 18);
 check_true('and the list names them, not just counts them',
            member('langpop/card.render',
                   [% explode(result('langpop/methods', false)) %]) /== false);
@@ -842,6 +842,89 @@ check('card: an unknown style is a params error',
 check('card: a designed but unbuilt style is -32005',
       errcode('langpop/card.render',
               jsonrpc_obj([% 'item', 'hi_a', 'style', 'stroke' %])), -32005);
+
+;;; ------------------------------------------------------------ audio.say
+;;; Stage 0.  Like card.render, no session: the sound of an item is a
+;;; property of the graph.  Unlike card.render, the renderer may not be
+;;; installed at all -- and that is the case this suite runs in, because
+;;; nothing configured a voice.
+check('audio: no item is a params error',
+      errcode('langpop/audio.say', jsonrpc_obj([])), -32602);
+check('audio: an unknown item is an item error',
+      errcode('langpop/audio.say', jsonrpc_obj([% 'item', 'nonesuch' %])),
+      -32003);
+
+;;; A skill and a pattern are ITEM errors: the item is fine, there is
+;;; simply nothing to say.  A missing voice is -32005, the unbuilt code,
+;;; because the item could be said on a machine that had one.  A client
+;;; has to be able to tell "install a voice" from "this will never have
+;;; a sound".
+check('audio: a skill has nothing to say',
+      errcode('langpop/audio.say', jsonrpc_obj([% 'item', 'mora_count' %])),
+      -32003);
+check('audio: a pattern with a blank has nothing to say',
+      errcode('langpop/audio.say',
+              jsonrpc_obj([% 'item', 'p_kore_wa_desu' %])), -32003);
+check('audio: no voice installed is -32005, not an item error',
+      errcode('langpop/audio.say', jsonrpc_obj([% 'item', 'hi_a' %])),
+      -32005);
+
+;;; cached_only is a POSITIVE flag, and it has to be, because lp_param
+;;; cannot tell an absent key from a JSON false -- a `render: false`
+;;; would read every client that omitted it as one switching off the
+;;; render.  With no voice it reaches the same -32005 either way.
+check('audio: cached_only reaches the same answer with no voice',
+      errcode('langpop/audio.say',
+              jsonrpc_obj([% 'item', 'hi_a', 'cached_only', true %])),
+      -32005);
+
+;;; Now give the server a voice, and the method stops being a stub.  The
+;;; voice is `cp`, so the wav is the text -- which is what lets this
+;;; check that the Japanese reached the command intact over the wire.
+lp_write_file(lp_audio_conf_path(),
+    '{"ja": {"cmd": "cp %i %o", "voice": "jf_test", "model": "rpc-stub"}}');
+lp_voices_load();
+
+lvars sayv = result('langpop/audio.say', jsonrpc_obj([% 'item', 'hi_a' %]));
+check('audio: the item it said', sayv('item'), 'hi_a');
+check('audio: the language', sayv('lang'), 'ja');
+check('audio: the format', sayv('format'), 'wav');
+check('audio: the text it was given', sayv('text'), 'あ');
+check('audio: the voice is named, because the student hears it',
+      sayv('voice'), 'jf_test');
+check('audio: and the model, which the engine records rather than detects',
+      sayv('model'), 'rpc-stub');
+check_true('audio: it rendered just now', sayv('rendered_now'));
+check_true('audio: a path came back, not bytes', isstring(sayv('path')));
+check_true('audio: and the file is there', sys_file_exists(sayv('path')));
+check('audio: the glyph survived the round trip to the command',
+      lp_read_file(sayv('path')), 'あ');
+
+;;; A second call is a cache hit, and says so: a client showing a spinner
+;;; wants to know which it got.
+lvars say2 = result('langpop/audio.say', jsonrpc_obj([% 'item', 'hi_a' %]));
+check_true('audio: the second call did not render', not(say2('rendered_now')));
+check('audio: and gave the same file', say2('path'), sayv('path'));
+
+;;; cached_only never runs a model.  This is the call the question path
+;;; makes, so the one thing it must not do is wait on one.
+lvars say3 = result('langpop/audio.say',
+                    jsonrpc_obj([% 'item', 'hi_i', 'cached_only', true %]));
+check_true('audio: nothing cached for an item never asked for',
+           not(say3('generated')));
+check_true('audio: and no path is invented', say3('path') == false);
+check_true('audio: and it is NOT an error -- the answer is simply "not yet"',
+           call('langpop/audio.say',
+                jsonrpc_obj([% 'item', 'hi_i',
+                               'cached_only', true %]))('error') == false);
+check_true('audio: and the model was not run',
+           not(sys_file_exists(lp_audio_lang_dir("ja") <> 'hi_i-jf_test')));
+
+;;; An English item with no voice for English: the per-language table
+;;; means one installed voice does not imply the other.
+check('audio: a language with no voice of its own is -32005',
+      errcode('langpop/audio.say', jsonrpc_obj([% 'item', 't_mansion' %])),
+      -32005);
 
 jsonrpc_close(client); jsonrpc_close(server);
 sysobey('rm -rf ' <> tmpdir);
