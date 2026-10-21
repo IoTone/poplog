@@ -2500,6 +2500,8 @@ define lp_help();
     printf('  :oops            that answer was an accident -- ask me again later\n');
     printf('  :aids            which helps are on (slip, oops, later)\n');
     printf('  :card <item>     draw it, and open it in the system viewer\n');
+    printf('  :sheet           today\'s work, as a page to print\n');
+    printf('  :chart <script>  hiragana, katakana or youon, on one page\n');
     printf('  :assign          something to do away from the keyboard\n');
     printf('  :report <n> ok   done it (compliance)\n');
     printf('  :report <n> 17/20  done it, with a result\n');
@@ -2626,6 +2628,11 @@ define lp_session();
                     lp_aid_set(consword(a2), outcome = 'on').erase;
                     lp_aids_show();
                 endif;
+            elseif cmd = 'sheet' then lp_show_sheet("today");
+            elseif cmd = 'chart' then
+                if arg = '' then
+                    printf('  :chart hiragana|katakana|youon\n')
+                else lp_show_sheet(consword(arg)) endif;
             elseif cmd = 'card' then
                 if arg = '' then printf('  :card <item id>\n')
                 else lp_show_card(consword(arg)) endif;
@@ -2662,6 +2669,42 @@ define lp_session();
     printf('\n%p\n', [% lp_line('signoff') %]);
 enddefine;
 
+;;; ---------------------------------------------------------------- sheets
+;;; Something to take away from the screen and put on a desk.  Loaded on
+;;; demand exactly as card.p is, and for the same reason.
+vars lp_sheet_loaded = false;
+
+define lp_load_sheet();
+    unless lp_sheet_loaded then
+        pop11_compile(langpop_dir <> 'sheet.p');
+        true -> lp_sheet_loaded;
+    endunless;
+enddefine;
+
+define lp_show_sheet(style);
+    lvars style, path, why;
+    lp_load_sheet();
+    ;;; lp_card_open is card.p's, and opening the file is the whole point
+    ;;; of printing one -- so the viewer comes along even when no card
+    ;;; was ever asked for.
+    unless lp_card_loaded then
+        pop11_compile(langpop_dir <> 'card.p');
+        true -> lp_card_loaded;
+    endunless;
+    lp_sheet_render(style, lp_user) -> (path, why);
+    if why = 'no_such_style' then
+        printf('  There is no "%p" sheet.  Try hiragana, katakana,\n', [^style]);
+        printf('  youon, or :sheet for today.\n');
+    elseif why then
+        printf('  I cannot draw that: %p\n', [^why]);
+    else
+        printf('  %p\n', [^path]);
+        unless lp_card_open(path) then
+            printf('  No viewer here; the file is on disk.\n');
+        endunless;
+    endif;
+enddefine;
+
 ;;; ------------------------------------------------------------------ main
 define lp_check() -> bad;
     lvars bad;
@@ -2679,7 +2722,8 @@ enddefine;
 
 define lp_main();
     lvars args = poparglist, a, user = false, display = false,
-          batch = false, checkonly = false, auditonly = false, rest = [];
+          batch = false, checkonly = false, auditonly = false,
+          sheetonly = false, rest = [];
     find_dir() -> langpop_dir;
     until args == [] do
         hd(args) -> a;
@@ -2690,6 +2734,9 @@ define lp_main();
         elseif a = '--data' then hd(tl(args)) -> lp_home_dir; tl(tl(args)) -> args;
         elseif a = '--check' then true -> checkonly; tl(args) -> args;
         elseif a = '--audit' then true -> auditonly; tl(args) -> args;
+        elseif a = '--chart' then
+            consword(hd(tl(args))) -> sheetonly; tl(tl(args)) -> args;
+        elseif a = '--sheet' then "today" -> sheetonly; tl(args) -> args;
         else conspair(a, rest) -> rest; tl(args) -> args;
         endif;
     enduntil;
@@ -2699,6 +2746,19 @@ define lp_main();
     ;;; Before the check, because a hollow rung is a fact about the
     ;;; graph and wants no student bound to it.
     if auditonly then lp_audit_show(); return endif;
+    ;;; A chart needs no student; today's sheet needs one, and says so
+    ;;; rather than drawing an empty page under somebody's name.
+    if sheetonly then
+        lvars spath, swhy;
+        lp_load_sheet();
+        if user then
+            user -> lp_user; lp_load_profile(user).erase;
+        endif;
+        lp_sheet_render(sheetonly, user) -> (spath, swhy);
+        if swhy then printf('sheet: %p\n', [^swhy])
+        else printf('sheet: wrote %p\n', [^spath]) endif;
+        return;
+    endif;
     if checkonly then
         lvars bad = lp_check(), v;
         if bad == [] then

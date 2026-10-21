@@ -24,6 +24,7 @@ privileges a phone app would not have.
 ./poplog basepop11 examples/langpop/langpop.p --lang en          # English, with Mr Hill
 ./poplog basepop11 examples/langpop/langpop.p --check            # integrity-check the graph
 ./poplog basepop11 examples/langpop/langpop.p --audit            # which rungs can be climbed
+./poplog basepop11 examples/langpop/langpop.p --chart hiragana   # a page to print
 
 # B: the same session, over a protocol
 ./poplog basepop11 examples/langpop/server.p --port 7801 &
@@ -835,6 +836,95 @@ noticed: **がっこう needs が**, and until now the starter words required a
 | graph | 521 items | 567 items |
 
 
+## Something to take off the screen
+
+```
+./poplog basepop11 examples/langpop/langpop.p --chart hiragana
+./poplog basepop11 examples/langpop/langpop.p --sheet --user bob
+```
+
+and `:chart katakana` / `:sheet` inside a session. A4 SVG — `width="210mm"
+height="297mm"` with a viewBox in tenths of a millimetre — so a browser's
+print lands on real paper rather than on a 96dpi guess.
+
+**Three charts and one record.** `hiragana` and `katakana` are the
+syllabary on a page; `youon` is the 33 combinations; `today` is what the
+student actually did, which is the only one that needs a student.
+
+### The charts are generated, which is the point and not a convenience
+
+A kana chart downloaded from somewhere is a picture of **somebody else's
+table**. It can disagree with ours and nothing would notice, it carries
+whatever licence it carries, and it goes stale the moment the graph
+changes — as it just did, when 46 voiced kana arrived. A chart drawn from
+`kana/5` cannot disagree with the tutor, because it is the same 138 facts
+the tutor reads. Same argument `import.p` makes about content: hold the
+curation, derive the rest.
+
+**And the grid is derived too.** A cell's **column** is the last vowel
+letter of its romaji — `ka`→a, `shi`→i, `tsu`→u, `fu`→u — and its **row**
+is the row named in the fact. A hand-placed grid would be a second copy
+of the table, free to disagree with the first.
+
+Which is how the sheet tells the truth about the holes:
+
+```
+  d    だ          で    ど
+       da          de    do
+```
+
+Two gaps, because `kana.pl` does not hold ぢ and づ — and the footer says
+why rather than leaving a reader to wonder whether the chart is broken. A
+hand-placed grid would have quietly filled them in.
+
+The youon sheet derives its 33 combinations the same way: every kana whose
+romaji ends in `i`, bar い itself, crossed with small ゃゅょ. The romaji
+comes from `lp_romaji`, so the sheet says `sha` and not `shya`, and `ja`
+and not `jya`, **because the engine's rule said so** — not because a
+second table was typed out and might disagree.
+
+### The day's sheet reads the journal, not the beliefs
+
+```
+Today, Sheet Tester                                        2026-10-21
+
+What you worked on
+ +  日     day, sun, Japan, counter for days                    900 ms
+ +  山     mountain, hill                                      1380 ms
+ +  が     ga                                                  1860 ms
+ ?  ウ     u                                                   5200 ms
+ ~  そ     so                                                  2400 ms
+ x  ぬ     nu                                                  3100 ms
+
+Worth another look
+ウ カ そ ぬ
+
+Next time
+あ  い  う  え  お
+
++ right  ~ near miss  ? did not know  x wrong.
+Drawn from your own answers, on this machine.
+```
+
+A sheet of **beliefs** would show the same thing every day with the
+numbers slightly different. A sheet of the **journal** shows the session.
+One row per item carrying the outcome that stands — an item got wrong and
+then got right prints once, and prints right — in the order the questions
+were asked, because a record of a session reads forwards even though the
+journal is stored most-recent-first.
+
+The four marks are the four outcomes, and `?` is deliberately not `x`:
+saying *I do not know* is the most informative thing a beginner does, and
+a sheet that crossed it out would be teaching them not to.
+
+`langpop/sheet.render` is the same thing on the wire. It is the only
+method that requires a session **conditionally** — a chart is a picture of
+the graph and needs none, today's sheet is a picture of one student's
+answers and needs one. Refusing a kana chart to someone who has not
+logged in would be a privilege check protecting a table anybody can buy
+on a poster.
+
+
 ## Seeing the graph
 
 The tutor reads the graph one item at a time, chosen for one student. That
@@ -1142,6 +1232,8 @@ asserts the doubled form would **not** have survived.
 | `later` | *at a question:* put it off until later this session |
 | `:oops` | that answer was an accident — take it back and ask again later |
 | `:aids` | which helps are on; `:aids later off` takes one away |
+| `:sheet` | today's work, as a page to print |
+| `:chart <script>` | hiragana, katakana or youon, on one page |
 | `:assign` | something to do away from the keyboard |
 | `:report <n> ok` | done it (tier 3) |
 | `:report <n> 17/20` | done it, with a result (tier 2) |
@@ -1228,6 +1320,7 @@ speak to it with no shim. `--port N` for TCP, nothing for stdio.
 | `langpop/aids` | which helps are on, and switching them |
 | `langpop/audit` | which rungs of the ladder are hollow |
 | `langpop/card.render` | the item as a picture |
+| `langpop/sheet.render` | a page to print: a chart, or today |
 | `langpop/assign` / `report` | work to do elsewhere, and what came of it |
 
 Three things are deliberately on the server's side of the line, and each

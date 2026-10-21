@@ -24,6 +24,7 @@
 vars langpop_lib = true;                ;;; no TUI session from langpop.p
 load 'examples/langpop/langpop.p';
 load 'examples/langpop/card.p';         ;;; langpop/card.render
+load 'examples/langpop/sheet.p';        ;;; langpop/sheet.render
 
 uses jsonrpc;
 
@@ -879,6 +880,45 @@ define lp_m_aids(msg) -> res;
                            <> 'available at any answer stays recoverable' %]) -> res;
 enddefine;
 
+;;; -------------------------------------------------------------- sheets
+;;; A page to print.  A chart is a picture of the GRAPH and needs no
+;;; session, exactly like card.render; today's sheet is a picture of one
+;;; student's session and needs one, because it is their answers on it.
+;;; So the session is required conditionally, which is the only method
+;;; here that does that -- and it is the honest shape, since refusing a
+;;; kana chart to someone who has not logged in would be a privilege
+;;; check protecting a table anybody can buy on a poster.
+define lp_m_sheet_render(msg) -> res;
+    lvars msg, res, style = lp_param(msg, 'style'), s, path, why, who = false;
+    unless style then
+        lp_err(LP_E_PARAMS,
+               'sheet.render: style needed (hiragana, katakana, youon, today)')
+            -> res;
+        return;
+    endunless;
+    consword(style sys_>< '') -> style;
+    if style == "today" then
+        lp_need_session(msg) -> s;
+        returnif(lp_is_err(s))(s -> res);
+        lp_user -> who;
+    endif;
+    lp_sheet_render(style, who) -> (path, why);
+    if why = 'no_such_style' then
+        lp_err(LP_E_PARAMS, 'no such sheet: ' <> (style sys_>< '')) -> res
+    elseif why then
+        lp_err(LP_E_PARAMS, 'sheet.render: ' <> why) -> res
+    else
+        ;;; The path, not the bytes -- the same bargain card.render makes.
+        jsonrpc_obj([% 'style', lp_jkey(style),
+                       'path', path,
+                       'format', 'svg',
+                       'page', 'A4',
+                       ;;; printable is the whole point, so say so in the
+                       ;;; units a print dialog uses
+                       'width_mm', 210, 'height_mm', 297 %]) -> res
+    endif;
+enddefine;
+
 ;;; -------------------------------------------------------------- audit
 ;;; Which rungs of the ladder are hollow.  No session, for the same
 ;;; reason card.render needs none: this is a property of the GRAPH, not
@@ -929,6 +969,7 @@ lconstant METHODS = [
     ['langpop/assign'        ^lp_m_assign]
     ['langpop/report'        ^lp_m_report]
     ['langpop/card.render'   ^lp_m_card_render]
+    ['langpop/sheet.render'  ^lp_m_sheet_render]
 ];
 
 define lp_method(name) -> p;

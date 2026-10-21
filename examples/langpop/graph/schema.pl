@@ -212,3 +212,11 @@ criteria(_, _).
 
 criterion_items(C) :- criterion_item(C, I), lp_take(I), fail.
 criterion_items(_).
+
+% The syllabary table, whole.  index/0 does not collect the ROW -- the
+% tutor has never needed it -- and a printed chart is laid out by row, so
+% the sheet asks for the facts rather than reassembling them from the
+% overlay.  Same bargain as edges/0: not in the index, available on ask.
+kana_table :- kana(I, Script, Glyph, Romaji, Row),
+              lp_take(k(I, Script, Glyph, Romaji, Row)), fail.
+kana_table.
