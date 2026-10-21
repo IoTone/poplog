@@ -19,6 +19,21 @@
 %   requires(Id, Pre)             the prerequisite DAG, within one language
 %   confusable(A, B, Why)         declared one way, read both ways
 %
+%   rank(Id, Scale, N)            an ordinal difficulty proxy, lower first
+%       Scale   freq | grade | strokes
+%
+%       NOT provenance, and not a property of the item's meaning: it is
+%       how hard or how common the item is, on a named scale that
+%       somebody else published.  Optional -- English carries none,
+%       because no source we can use publishes one.
+%
+%       Placement is what wants it.  Probing 103 kanji one at a time to
+%       find out whether somebody reads kanji is absurd; four probes
+%       spread along a frequency rank locate them.  A criterion stated as
+%       a bare count has the same weakness from the other side --
+%       kanji(2230) is satisfied by any 2,230 characters, including
+%       2,230 obscure ones -- which is the argument for ranking one.
+%
 %   ladder(Lang, Index, Level)    the levels of a language, in order
 %   exit(Lang, Level, Criterion, Threshold, LatencyMs)
 %
@@ -61,6 +76,11 @@ confused_with(A, B, Why) :- confusable(B, A, Why).
 % with nothing imported there would be none -- so every caller of
 % content_built/2 would have failed in the one case it exists to report.
 generated(none, none, none, 0, none).
+
+% Same reason: with no imported content there is not a single rank/3 in
+% the graph, and a predicate with no clauses RAISES under the
+% unknown(_, error) above rather than failing.  This one matches nothing.
+rank(none, none, 0).
 
 content_built(Lang, Level) :- generated(_, Lang, Level, N, _), N > 0.
 
@@ -151,6 +171,7 @@ index :- resource(R, Lang, Kind, Target, Url, Checked),
          lp_resource(R, Lang, Kind, Target, Url, Checked), fail.
 index :- generated(S, Lang, Level, N, Date), N > 0,
          lp_generated(S, Lang, Level, N, Date), fail.
+index :- rank(I, Scale, N), I \== none, lp_rank(I, Scale, N), fail.
 index.
 
 % The prerequisite edges, which index/0 deliberately does not collect: the

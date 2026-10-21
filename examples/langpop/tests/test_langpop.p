@@ -288,6 +288,37 @@ check_true('including the youon rows -- densya for でんしゃ',
 check_true('and Hepburn remains the canonical spelling',
            hd(lp_romaji_variants('でんしゃ')) = 'densha');
 
+;;; ----------------------------------------------------- difficulty
+;;; rank/3 is an ordinal difficulty proxy on a named scale.  Placement is
+;;; what wants it: probing 103 kanji one at a time to find out whether
+;;; somebody reads kanji is absurd, and four probes spread along a
+;;; frequency rank locate them.
+check('an item with no rank says so', lp_rank_of("hi_a", "freq"), false);
+check('and so does an unknown scale', lp_rank_of("hi_a", "nonesuch"), false);
+
+if lp_ilang("k_65e5") then
+    check('KANJIDIC ranks 日 the commonest character',
+          lp_rank_of("k_65e5", "freq"), 1);
+    check('and puts it in the first school grade',
+          lp_rank_of("k_65e5", "grade"), 1);
+    check('with its stroke count', lp_rank_of("k_65e5", "strokes"), 4);
+    check_true('a rarer character ranks higher',
+               lp_rank_of("k_8033", "freq") > lp_rank_of("k_65e5", "freq"));
+    ;;; the whole point: the scale orders the level
+    lvars i, lo = false, hi = false;
+    for i in lp_items do
+        nextunless(lp_kind(i) == "grapheme" and lp_ilevel(i) == "n5");
+        lvars r = lp_rank_of(i, "freq");
+        nextunless(r);
+        unless lo and lp_rank_of(lo, "freq") <= r then i -> lo endunless;
+        unless hi and lp_rank_of(hi, "freq") >= r then i -> hi endunless;
+    endfor;
+    check_true('the level spans a wide range of the scale',
+               lp_rank_of(hi, "freq") - lp_rank_of(lo, "freq") > 1000);
+else
+    printf(';;; imported content not built -- ranks not checked\n');
+endif;
+
 ;;; -------------------------------------------------- probing the import
 ;;; The imported content is a build product, so a fresh checkout has no
 ;;; kanji items at all.  These run when it is there and say so when it is

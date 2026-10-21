@@ -201,6 +201,13 @@ check_true('a foreign-language meaning does not',
            issubstring('jour', imp_e_gloss(hi)) == false);
 check('every kanji needs the kana', imp_e_reqs(hi), [hiragana_all]);
 
+;;; The difficulty scales, which placement samples along.  The fixture
+;;; gives 日 a freq of 1, a grade of 1 and four strokes.
+check('the frequency rank is carried', imp_e_ranks(hi), [[freq 1] [grade 1] [strokes 4]]);
+check_true('a character with no freq carries only what it has',
+           not(any(imp_e_ranks(an), procedure(r); lvars r;
+               hd(r) == "freq" endprocedure)));
+
 check('the second rmgroup is ignored', imp_e_forms(an)(2), [hiragana 'やす']);
 check_true('and its meaning with it',
            issubstring('must not be mixed', imp_e_gloss(an)) == false);

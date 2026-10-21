@@ -56,6 +56,7 @@ vars
     lp_exits    = [],                                   ;;; [[lang level crit th ms] ...]
     lp_rsrc     = [],                                   ;;; [[id lang kind target url checked] ...]
     lp_gens     = [],                                   ;;; [[source lang level n date] ...]
+    lp_ranks    = newproperty([], 512, false, "perm"),  ;;; item|scale -> n
     lp_journal  = [],
     lp_assigns  = [],
     lp_user     = false,
@@ -223,6 +224,20 @@ define :prolog lp_exit/5(l, lv, c, th, ms, contn);
     chain(contn);
 enddefine;
 
+;;; An item's place on a named difficulty scale.  Keyed by item AND scale
+;;; in one word, because an item sits on several at once.
+define :prolog lp_rank/3(i, sc, n, contn);
+    lvars i, sc, n, contn;
+    prolog_deref(n) -> lp_ranks(consword((prolog_deref(i) sys_>< '') <> '|'
+                                         <> (prolog_deref(sc) sys_>< '')));
+    chain(contn);
+enddefine;
+
+define lp_rank_of(item, scale) -> n;
+    lvars item, scale;
+    lp_ranks(consword((item sys_>< '') <> '|' <> (scale sys_>< ''))) -> n;
+enddefine;
+
 define :prolog lp_generated/5(sc, l, lv, n, d, contn);
     lvars sc, l, lv, n, d, contn;
     lp_gens <> [[% prolog_deref(sc), prolog_deref(l), prolog_deref(lv),
@@ -329,6 +344,7 @@ define lp_index();
     clearproperty(lp_kind); clearproperty(lp_ilang);
     clearproperty(lp_ilevel); clearproperty(lp_isrc);
     clearproperty(lp_forms); clearproperty(lp_gl); clearproperty(lp_confs);
+    clearproperty(lp_ranks);
     [] -> lp_items; [] -> lp_ladders; [] -> lp_exits; [] -> lp_rsrc;
     [] -> lp_gens;
     lp_ask("index", 0).erase;

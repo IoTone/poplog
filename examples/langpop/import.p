@@ -441,12 +441,19 @@ enddefine;
 ;;; One upstream entry, whichever source it came from, reduced to what a
 ;;; graph fact needs.  A vector and not a record because this file hands
 ;;; them straight to the emitter and nothing else ever sees one:
-;;;   {id  kind  prov  forms  gloss  reqs}
+;;;   {id  kind  prov  forms  gloss  reqs  ranks}
 ;;; with forms a list of [script text], prov the provenance term as the
-;;; text that will be written, and reqs a list of prerequisite ids.
+;;; text that will be written, reqs a list of prerequisite ids, and ranks
+;;; a list of [scale n].
 define imp_entry(id, kind, prov, forms, gloss, reqs) -> e;
     lvars id, kind, prov, forms, gloss, reqs, e;
-    {% id, kind, prov, forms, gloss, reqs %} -> e;
+    {% id, kind, prov, forms, gloss, reqs, [] %} -> e;
+enddefine;
+
+;;; The same with a place on one or more difficulty scales.
+define imp_entry_ranked(id, kind, prov, forms, gloss, reqs, ranks) -> e;
+    lvars id, kind, prov, forms, gloss, reqs, ranks, e;
+    {% id, kind, prov, forms, gloss, reqs, ranks %} -> e;
 enddefine;
 
 define imp_e_id(e);     lvars e; e(1) enddefine;
@@ -455,6 +462,7 @@ define imp_e_prov(e);   lvars e; e(3) enddefine;
 define imp_e_forms(e);  lvars e; e(4) enddefine;
 define imp_e_gloss(e);  lvars e; e(5) enddefine;
 define imp_e_reqs(e);   lvars e; e(6) enddefine;
+define imp_e_ranks(e);  lvars e; e(7) enddefine;
 
 ;;; An attribute's value, or false.
 define imp_attr(attrs, name) -> v;
@@ -552,6 +560,7 @@ define imp_kanjidic(path, want_jlpt) -> es;
     lvars path, want_jlpt, es = [],
           nm = false, at = [],
           lit = false, ucs = false, jlpt = false,
+          freq = false, grade = false, strokes = false,
           rmg = 0, ons = [], kuns = [], means = [],
           hdr_file = false, hdr_db = false, hdr_date = false, seen = 0;
 
@@ -562,6 +571,7 @@ define imp_kanjidic(path, want_jlpt) -> es;
             if n == "character" then
                 seen fi_+ 1 -> seen;
                 false -> lit; false -> ucs; false -> jlpt;
+                false -> freq; false -> grade; false -> strokes;
                 0 -> rmg; [] -> ons; [] -> kuns; [] -> means;
             elseif n == "rmgroup" then
                 ;;; Only the first reading-meaning group is taken.  A
@@ -579,6 +589,16 @@ define imp_kanjidic(path, want_jlpt) -> es;
             elseif nm == "database_version" then t -> hdr_db
             elseif nm == "date_of_creation" then t -> hdr_date
             elseif nm == "jlpt"             then strnumber(t) -> jlpt
+            ;;; The difficulty scales.  A frequency rank is the useful
+            ;;; one -- KANJIDIC ranks exactly the top 2,501 characters by
+            ;;; corpus frequency -- and the school grade and the stroke
+            ;;; count come free beside it.  Only the FIRST stroke_count
+            ;;; is taken: a character with variant forms lists one per
+            ;;; variant, and the first is the standard one.
+            elseif nm == "freq"             then strnumber(t) -> freq
+            elseif nm == "grade"            then strnumber(t) -> grade
+            elseif nm == "stroke_count" and not(strokes) then
+                strnumber(t) -> strokes
             elseif nm == "cp_value" and imp_attr(at, "cp_type") = 'ucs' then t -> ucs
             elseif nm == "reading" and rmg == 1 then
                 ;;; ja_on is written in katakana and ja_kun in hiragana,
@@ -607,7 +627,7 @@ define imp_kanjidic(path, want_jlpt) -> es;
             unless kuns == [] then forms <> [[hiragana ^(hd(kuns))]] -> forms endunless;
             unless ons  == [] then forms <> [[katakana ^(hd(ons))]]  -> forms endunless;
             imp_join(imp_first(means, 4), ', ') -> g;
-            es <> [% imp_entry(consword('k_' <> uppertolower(ucs)),
+            es <> [% imp_entry_ranked(consword('k_' <> uppertolower(ucs)),
                                "grapheme",
                                'kanjidic2(ucs(' <> imp_atom(ucs) <> '), jlpt('
                                    <> (want_jlpt sys_>< '') <> '))',
@@ -621,7 +641,11 @@ define imp_kanjidic(path, want_jlpt) -> es;
                                ;;; upstream does not make, and inventing it
                                ;;; here would put 100 edges in the graph
                                ;;; that nobody chose.
-                               [hiragana_all]) %] -> es;
+                               [hiragana_all],
+                               [% if freq then [freq ^freq] endif;
+                                  if grade then [grade ^grade] endif;
+                                  if strokes then [strokes ^strokes] endif %])
+                     %] -> es;
         endprocedure);
 
     ;;; Sorted by id, which for kanji is the codepoint.  Upstream's own
@@ -968,6 +992,10 @@ define imp_emit(es, srcname, path);
         endunless;
         for r in imp_e_reqs(e) do
             imp_pr('requires(%p, %p).\n', [% imp_e_id(e), r %]);
+        endfor;
+        for r in imp_e_ranks(e) do
+            imp_pr('rank(%p, %p, %p).\n',
+                   [% imp_e_id(e), hd(r), hd(tl(r)) %]);
         endfor;
         imp_out('\n');
     endfor;
