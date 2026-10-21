@@ -324,6 +324,59 @@ requires(youon,           hi_ya).
 % one thing that cannot demonstrate the contrast the skill is named for.
 requires(dakuten, V) :- voiced(V, _, _).
 
+% --- The characters that are not syllables -------------------------------
+% kana/5 holds the 138 kana that stand for a mora ON THEIR OWN.  It does
+% not hold っ, ゃ, ゅ, ょ, the small vowels or ー, and recognise(hiragana)
+% is measured over kana/5 -- so a criterion named "recognise hiragana"
+% has been quietly measuring "recognise the syllabary" since the file was
+% written.  They are not an oversight and they do not belong in the
+% table: a gojuon grid has no cell for them, they have no reading of
+% their own, and `type the romaji` cannot ask about ゃ because ゃ and や
+% are both `ya`.
+%
+% What was missing is the DECLARATION.  Each one is covered by a skill
+% that is about what it does -- which is the honest division, and now a
+% checkable one: check(graph) walks every written form and reports any
+% character that is neither a kana nor declared here, so a word added
+% later with a ゐ in it does not pass silently.
+%
+% modifier(Glyph, Script, Why).
+modifier('ゃ', hiragana, youon).
+modifier('ゅ', hiragana, youon).
+modifier('ょ', hiragana, youon).
+modifier('ャ', katakana, youon).
+modifier('ュ', katakana, youon).
+modifier('ョ', katakana, youon).
+
+% The small vowels combine the same way -- ファ, ディ, フォ -- and are
+% declared although no item uses one yet, because the first katakana
+% loanword that does should not be the thing that breaks the check.
+modifier('ぁ', hiragana, youon).
+modifier('ぃ', hiragana, youon).
+modifier('ぅ', hiragana, youon).
+modifier('ぇ', hiragana, youon).
+modifier('ぉ', hiragana, youon).
+modifier('ゎ', hiragana, youon).
+modifier('ァ', katakana, youon).
+modifier('ィ', katakana, youon).
+modifier('ゥ', katakana, youon).
+modifier('ェ', katakana, youon).
+modifier('ォ', katakana, youon).
+modifier('ヮ', katakana, youon).
+
+% A beat of silence, which is the whole of skill(mora_sokuon).
+modifier('っ', hiragana, mora_sokuon).
+modifier('ッ', katakana, mora_sokuon).
+
+% And the long mark, which is a beat of the vowel before it.
+modifier('ー', katakana, mora_long_vowel).
+
+% Not a character of the script at all: the blank in a sentence pattern,
+% form(p_kore_wa_desu, hiragana, 'これは___です').  A pattern's form is a
+% TEMPLATE and not a word, and the check would otherwise report its
+% underscores as unknown kana -- which is how this one was found.
+modifier('_', any, placeholder).
+
 % --- The mora skills carry their own question ----------------------------
 % A mora is a unit of TIME, and nothing about reading a kana demonstrates
 % it: --audit reported skill(mora_count) and skill(mora_sokuon) as `thin`

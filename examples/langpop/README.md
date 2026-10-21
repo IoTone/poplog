@@ -926,6 +926,80 @@ logged in would be a privilege check protecting a table anybody can buy
 on a poster.
 
 
+## The characters that are not syllables
+
+`kana/5` holds the 138 kana that stand for a mora **on their own**. It
+does not hold っ, ゃ, ゅ, ょ, the small vowels or ー — and
+`recognise(hiragana)` is measured over `kana/5`, so a criterion named
+*recognise hiragana* has been quietly measuring *recognise the
+syllabary* since the file was written.
+
+**They do not belong in the table, and that is not the problem.** A
+gojūon grid has no cell for them. They have no reading of their own.
+`type the romaji` cannot ask about ゃ, because ゃ and や are both `ya` —
+so adding them would make the criterion's name true and its measurement
+hollow, which is the trade this project keeps refusing.
+
+What was missing was the **declaration**:
+
+```prolog
+modifier('ゃ', hiragana, youon).
+modifier('っ', hiragana, mora_sokuon).
+modifier('ー', katakana, mora_long_vowel).
+```
+
+Each is covered by a skill that is about **what it does**. Together with
+`kana/5` they account for every character of the script, and now
+checkably so: `check(graph)` proves the *shape* of the graph, and a
+companion check proves the *content of its forms* — walking every
+written form and reporting any character that is neither a kana nor a
+declared modifier.
+
+```
+undeclared_kana(ゐ, w_neko)
+```
+
+It is a Pop-11 check and not a Prolog one because it walks a string
+character by character and the characters are UTF-8: splitting an atom
+into them is what `utf8_explode` is for and what Prolog here is not.
+`lp_check/0` returns both lists.
+
+**It found something on its first run.** `form(p_kore_wa_desu, hiragana,
+'これは___です')` — a sentence pattern's form is a *template*, and its
+underscores are not kana. Declared as such:
+
+```prolog
+modifier('_', any, placeholder).
+```
+
+The small vowels are declared although no item uses one yet, because the
+first katakana loanword with a ファ in it should not be the thing that
+breaks the check.
+
+### And they go on the chart
+
+A learner meets っ in がっこう on day three, so a reference sheet that
+leaves it off is a reference with a hole in it. They are not cells of
+the grid and never will be — so they sit in a strip along the foot,
+separated by a rule, labelled with **what each one does** rather than
+with a reading it does not have.
+
+```
+ヤャ              ユュ              ヨョ              ツッ              ー
+joins the one     joins the one     joins the one     a beat of        lengthens
+before            before            before            silence          the vowel
+```
+
+Each is drawn **beside its full-size twin**, in grey, because the
+difference is the size and nothing else: ゃ on its own at chart size is
+indistinguishable from や, which is exactly the confusion the strip
+exists to prevent. ー has no twin and gets none.
+
+The footer wraps now, too. A footer is one line until somebody writes a
+long one, and then it is one line that runs off the right-hand edge —
+which it did, the moment the strip needed explaining.
+
+
 ## A mora is a unit of time, and you can ask about it by typing
 
 `--audit` called `skill(mora_count)` and `skill(mora_sokuon)` **thin**,
@@ -1026,13 +1100,8 @@ spellings Japanese uses for one: おう and えい.
 
 ### Still open
 
-**The small kana are not in the table.** っ, ゃ, ゅ, ょ and the small
-vowels are hiragana, and `recognise(hiragana)` claims to cover every
-hiragana, but `kana/5` holds none of them — they are modifiers rather
-than syllables, which is why the graph carries `youon` and
-`mora_sokuon` as skills instead. Defensible, and worth stating: a word
-using one now says so (`requires(w_omocha, youon)`), but the glyph
-itself has no item and does not appear on the chart.
+**The small kana are not in the table** — and now they are *declared*,
+checked and printed. See the section above.
 
 ## The study plan, as a booklet
 

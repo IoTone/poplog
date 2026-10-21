@@ -241,5 +241,12 @@ kana_table.
 % that a graph holding none of them still answers rather than raising.
 probe(none, none).
 
+% The characters a written form may hold that are not kana in their own
+% right.  Guarded for the same reason -- the English graph declares none.
+modifier(none, none, none).
+
+modifiers :- modifier(G, S, W), G \== none, lp_take(m(G, S, W)), fail.
+modifiers.
+
 probes :- probe(S, F), S \== none, lp_take(p(S, F)), fail.
 probes.

@@ -2965,9 +2965,64 @@ define lp_show_sheet(style);
 enddefine;
 
 ;;; ------------------------------------------------------------------ main
+;;; The modifiers, from the graph: characters a written form may hold
+;;; that are not kana in their own right.  Built on first use, like the
+;;; probes and the edges.
+vars lp_mods = newproperty([], 64, false, "perm"), lp_mods_ready = false;
+
+define lp_modifier_of(glyph) -> why;
+    lvars glyph, m, why;
+    unless lp_mods_ready then
+        true -> lp_mods_ready;
+        clearproperty(lp_mods);
+        for m in lp_ask("modifiers", 0) do
+            prolog_deref(prolog_arg(3, m))
+                -> lp_mods(consword(prolog_full_deref(prolog_arg(1, m))
+                                    sys_>< ''));
+        endfor;
+    endunless;
+    lp_mods(consword(glyph sys_>< '')) -> why;
+enddefine;
+
+;;; Every character of every written form is either a kana the graph
+;;; holds or a modifier the graph declares.
+;;;
+;;; This is a Pop-11 check and not a Prolog one because it has to walk a
+;;; string character by character, and the characters are UTF-8: splitting
+;;; an atom into them is what utf8_explode is for and what Prolog here is
+;;; not.  So check(graph) proves the shape of the graph and this proves
+;;; the content of its forms, and lp_check returns both.
+;;;
+;;; What it is for: recognise(hiragana) is measured over kana/5, which
+;;; holds only the kana that stand for a mora on their own.  That is the
+;;; right set to measure -- ゃ has no reading to type -- but it means the
+;;; graph can hold a form with a character in it that nothing teaches and
+;;; nothing checks.  Now it cannot, silently.
+define lp_undeclared_kana() -> bad;
+    lvars i, sc, f, cp, c, bad = [],
+          seen = newproperty([], 64, false, "perm");
+    lp_build_kana_rom();
+    for i in lp_items do
+        for sc in [hiragana katakana] do
+            lp_form_of(i, sc) -> f;
+            nextunless(f);
+            for cp in [% utf8_explode(f sys_>< '') %] do
+                consutf8(#| cp |#) -> c;
+                nextif(lp_kana_rom(consword(c)));
+                nextif(lp_modifier_of(c));
+                nextif(seen(c));
+                true -> seen(c);
+                bad <> [% 'undeclared_kana(' <> c <> ', ' <> (i sys_>< '')
+                          <> ')' %] -> bad;
+            endfor;
+        endfor;
+    endfor;
+enddefine;
+
 define lp_check() -> bad;
     lvars bad;
     lp_ask("graph", "check", 1) -> bad;         ;;; ?- check(graph).
+    bad <> lp_undeclared_kana() -> bad;
 enddefine;
 
 ;;; Poplog wraps terminal output at poplinewidth (70 by default), and

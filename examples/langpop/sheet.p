@@ -110,12 +110,19 @@ define sheet_head(title, sub) -> out;
 enddefine;
 
 define sheet_foot(note) -> out;
-    lvars note, out;
+    lvars note, out, l, y = PAGE_H - 130;
     sprintf('    <line x1="%p" y1="%p" x2="%p" y2="%p" '
             <> 'stroke="#e2ded4" stroke-width="2"/>\n',
             [% PAGE_M, PAGE_H - 190, PAGE_W - PAGE_M, PAGE_H - 190 %])
-    <> sheet_text(PAGE_M, PAGE_H - 130, 28, '#8a8275', 'start', note)
-    <> '  </g>\n</svg>\n' -> out;
+        -> out;
+    ;;; Wrapped.  A footer is one line until somebody writes a long one,
+    ;;; and then it is one line that runs off the right-hand edge --
+    ;;; which it did, the moment the modifier strip needed explaining.
+    for l in zine_wrap(note, 118) do
+        out <> sheet_text(PAGE_M, y, 28, '#8a8275', 'start', l) -> out;
+        y + 38 -> y;
+    endfor;
+    out <> '  </g>\n</svg>\n' -> out;
 enddefine;
 
 ;;; -------------------------------------------------------- the chart
@@ -181,7 +188,60 @@ define sheet_cell(x, y, w, rh, glyph, rom) -> out;
                   '#6b6457', 'middle', rom) -> out;
 enddefine;
 
-lconstant GRID_TOP = 400, GRID_BOT = 260, ROW_LABEL = 160;
+lconstant GRID_TOP = 400, GRID_BOT = 440, ROW_LABEL = 160;
+
+;;; The full-size kana a small one is the small form OF, so the strip
+;;; can show the pair.  By codepoint, because that is the relationship:
+;;; every small kana sits one or two below its full twin in the block.
+define sheet_twin(g) -> t;
+    lvars g, cp = hd([% utf8_explode(g sys_>< '') %]), t = '';
+    if cp == 16:3063 or cp == 16:30C3 then consutf8(#| cp + 1 |#)    ;;; っ -> つ
+    elseif cp >= 16:3083 and cp <= 16:3087 then consutf8(#| cp + 1 |#)
+    elseif cp >= 16:30E3 and cp <= 16:30E7 then consutf8(#| cp + 1 |#)
+    elseif cp == 16:308E or cp == 16:30EE then consutf8(#| cp + 1 |#)
+    elseif cp >= 16:3041 and cp <= 16:3049 then consutf8(#| cp + 1 |#)
+    elseif cp >= 16:30A1 and cp <= 16:30A9 then consutf8(#| cp + 1 |#)
+    else ''
+    endif -> t;
+enddefine;
+
+;;; The characters that are not syllables, along the foot of the chart.
+;;;
+;;; They are not cells of the grid -- a gojuon table has no place for
+;;; them, which is exactly why they are not in kana/5 -- but a learner
+;;; meets っ in がっこう on day three, and a reference sheet that leaves
+;;; them off is a reference with a hole in it.  So: a strip, separated
+;;; from the grid, labelled with what each one does rather than with a
+;;; reading, because they have no reading.
+define sheet_modifiers(script) -> out;
+    lvars script, m, g, why, x, out = '', n = 0, y = PAGE_H - 330;
+    out <> sprintf('    <line x1="%p" y1="%p" x2="%p" y2="%p" '
+                   <> 'stroke="#e2ded4" stroke-width="2"/>\n',
+                   [% PAGE_M, y - 90, PAGE_W - PAGE_M, y - 90 %]) -> out;
+    for m in lp_ask("modifiers", 0) do
+        prolog_deref(prolog_arg(2, m)) -> why;
+        nextunless(why == script);
+        prolog_full_deref(prolog_arg(1, m)) -> g;
+        prolog_deref(prolog_arg(3, m)) -> why;
+        ;;; the small vowels are declared ahead of need and would fill
+        ;;; the strip with characters no item uses yet
+        nextunless(member(g sys_>< '',
+                          ['ゃ' 'ゅ' 'ょ' 'っ'
+                           'ャ' 'ュ' 'ョ' 'ッ' 'ー']));
+        n + 1 -> n;
+        PAGE_M + (n - 1) * 360 -> x;
+        ;;; Shown BESIDE its full-size twin, because the difference is
+        ;;; the size and nothing else: ゃ drawn on its own at chart size
+        ;;; is indistinguishable from や, which is exactly the confusion
+        ;;; the strip is supposed to prevent.  ー has no twin.
+        out <> sheet_text(x, y, 95, '#b9b2a4', 'start', sheet_twin(g))
+            <> sheet_text(x + 130, y, 95, '#1b1a17', 'start', g sys_>< '')
+            <> sheet_text(x, y + 56, 26, '#6b6457', 'start',
+                          if why == "youon" then 'joins the one before'
+                          elseif why == "mora_sokuon" then 'a beat of silence'
+                          else 'lengthens the vowel' endif) -> out;
+    endfor;
+enddefine;
 
 define sheet_chart(script) -> svg;
     lvars script, grid, rows, ri, r, c, cell, y, x, rh,
@@ -220,10 +280,13 @@ define sheet_chart(script) -> svg;
         y + rh -> y;
     endfor;
 
-    svg <> sheet_foot(
+    svg <> sheet_modifiers(script)
+        <> sheet_foot(
         (n sys_>< '') <> ' kana, drawn from graph/ja/kana.pl.  '
         <> 'The gaps in the d row are real: ぢ and づ are spellings of '
-        <> 'じ and ず, not sounds of their own.') -> svg;
+        <> 'じ and ず, not sounds of their own.  The row along the foot '
+        <> 'is not syllables: those characters have no reading of their '
+        <> 'own.') -> svg;
 enddefine;
 
 ;;; ------------------------------------------------- the youon sheet

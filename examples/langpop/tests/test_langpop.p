@@ -782,6 +782,71 @@ check('and records when it was last checked',
 
 
 
+
+;;; --------------------------------- characters that are not syllables
+;;; kana/5 holds the kana that stand for a mora ON THEIR OWN.  It does
+;;; not hold っ, ゃ, ゅ, ょ, the small vowels or ー -- and
+;;; recognise(hiragana) is measured over kana/5, so a criterion named
+;;; "recognise hiragana" has been quietly measuring "recognise the
+;;; syllabary" since the file was written.
+;;;
+;;; They do not belong in the table: a gojuon grid has no cell for them,
+;;; they have no reading of their own, and `type the romaji` cannot ask
+;;; about ゃ because ゃ and や are both `ya`.  What was missing is the
+;;; declaration -- and now the check.
+check('ゃ is declared, and says which skill covers it',
+      lp_modifier_of('ゃ'), "youon");
+check('ょ too', lp_modifier_of('ょ'), "youon");
+check('and the katakana twins', lp_modifier_of('ョ'), "youon");
+check('っ is a beat of silence, so mora_sokuon covers it',
+      lp_modifier_of('っ'), "mora_sokuon");
+check('ー is a beat of the vowel before it',
+      lp_modifier_of('ー'), "mora_long_vowel");
+
+;;; Declared although nothing uses one yet, because the first katakana
+;;; loanword with a ファ in it should not be the thing that breaks the
+;;; check.
+check('the small vowels are declared ahead of need',
+      lp_modifier_of('ァ'), "youon");
+
+;;; A full-size kana is not a modifier -- it is in the table.
+check_false('や is not a modifier', lp_modifier_of('や'));
+check_false('nor is あ', lp_modifier_of('あ'));
+check_false('and neither is something that is not kana at all',
+            lp_modifier_of('Z'));
+
+;;; Not a character of the script at all: the blank in a sentence
+;;; pattern.  form(p_kore_wa_desu, hiragana, 'これは___です') -- a
+;;; pattern's form is a TEMPLATE and not a word, and the check reported
+;;; its underscores as unknown kana, which is how this one was found.
+check('the pattern placeholder is declared', lp_modifier_of('_'),
+      "placeholder");
+
+;;; Every character of every written form is either a kana the graph
+;;; holds or a modifier it declares.
+check('the graph is clean', lp_undeclared_kana(), []);
+
+;;; And the check FIRES.  A test that only ever sees a clean graph is a
+;;; test of nothing -- so put a character in a form that nothing teaches
+;;; and nothing checks, and watch it come back.
+;;; Prepended, not appended: lp_form_of returns the FIRST pair with a
+;;; matching script, so a second hiragana form on the end is a form
+;;; nothing ever reads -- which is how the first version of this test
+;;; managed to inject a bad character and still see a clean graph.
+[[% "hiragana", 'ゐねこ' %]] <> lp_forms("w_neko") -> lp_forms("w_neko");
+lvars dirty = lp_undeclared_kana();
+check('an undeclared kana is reported', length(dirty), 1);
+check_true('and the report names the character',
+           issubstring('ゐ', hd(dirty)) /== false);
+check_true('and the item it is in',
+           issubstring('w_neko', hd(dirty)) /== false);
+lp_index();                             ;;; put the graph back
+check('clean again', lp_undeclared_kana(), []);
+
+;;; lp_check returns both: check(graph) proves the SHAPE of the graph and
+;;; this proves the CONTENT of its forms.
+check('and lp_check carries both', lp_check(), []);
+
 ;;; ------------------------------------------------------------ morae
 ;;; A mora is a unit of TIME, and --audit called skill(mora_count) and
 ;;; skill(mora_sokuon) `thin` over a set of one item -- あ -- which

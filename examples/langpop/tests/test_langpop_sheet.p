@@ -110,6 +110,38 @@ check_true('and names itself in katakana',
 ;;; d row deserves to be told why they are there.
 check_true('the sheet explains the gaps', issubstring('ぢ', hira) /== false);
 
+;;; The characters that are not syllables, along the foot.  They are not
+;;; cells of the grid and never will be, but a learner meets っ in
+;;; がっこう on day three and a reference that leaves them off is a
+;;; reference with a hole in it.
+check_true('っ is on the chart', issubstring('>っ<', hira) /== false);
+check_true('and ゃゅょ', issubstring('>ゃ<', hira) /== false);
+check_true('with what it does, not a reading it does not have',
+           issubstring('a beat of silence', hira) /== false);
+check_true('the katakana sheet carries ー too',
+           issubstring('>ー<', kata) /== false);
+
+;;; Each is drawn BESIDE its full-size twin, because the difference is
+;;; the size and nothing else: ゃ on its own at chart size is
+;;; indistinguishable from や, which is the confusion the strip exists
+;;; to prevent.
+check('っ is the small つ', sheet_twin('っ'), 'つ');
+check('ゃ the small や', sheet_twin('ゃ'), 'や');
+check('ョ the small ヨ', sheet_twin('ョ'), 'ヨ');
+check('ァ the small ア', sheet_twin('ァ'), 'ア');
+check('and ー has no twin', sheet_twin('ー'), '');
+
+;;; A footer is one line until somebody writes a long one, and then it
+;;; is one line that runs off the right-hand edge -- which it did, the
+;;; moment the strip needed explaining.
+check_true('the footer wraps rather than overrunning',
+           length(zine_wrap(
+               '69 kana, drawn from graph/ja/kana.pl.  The gaps in the d '
+               <> 'row are real: ぢ and づ are spellings of じ and ず, not '
+               <> 'sounds of their own.  The row along the foot is not '
+               <> 'syllables: those characters have no reading of their '
+               <> 'own.', 118)) > 1);
+
 ;;; ------------------------------------------------------- the youon
 ;;; Youon are COMBINATIONS, not glyphs, which is why the graph holds
 ;;; `youon` as a skill and not as 33 items -- so the sheet derives them,
