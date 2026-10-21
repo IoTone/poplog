@@ -251,6 +251,55 @@ check('and says it cannot be checked',
 check('while still carrying the target',
       crit('vocabulary(50, hear)')('want'), 50);
 
+;;; ------------------------------------------------- answering an import
+;;; Every imported Japanese item used to return shape "none", so a client
+;;; driving langpop/next at N5 got {"item": null, "note": "nothing here
+;;; can be checked by typing"} for 251 items.  This is the whole round
+;;; trip for one, in both spellings a learner might use -- and it is
+;;; skipped on a checkout where the content has not been built, because
+;;; there are then no imported items to ask about.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'n5reader',
+                                          'display_name', 'N5 Reader',
+                                          'language', 'ja' %])).erase;
+vars n5s = result('langpop/session.open',
+                  jsonrpc_obj([% 'student_id', 'n5reader' %]))('session_id');
+
+vars iq = result('langpop/next', jsonrpc_obj([% 'session_id', n5s %]));
+check_true('something is askable', iq('item') /== json_null);
+
+if lp_ilang("w_yama") then
+    ;;; An imported word, answered in kana.
+    vars ia = result('langpop/answer',
+                     jsonrpc_obj([% 'session_id', n5s, 'item', 'w_yama',
+                                    'answer', 'やま' %]));
+    check('the kana reading is accepted', ia('correct'), true);
+    check('and it is tier 1, a verified check', ia('tier'), 1);
+
+    ;;; The same word in romaji, which is the whole reason the
+    ;;; transliterator exists: a learner has no reason to own an IME.
+    vars ib = result('langpop/answer',
+                     jsonrpc_obj([% 'session_id', n5s, 'item', 'w_yama',
+                                    'answer', 'yama' %]));
+    check('romaji is accepted too', ib('correct'), true);
+
+    ;;; An imported kanji, answered with its on reading.
+    vars ic = result('langpop/answer',
+                     jsonrpc_obj([% 'session_id', n5s, 'item', 'k_65e5',
+                                    'answer', 'nichi' %]));
+    check('an on reading answers a kanji', ic('correct'), true);
+
+    ;;; And a wrong answer names the canonical spelling, not the whole
+    ;;; set -- telling a learner that gakko would also have done is not
+    ;;; the job of a correction.
+    vars id2 = result('langpop/answer',
+                      jsonrpc_obj([% 'session_id', n5s, 'item', 'w_yama',
+                                     'answer', 'kawa' %]));
+    check('a wrong reading is wrong', id2('correct'), false);
+    check('and the expected answer is the kana', id2('expected'), 'やま');
+else
+    printf(';;; imported content not built -- import answers not checked\n');
+endif;
+
 ;;; ----------------------------------------------------------- recognition
 ;;; The one thing the TUI could do that the protocol could not, which made
 ;;; Proposal B's premise -- the TUI is just a client -- false for exactly

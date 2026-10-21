@@ -24,6 +24,7 @@
 uses prolog;
 uses define_prolog;
 uses json;
+uses utf8;
 
 ;;; ------------------------------------------------------------- locating
 vars langpop_dir = 'examples/langpop/';
@@ -332,6 +333,11 @@ define lp_index();
     [] -> lp_gens;
     lp_ask("index", 0).erase;
     rev(lp_items) -> lp_items;
+    ;;; The kana-to-romaji map is built on first use rather than here --
+    ;;; it reads the graph through lp_form_of, which is defined further
+    ;;; down this file, and a call to it from up here would compile
+    ;;; against an undefined variable.
+    false -> lp_kana_rom_ready;
 enddefine;
 
 ;;; ------------------------------------------------------- reading the graph
@@ -343,9 +349,19 @@ define lp_form_of(item, script) -> t;
     endfor;
 enddefine;
 
+;;; The face of an item: what to show when one form has to stand for it.
+;;;
+;;; Kanji FIRST, which it was not.  Preferring hiragana was right while
+;;; every item was a kana or a kana-only starter word, and became wrong
+;;; the moment the import brought in characters and kanji-written words:
+;;; :why k_4e00 headed itself ひと rather than 一, which is the reading
+;;; standing in for the character it is a reading OF.  Nothing that asks
+;;; a question is affected, because no item carries both a kanji form and
+;;; a romaji form -- the starter words have romaji and no kanji, the
+;;; imported ones kanji and no romaji.
 define lp_any_form(item) -> t;
     lvars item, script;
-    for script in [hiragana katakana kanji latin ipa romaji] do
+    for script in [kanji hiragana katakana latin ipa romaji] do
         lp_form_of(item, script) -> t;
         returnif(t);
     endfor;
@@ -641,22 +657,308 @@ enddefine;
 
 vars lp_flip = 0;                       ;;; deterministic option order, so tests repeat
 
+;;; ------------------------------------------------- kana into romaji
+;;; Why this exists: every imported Japanese item was UNASKABLE.
+;;;
+;;; lp_question could only build a probe for a ja item that had a romaji
+;;; form, because the answer is typed and a learner has no reason to own
+;;; a Japanese input method.  kana.pl and the starter list carry romaji;
+;;; the importer emits kanji, hiragana and katakana forms and no romaji,
+;;; so all 103 imported kanji and all 148 imported N5 words returned
+;;; shape "none" and the tutor said "nothing here can be checked by
+;;; typing".  251 of 521 items, and it failed silently -- no violation,
+;;; because nothing checks that an item can be answered.
+;;;
+;;; The fix is not to emit romaji into the graph.  form(k_5c71, kanji,
+;;; '山') together with form(k_5c71, hiragana, 'やま') already IS a probe:
+;;; prompt one, answer the other.  What was missing is the ability to
+;;; accept that answer typed in Latin letters, which is a fact about the
+;;; writing system rather than about any item -- so it lives here, beside
+;;; the answer checking, and not in the graph.
+
+;;; The voiced and plosive kana, which kana.pl deliberately does not
+;;; carry: it holds the 92 BASE kana, because a student who cannot read か
+;;; cannot be taught が.  Hiragana only -- the katakana are the same block
+;;; plus 0x60 and are derived below rather than typed, for the reason
+;;; tools/mkkana.py gives: a glyph that is generated cannot be subtly
+;;; wrong.
+lconstant KANA_VOICED = [
+    'が' 'ga'  'ぎ' 'gi'  'ぐ' 'gu'  'げ' 'ge'  'ご' 'go'
+    'ざ' 'za'  'じ' 'ji'  'ず' 'zu'  'ぜ' 'ze'  'ぞ' 'zo'
+    'だ' 'da'  'ぢ' 'ji'  'づ' 'zu'  'で' 'de'  'ど' 'do'
+    'ば' 'ba'  'び' 'bi'  'ぶ' 'bu'  'べ' 'be'  'ぼ' 'bo'
+    'ぱ' 'pa'  'ぴ' 'pi'  'ぷ' 'pu'  'ぺ' 'pe'  'ぽ' 'po'
+];
+
+;;; Keyed by WORD and not by string: a property compares its keys with
+;;; == , so two equal strings are two different keys.  That has cost
+;;; something three times in this tree already.
+vars lp_kana_rom = newproperty([], 512, false, "perm"),
+     lp_kana_rom_ready = false;
+
+define lp_kata_of(hira) -> kata;
+    lvars hira, kata, c;
+    consutf8(#| lvars c; for c in [% utf8_explode(hira) %] do c + 16:60 endfor |#)
+        -> kata;
+enddefine;
+
+define lp_kata_to_hira(s) -> h;
+    lvars s, c, h;
+    ;;; Only the syllabary block shifts; ー and anything else is left as it
+    ;;; is, which is why this is not a blanket subtraction.
+    consutf8(#| lvars c;
+                for c in [% utf8_explode(s) %] do
+                    if c >= 16:30A1 and c <= 16:30F6 then c - 16:60 else c endif;
+                endfor |#) -> h;
+enddefine;
+
+;;; Built from the graph where the graph has it, so the 92 base kana come
+;;; from the table generated out of Unicode codepoints and cannot drift
+;;; from it.  Called by lp_index.
+define lp_build_kana_rom();
+    lvars i, r, g, l;
+    returnif(lp_kana_rom_ready);
+    true -> lp_kana_rom_ready;
+    clearproperty(lp_kana_rom);
+    for i in lp_items do
+        nextunless(lp_ilang(i) == "ja" and lp_kind(i) == "grapheme");
+        lp_form_of(i, "romaji") -> r;
+        nextunless(r);
+        lp_form_of(i, "hiragana") -> g;
+        if g then (r sys_>< '') -> lp_kana_rom(consword(g sys_>< '')) endif;
+        lp_form_of(i, "katakana") -> g;
+        if g then (r sys_>< '') -> lp_kana_rom(consword(g sys_>< '')) endif;
+    endfor;
+    KANA_VOICED -> l;
+    until l == [] do
+        hd(tl(l)) -> r;
+        hd(l) -> g;
+        r -> lp_kana_rom(consword(g));
+        r -> lp_kana_rom(consword(lp_kata_of(g)));     ;;; the +0x60 twin
+        tl(tl(l)) -> l;
+    enduntil;
+enddefine;
+
+;;; The vowel a small ya/yu/yo contributes, or false.
+define lp_youon(cp) -> v;
+    lvars cp, v = false;
+    if     cp == 16:3083 or cp == 16:30E3 then 'a' -> v
+    elseif cp == 16:3085 or cp == 16:30E5 then 'u' -> v
+    elseif cp == 16:3087 or cp == 16:30E7 then 'o' -> v
+    endif;
+enddefine;
+
+define lp_sokuon(cp); lvars cp; cp == 16:3063 or cp == 16:30C3 enddefine;
+define lp_longmark(cp); lvars cp; cp == 16:30FC enddefine;
+
+define lp_is_vowel_c(c); lvars c;
+    c == `a` or c == `i` or c == `u` or c == `e` or c == `o`
+enddefine;
+
+;;; Kana to Hepburn.  Not a general transliterator -- just enough for a
+;;; reading, which is what the graph holds.
+define lp_romaji(kana) -> out;
+    lvars kana, codes, n, i = 1,
+          out = '', cp, nxt, g, syl, v, dbl = false, last = false;
+    lp_build_kana_rom();
+    [% utf8_explode(kana sys_>< '') %] -> codes;
+    length(codes) -> n;
+    until i > n do
+        codes(i) -> cp;
+        if lp_sokuon(cp) then
+            ;;; a small tsu doubles the consonant that follows it
+            true -> dbl; i + 1 -> i; nextloop;
+        endif;
+        if lp_longmark(cp) then
+            ;;; ー lengthens whatever vowel came before: コーヒー is koohii
+            if last then out <> last -> out endif;
+            i + 1 -> i; nextloop;
+        endif;
+        consutf8(#| cp |#) -> g;
+        lp_kana_rom(consword(g)) -> syl;
+        unless syl then
+            ;;; something outside the syllabary -- a kanji in a mixed
+            ;;; string, say.  Give up rather than guess: a half
+            ;;; transliteration accepted as an answer would be worse than
+            ;;; no romaji at all.
+            false -> out; return;
+        endunless;
+        ;;; き + ゃ is kya; し + ゃ is sha, not shya.  Drop the trailing i
+        ;;; for the stem, then: a stem that already palatalises (sh, ch,
+        ;;; j) takes the bare vowel, and anything else takes y plus the
+        ;;; vowel.  The length test is what separates sh and ch from the h
+        ;;; of hi -- "ends in h" alone would turn ひゃ into ha instead of
+        ;;; hya, which is how the first version of this got きょう wrong.
+        if i < n and lp_youon(codes(i + 1)) ->> v then
+            lvars stem = syl;
+            if length(syl) > 1 and syl(length(syl)) == `i` then
+                substring(1, length(syl) - 1, syl) -> stem;
+            endif;
+            if (length(stem) >= 2 and stem(length(stem)) == `h`)
+            or stem = 'j' then
+                stem <> v -> syl;
+            else
+                stem <> 'y' <> v -> syl;
+            endif;
+            i + 2 -> i;
+        else
+            i + 1 -> i;
+        endif;
+        if dbl then
+            ;;; double the leading consonant: っこ is kko
+            unless lp_is_vowel_c(syl(1)) then
+                consstring(syl(1), 1) <> syl -> syl;
+            endunless;
+            false -> dbl;
+        endif;
+        out <> syl -> out;
+        ;;; remember the last vowel, for a following ー
+        lvars k;
+        false -> last;
+        for k from length(syl) by -1 to 1 do
+            if lp_is_vowel_c(syl(k)) then
+                consstring(syl(k), 1) -> last; quitloop
+            endif;
+        endfor;
+    enduntil;
+enddefine;
+
+;;; Replace every occurrence of one substring with another.  The
+;;; parameters are not called `from` and `to`: both are Pop-11 syntax
+;;; words (`for i from 1 to n`), and using them in a header reports a
+;;; missing closing bracket rather than a reserved word.
+define lp_subst(s, pat, rep) -> r;
+    lvars s, pat, rep, r = '', i = 1, j, lf = length(pat);
+    until i > length(s) do
+        ;;; startlim false, not i: with i there the match had to START at
+        ;;; i, so this found nothing anywhere else and no variant was ever
+        ;;; generated.  N is where to search FROM; startlim is a separate
+        ;;; constraint (REF * STRINGS).
+        issubstring_lim(pat, i, false, false, s) -> j;
+        if j then
+            r <> substring(i, j - i, s) <> rep -> r;
+            j + lf -> i;
+        else
+            r <> allbutfirst(i - 1, s) -> r; return;
+        endif;
+    enduntil;
+enddefine;
+
+;;; The romaji spellings a learner might reasonably type for one reading.
+;;;
+;;; Generous on purpose.  The probe asks whether they know how the word
+;;; is READ, not whether they can spell Hepburn: がっこう is gakkou, and a
+;;; student who types gakko has answered the question.  Likewise Kunrei
+;;; (si, ti, tu, hu, zi) is what a Japanese primary school teaches, so
+;;; refusing it would fail the very learner this is for.
+;;; Add to a list of strings unless it is there already or empty.
+define lp_push_str(l, x) -> l;
+    lvars l, x;
+    unless x = '' or not(x) or member(x, l) then l <> [^x] -> l endunless;
+enddefine;
+
+define lp_romaji_variants(kana) -> l;
+    lvars kana, base = lp_romaji(kana), l = [], v, x, add;
+    returnif(not(base)) ([] -> l);
+    lp_push_str(l, base) -> l;
+    ;;; long vowels written once
+    base -> v;
+    for x in ['ou' 'oo' 'uu' 'ii' 'aa' 'ee'] do
+        lp_subst(v, x, consstring(x(1), 1)) -> v;
+    endfor;
+    lp_push_str(l, v) -> l;
+    ;;; Kunrei, on both the full and the collapsed spelling.  The youon
+    ;;; rows are not optional: でんしゃ is densha in Hepburn and densya in
+    ;;; Kunrei, and a table that only knew shi -> si rejected densya
+    ;;; while accepting denshi-nothing -- the commonest row in the
+    ;;; syllabary and the one a Japanese primary school teaches.
+    lvars kun = ['sha' 'sya'  'shu' 'syu'  'sho' 'syo'  'shi' 'si'
+                 'cha' 'tya'  'chu' 'tyu'  'cho' 'tyo'  'chi' 'ti'
+                 'ja'  'zya'  'ju'  'zyu'  'jo'  'zyo'  'ji'  'zi'
+                 'tsu' 'tu'   'fu'  'hu'], kl;
+    for x in [^base ^v] do
+        x -> add;
+        kun -> kl;
+        until kl == [] do
+            lp_subst(add, hd(kl), hd(tl(kl))) -> add;
+            tl(tl(kl)) -> kl;
+        enduntil;
+        lp_push_str(l, add) -> l;
+    endfor;
+enddefine;
+
+;;; Everything that counts as reading this item correctly: the kana as
+;;; written, the same in hiragana if it was katakana, and the romaji
+;;; spellings of each.  A kanji has two readings in the graph (kun as
+;;; hiragana, on as katakana) and either one answers "can you read it".
+define lp_take_reading(l, g) -> l;
+    lvars l, g, h, x;
+    returnunless(g);
+    lp_build_kana_rom();
+    g sys_>< '' -> g;
+    lp_push_str(l, g) -> l;
+    lp_kata_to_hira(g) -> h;
+    lp_push_str(l, h) -> l;
+    for x in lp_romaji_variants(g) do lp_push_str(l, x) -> l endfor;
+enddefine;
+
+define lp_readings(item) -> l;
+    lvars item, l = [];
+    lp_take_reading(l, lp_form_of(item, "hiragana")) -> l;
+    lp_take_reading(l, lp_form_of(item, "katakana")) -> l;
+enddefine;
+
+;;; ANSWER IS A LIST, head first and canonical.  It used to be one
+;;; string, which was fine while every probe had exactly one spelling --
+;;; and the moment a probe accepted a reading in either kana or romaji it
+;;; had to become a set.  hd(answer) is what the tutor says when the
+;;; student is wrong, so it is the kana: "It is やま", not "It is yama".
 define lp_question(item) -> (shape, prompt, answer, options);
-    lvars item, k = lp_kind(item), r, en, ja, glyph;
-    ("none", '', '', []) -> (shape, prompt, answer, options);
+    lvars item, k = lp_kind(item), r, en, ja, glyph, kanji, reads;
+    ("none", '', [], []) -> (shape, prompt, answer, options);
     lp_form_of(item, "romaji") -> r;
+    lp_form_of(item, "kanji") -> kanji;
     if (k == "grapheme" or k == "word") and r then
+        ;;; A base kana or a starter word: the glyph is the prompt and the
+        ;;; hand-written romaji is the answer, exactly one spelling.
+        ;;;
+        ;;; Deliberately strict, and deliberately different from the
+        ;;; branch below.  がっこう at pre-school is a reading-the-kana
+        ;;; exercise, so "gakko" has skipped the う and is wrong; the same
+        ;;; word met as 学校 at N5 is a reading-the-kanji exercise, where
+        ;;; the length of the vowel is not what is being asked and gakko
+        ;;; answers the question.  Two skills, two strictnesses.
         lp_any_form(item) -> glyph;
-        ("type", glyph sys_>< '', lp_lower(r sys_>< ''), []) -> (shape, prompt, answer, options);
+        ("type", glyph sys_>< '', [% lp_lower(r sys_>< '') %], [])
+            -> (shape, prompt, answer, options);
+    elseif (k == "grapheme" or k == "word") and lp_ilang(item) == "ja"
+    and kanji then
+        ;;; An imported kanji or N5 word.  form(_, kanji, '山') together
+        ;;; with form(_, hiragana, 'やま') already IS a probe -- prompt one
+        ;;; and answer the other -- and this branch is the whole of what
+        ;;; was missing: without it all 251 imported Japanese items
+        ;;; returned "none" and the tutor said nothing could be checked
+        ;;; by typing.
+        ;;;
+        ;;; Not multiple choice, even though the confusable pairs would
+        ;;; make good distractors: typing is a stronger probe than
+        ;;; picking, there is no one-in-four guess in it, and accepting
+        ;;; romaji means no Japanese input method is needed -- which is
+        ;;; exactly the bargain the pre-school kana probe already strikes.
+        lp_readings(item) -> reads;
+        unless reads == [] then
+            ("type", kanji sys_>< '', reads, [])
+                -> (shape, prompt, answer, options);
+        endunless;
     elseif k == "word" and lp_ilang(item) == "en" then
         lp_gloss_of(item, "en") -> en;
         lp_gloss_of(item, "ja") -> ja;
         if en and ja then
             lp_flip + 1 -> lp_flip;
             if lp_flip mod 2 == 1 then
-                ("pick", lp_form_of(item, "latin") sys_>< '', '1', [^en ^ja])
+                ("pick", lp_form_of(item, "latin") sys_>< '', ['1'], [^en ^ja])
             else
-                ("pick", lp_form_of(item, "latin") sys_>< '', '2', [^ja ^en])
+                ("pick", lp_form_of(item, "latin") sys_>< '', ['2'], [^ja ^en])
             endif -> (shape, prompt, answer, options);
         endif;
     endif;
@@ -696,7 +998,7 @@ define lp_drill(item) -> done;
     lp_readline() -> line;
     if line == termin then false -> done; return endif;
     lp_norm(line) -> typed;
-    if typed = answer then
+    if member(typed, answer) then
         lp_record(item, lp_primary(item), 1, true, lp_now_ms() - t0);
         printf('  %p\n', [% lp_line('praise') %]);
     else
@@ -706,7 +1008,7 @@ define lp_drill(item) -> done;
             printf('  %p  That is %p -- the two are confused constantly.\n',
                    [% lp_line('almost'), lp_any_form(other) %]);
         else
-            printf('  %p  It is %p.\n', [% lp_line('wrong'), answer %]);
+            printf('  %p  It is %p.\n', [% lp_line('wrong'), hd(answer) %]);
         endif;
     endif;
 enddefine;

@@ -377,6 +377,88 @@ licence reaches them, nothing upstream has an opinion about which English
 words are A1, and the importer's job for English is the one thing no
 person should type a hundred times: the pronunciation.
 
+### Asking about what was imported
+
+The import had a hole in it. `lp_question/1` could only build a probe for
+an item carrying a **romaji** form, and the importer emits kanji,
+hiragana and katakana forms and no romaji — so every imported Japanese
+item returned `shape = "none"`:
+
+```
+ja n5 grapheme  103 items, 103 unprobeable
+ja n5 word      148 items, 148 unprobeable
+```
+
+251 of 521, and it failed silently. No violation, because nothing checked
+that an item could be *answered*; the tutor simply said *"nothing here
+can be checked by typing."*
+
+The fix is not to emit romaji into the graph. `form(k_5c71, kanji, '山')`
+together with `form(k_5c71, hiragana, 'やま')` **already is** a probe —
+prompt one, answer the other. What was missing is the ability to accept
+that answer typed in Latin letters, which is a fact about the writing
+system rather than about any item, so it lives beside the answer checking
+and not in the graph.
+
+```
+一  ->  ひと          そうです。
+山  ->  yama          そうです。
+日  ->  nichi         そうです。
+電車 -> densya        そうです。
+山  ->  kawa          Not yet.  It is やま.
+```
+
+An answer is now a **list** of acceptable spellings, head first and
+canonical — so `hd(answer)` is what the tutor says when you are wrong,
+and that is the kana: *It is やま*, not *It is yama*. Roughly four
+spellings per item, from the kana as written, the same folded to
+hiragana, and the romaji of each.
+
+The transliteration is Hepburn with two concessions, both of which a
+learner will actually type. **A long vowel may be written once** —
+がっこう is `gakkou`, and a student who types `gakko` has answered the
+question that was asked. **Kunrei is accepted**, because it is what a
+Japanese primary school teaches: `tukue`, `densya`, `tosyokan`. The youon
+rows are not optional there — a table that only knew `shi → si` rejected
+`densya` while accepting nothing, and でんしゃ is the commonest row in the
+syllabary.
+
+The youon rule is where a one-liner gets it wrong. Dropping the trailing
+`i` and adding the small kana's vowel turns きょ into `ko`; the stem needs
+a `y` *unless* it already palatalises. And "ends in h" is not that test:
+
+| | stem | | |
+| --- | --- | --- | --- |
+| き + ょ | `k` | → `kyo` | needs the y |
+| し + ゃ | `sh` | → `sha` | already palatalises |
+| ち + ゃ | `ch` | → `cha` | already palatalises |
+| ひ + ゃ | `h` | → `hya` | **needs the y** |
+
+Two skills, two strictnesses, and the difference is deliberate. がっこう
+at pre-school is a reading-the-*kana* exercise, so `gakko` has skipped the
+う and is wrong. The same word met as 学校 at N5 is a reading-the-*kanji*
+exercise, where the length of the vowel is not what is being asked.
+
+Not multiple choice, incidentally, even though the confusable pairs would
+make good distractors: typing is a stronger probe than picking, there is
+no one-in-four guess in it, and accepting romaji means no Japanese input
+method is needed — which is the bargain the pre-school kana probe already
+strikes.
+
+**26 items remain unprobeable, and that is the right number.** They are
+the eight skills (roll-ups over what they require), the three patterns
+(produced, not typed) and the fifteen sound contrasts (which need audio —
+see the pronunciation note). The suite asserts that shape rather than a
+count: *every item that cannot be typed is a skill, a pattern or a
+sound*, which is the invariant the original bug broke.
+
+Two displays were wrong for the same stale reason. `lp_any_form/1` and
+the card's `TERM_ORDER` both preferred hiragana over kanji — right while
+every item was a kana or a kana-only starter word, wrong the moment the
+import brought in characters. `:why k_4e00` headed itself ひと rather than
+一, and the card for 山 came out as a card reading やま with no reading
+line at all. A flashcard for 山 is 山 on the front and やま underneath.
+
 ## Seeing the graph
 
 The tutor reads the graph one item at a time, chosen for one student. That

@@ -106,7 +106,14 @@ enddefine;
 ;;; the line above it is chosen from which form that turned out to be.
 ;;; A sound contrast has an ipa form and nothing else, which is why the
 ;;; ipa is a term here and not only a pronunciation guide.
-lconstant TERM_ORDER = [hiragana katakana kanji latin ipa];
+;;; KANJI FIRST, which it was not.  Hiragana-first was right while every
+;;; item was a kana or a kana-only starter word; once the import brought
+;;; in characters and kanji-written words it made the card picture the
+;;; wrong face of the item -- 山 came out as a card reading やま with no
+;;; reading line at all, because the reading fell back to a romaji form
+;;; that an imported item does not have.  A flashcard for 山 is 山 on the
+;;; front and やま underneath.
+lconstant TERM_ORDER = [kanji hiragana katakana latin ipa];
 
 define lp_card_term(i) -> (term, reading);
     lvars i, term = false, reading = false, sc, found = false;
@@ -119,6 +126,11 @@ define lp_card_term(i) -> (term, reading);
         lp_gloss_of(i, "ja") -> reading;
     elseif found == "latin" then
         lp_form_of(i, "ipa") -> reading;
+    elseif found == "kanji" then
+        ;;; The reading of a character or a kanji-written word is its
+        ;;; kana, which is the one thing it has and the romaji is not.
+        ;;; Either syllabary: an on-reading is conventionally katakana.
+        lp_form_of(i, "hiragana") or lp_form_of(i, "katakana") -> reading;
     else
         lp_form_of(i, "romaji") -> reading;
     endif;
@@ -231,9 +243,15 @@ define lp_card_dir() -> d;
     lvars d = lp_home() <> 'cards/';
 enddefine;
 
+;;; No back versions.  syscreate keeps pop_file_versions of a file by
+;;; renaming the old one with a trailing `-` (REF * SYSIO), so every
+;;; re-render left a stale w_yama-word.svg- beside the card -- clutter in
+;;; somebody's home directory, and of a file that is regenerated from the
+;;; graph on demand.
 define lp_card_render(i, style) -> (path, w, h, why);
     lvars i, style, path = false, w = CARD_W, h = CARD_H, why = false,
           term, reading;
+    dlocal pop_file_versions = false;
     unless lp_kind(i) then 'no_such_item' -> why; return endunless;
     unless member(style, CARD_STYLES) then
         'no_such_style' -> why; return;

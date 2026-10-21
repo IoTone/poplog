@@ -174,7 +174,96 @@ lvars (sh2, pr2, ans2, opts2) = lp_question("t_service");
 check('prompt is the English word', pr2, 'service');
 check('two options', length(opts2), 2);
 check('the answer points at the English meaning',
-      opts2(strnumber(ans2)) sys_>< '', 'work done for a customer');
+      opts2(strnumber(hd(ans2))) sys_>< '', 'work done for a customer');
+
+;;; ------------------------------------------------ kana into romaji
+;;; This exists because every imported Japanese item was UNASKABLE.
+;;; lp_question could only build a probe for an item carrying a romaji
+;;; form, and the importer emits kanji, hiragana and katakana forms and
+;;; no romaji -- so 251 of 521 items returned shape "none" and the tutor
+;;; said nothing could be checked by typing.  It failed silently: no
+;;; violation, because nothing checked that an item could be answered.
+
+check('a base kana', lp_romaji('やま'), 'yama');
+check('a voiced kana, which the graph does not carry', lp_romaji('みず'), 'mizu');
+check('a small tsu doubles the next consonant', lp_romaji('がっこう'), 'gakkou');
+check('the moraic n', lp_romaji('せんせい'), 'sensei');
+check('a katakana long mark lengthens the vowel', lp_romaji('コーヒー'), 'koohii');
+
+;;; The youon row, which is where a one-line rule gets it wrong.  Dropping
+;;; the trailing i and adding the small kana's vowel gives ko for きょ; the
+;;; stem needs y unless it already palatalises.
+check('ki plus small yo is kyo', lp_romaji('きょう'), 'kyou');
+check('shi plus small ya is sha, not shya', lp_romaji('しゃしん'), 'shashin');
+check('chi plus small ya is cha', lp_romaji('ちゃ'), 'cha');
+check('ji plus small ya is ja', lp_romaji('じゃ'), 'ja');
+;;; and the one that separates sh/ch from the h of hi
+check('hi plus small ya is hya, not ha', lp_romaji('ひゃく'), 'hyaku');
+check('ni plus small ya is nya', lp_romaji('にゃ'), 'nya');
+
+check('a reading with no kana at all gives nothing', lp_romaji('山'), false);
+
+check('katakana folds to hiragana', lp_kata_to_hira('イチ'), 'いち');
+check('and a long mark is left alone', lp_kata_to_hira('コーヒー'), 'こーひー');
+
+;;; The spellings a learner might type.  Generous on purpose: the probe
+;;; asks whether they know the reading, not whether they can spell
+;;; Hepburn.
+check_true('a long vowel may be written once',
+           member('gakko', lp_romaji_variants('がっこう')));
+check_true('Kunrei is accepted, because a Japanese school teaches it',
+           member('tukue', lp_romaji_variants('つくえ')));
+check_true('including the youon rows -- densya for でんしゃ',
+           member('densya', lp_romaji_variants('でんしゃ')));
+check_true('and Hepburn remains the canonical spelling',
+           hd(lp_romaji_variants('でんしゃ')) = 'densha');
+
+;;; -------------------------------------------------- probing the import
+;;; The imported content is a build product, so a fresh checkout has no
+;;; kanji items at all.  These run when it is there and say so when it is
+;;; not; the invariant at the end of this section holds either way, and
+;;; it is the one that would have caught the original bug.
+if lp_ilang("k_65e5") then
+    lvars (ksh, kpr, kans, kopt) = lp_question("k_65e5");
+    check('an imported kanji can be asked', ksh, "type");
+    check('the prompt is the character', kpr, '日');
+    check_true('its kun reading answers', member('ひ', kans));
+    check_true('and so does the romaji of it', member('hi', kans));
+    check_true('and its on reading, folded to hiragana', member('にち', kans));
+    check_true('and the romaji of that', member('nichi', kans));
+
+    lvars (wsh, wpr, wans, wopt) = lp_question("w_tanjoubi");
+    check('an imported word can be asked', wsh, "type");
+    check('the prompt is the kanji, not the kana', wpr, '誕生日');
+    check('the canonical answer is the kana', hd(wans), 'たんじょうび');
+    check_true('romaji answers too', member('tanjoubi', wans));
+    check_true('and so does the shorter spelling', member('tanjobi', wans));
+else
+    printf(';;; imported content not built -- import probes not checked\n');
+endif;
+
+;;; Two skills, two strictnesses, and the difference is deliberate: がっこう
+;;; at pre-school is a reading-the-kana exercise so the う counts, while
+;;; 学校 at N5 is a reading-the-kanji exercise where it does not.
+lvars (psh, ppr, pans, popt) = lp_question("w_gakkou");
+check('a starter word is prompted as kana', ppr, 'がっこう');
+check('and accepts exactly one spelling', length(pans), 1);
+check_false('so a skipped vowel is wrong there', member('gakko', pans));
+
+;;; THE INVARIANT THE BUG BROKE.  Anything a student is expected to type
+;;; must be askable; what is left over must be left over for a reason --
+;;; a skill is a roll-up, a pattern is produced, a sound contrast needs
+;;; audio.  A count would have gone stale; this says which kinds.
+lvars i, wrong = [], sh0;
+for i in lp_items do
+    lp_question(i) -> (sh0, , , );
+    nextunless(sh0 == "none");
+    unless member(lp_kind(i), [skill pattern sound]) then
+        wrong <> [^i] -> wrong
+    endunless;
+endfor;
+check('every item that cannot be typed is a skill, a pattern or a sound',
+      wrong, []);
 
 ;;; -------------------------------------------------------- the catalogue
 lvars r = lp_resource_for("s_r_l");

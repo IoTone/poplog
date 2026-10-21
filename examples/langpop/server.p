@@ -358,7 +358,7 @@ define lp_m_answer(msg) -> res;
     lvars used = timed or latency or 0;
     lp_question(item) -> (shape, prompt, answer, options);
     lp_norm(given sys_>< '') -> typed;
-    typed = answer -> correct;
+    member(typed, answer) and true -> correct;
     lp_record(item, lp_primary(item), 1, correct, used);
     unless correct then lp_mistook(item, typed) -> other endunless;
     lp_save();
@@ -367,7 +367,11 @@ define lp_m_answer(msg) -> res;
                    'reply', if correct then lp_line('praise')
                             elseif other then lp_line('almost')
                             else lp_line('wrong') endif,
-                   'expected', if correct then json_null else lp_jkey(answer) endif,
+                   ;;; The canonical spelling only.  A client does not
+                   ;;; need the whole accepted set, and showing it would
+                   ;;; tell a learner that gakko would have done.
+                   'expected', if correct then json_null
+                               else lp_jkey(hd(answer)) endif,
                    'mistook_for', if other then lp_jkey(other) else json_null endif,
                    'mistook_form', if other then lp_jkey(lp_any_form(other))
                                    else json_null endif,
