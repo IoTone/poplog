@@ -57,6 +57,12 @@ vars
     lp_rsrc     = [],                                   ;;; [[id lang kind target url checked] ...]
     lp_gens     = [],                                   ;;; [[source lang level n date] ...]
     lp_ranks    = newproperty([], 512, false, "perm"),  ;;; item|scale -> n
+    ;;; Two maps are read out of the graph on first use rather than at
+    ;;; index time, because they go through procedures defined further
+    ;;; down this file.  The flags live up here so lp_index can clear
+    ;;; them without a forward reference.
+    lp_edges_ready = false,
+    lp_kana_rom_ready = false,
     lp_journal  = [],
     lp_assigns  = [],
     lp_user     = false,
@@ -76,7 +82,25 @@ vars
 ;;;   TIER3_CAP a self-reported COMPLIANCE ("I did it") cannot reach
 ;;;             mastery at all, by arithmetic rather than by good
 ;;;             intentions
-constant MASTERY = 0.80, TIER2_CAP = 0.78, TIER3_CAP = 0.50;
+constant MASTERY = 0.80, TIER2_CAP = 0.78, TIER3_CAP = 0.50,
+;;; INFERRED is evidence the student never gave directly: they read
+;;; 誕生日, so they can probably read 日.  Strong -- better than a
+;;; self-reported score, because something was actually observed -- and
+;;; capped below MASTERY anyway, because the inference is sometimes
+;;; simply false.  Japanese is full of compounds whose reading does not
+;;; decompose: 大人 is おとな, which tells you nothing about 大 or 人.
+;;; So an inferred item is never TAUGHT as new and always CONFIRMED once
+;;; on contact, which is exactly the behaviour wanted for a learner who
+;;; arrives already knowing 500 kanji.
+         INFERRED_CAP = 0.75;
+
+;;; The tier numbers are identifiers, not an ordering -- 4 was added
+;;; after 1, 2 and 3 existed and sits second in strength:
+;;;
+;;;   1  a check: watched them do it                    -> MASTERY
+;;;   4  inferred: watched them do something requiring it -> INFERRED_CAP
+;;;   2  a reported result: "18 out of 20"              -> TIER2_CAP
+;;;   3  compliance: "I did it"                         -> TIER3_CAP
 
 define lp_bkey(user, item, ch) -> k;
     lvars user, item, ch;
@@ -347,6 +371,7 @@ define lp_index();
     clearproperty(lp_ranks);
     [] -> lp_items; [] -> lp_ladders; [] -> lp_exits; [] -> lp_rsrc;
     [] -> lp_gens;
+    false -> lp_edges_ready;
     lp_ask("index", 0).erase;
     rev(lp_items) -> lp_items;
     ;;; The kana-to-romaji map is built on first use rather than here --
@@ -464,6 +489,78 @@ lconstant OUTCOMES = [right near wrong skip];
 
 define lp_outcome_ok(o); lvars o; o == "right" enddefine;
 
+;;; The prerequisite edges, which index/0 deliberately does not collect
+;;; -- the tutor only needs ready/4's one-level check, so the overlay
+;;; would otherwise carry 800 pairs nothing reads.  Built on first use,
+;;; the same way the kana map is, and for the same reason: it reads the
+;;; graph through procedures defined further down this file.
+vars lp_edges = newproperty([], 512, [], "perm");
+
+;;; Declared, not left to the compiler to guess at.  lp_record infers
+;;; from a check and lp_infer records what it inferred, so the two refer
+;;; to each other and one of them must be forward.
+vars procedure lp_record;
+
+define lp_build_edges();
+    lvars t, a, b;
+    returnif(lp_edges_ready);
+    true -> lp_edges_ready;
+    clearproperty(lp_edges);
+    for t in lp_ask("edges", 0) do
+        prolog_full_deref(prolog_arg(1, t)) -> a;
+        prolog_full_deref(prolog_arg(2, t)) -> b;
+        lp_edges(a) <> [^b] -> lp_edges(a);
+    endfor;
+enddefine;
+
+define lp_edges_of(item) -> es;
+    lvars item, es;
+    lp_build_edges();
+    lp_edges(item) -> es;
+enddefine;
+
+;;; Is the prerequisite WRITTEN INSIDE the item?
+;;;
+;;; This is what decides whether a correct answer says anything about a
+;;; prerequisite, and it has to be decided here because requires/2 does
+;;; not distinguish its three uses:
+;;;
+;;;   requires(w_tanjoubi, k_65e5)      containment -- 日 is in 誕生日
+;;;   requires(w_mijikai, w_nagai)      teaching order -- 短い after 長い
+;;;   requires(w_mijikai, hiragana_all) a roll-up over 46 kana
+;;;
+;;; Only the first carries an inference.  Knowing 短い says nothing about
+;;; 長い, and reading one word exercises two kana out of forty-six.  Both
+;;; fall out of this test for free: an antonym is not a substring, and a
+;;; skill has no written form at all.
+;;;
+;;; Byte-wise substring, which is safe for UTF-8 rather than lucky: no
+;;; character's encoding can appear inside another's at a non-boundary,
+;;; because every continuation byte is distinguishable from every
+;;; leading one.
+define lp_contains(item, pre) -> yes;
+    lvars item, pre, sc, a, b, yes = false;
+    for sc in [kanji hiragana katakana latin] do
+        lp_form_of(item, sc) -> a;
+        lp_form_of(pre, sc) -> b;
+        nextunless(a and b);
+        a sys_>< '' -> a; b sys_>< '' -> b;
+        nextif(a = b);                      ;;; identity is not containment
+        if issubstring(b, a) then true -> yes; return endif;
+    endfor;
+enddefine;
+
+;;; Evidence the student never gave directly.  One level only: inferring
+;;; transitively would compound an inference that is already sometimes
+;;; wrong.
+define lp_infer(item);
+    lvars item, pre;
+    for pre in lp_edges_of(item) do
+        nextunless(lp_contains(item, pre));
+        lp_record(pre, lp_primary(pre), 4, "right", 0);
+    endfor;
+enddefine;
+
 define lp_record(item, ch, tier, outcome, latency_ms);
     lvars item, ch, tier, outcome, latency_ms, b = lp_bel(item, ch), nb;
     ;;; A caller still passing a boolean is reading an older profile or an
@@ -481,6 +578,11 @@ define lp_record(item, ch, tier, outcome, latency_ms);
         elseif outcome == "wrong" then b * 0.30
         else                           b * 0.20      ;;; skip
         endif
+    elseif tier == 4 then
+        ;;; moves like a check, because something was observed -- and
+        ;;; stops short of mastery, because what was observed was a
+        ;;; different item
+        min(b + (1.0 - b) * 0.45, INFERRED_CAP)
     elseif tier == 2 then
         min(b + (1.0 - b) * 0.20
               * (if outcome == "right" then 1.0 else 0.3 endif), TIER2_CAP)
@@ -495,6 +597,9 @@ define lp_record(item, ch, tier, outcome, latency_ms);
     ;;; next save, which has no idea what a Pop-11 word is.
     conspair({% item, ch, tier, outcome, latency_ms, lp_now_ms() %},
              lp_journal) -> lp_journal;
+    ;;; Only a CHECK infers, and an inference records at tier 4, so this
+    ;;; cannot run away: one level, once.
+    if tier == 1 and outcome == "right" then lp_infer(item) endif;
 enddefine;
 
 ;;; Accuracy and speed over the tier-1 evidence for one item set.  Speed
@@ -764,8 +869,7 @@ lconstant KANA_VOICED = [
 ;;; Keyed by WORD and not by string: a property compares its keys with
 ;;; == , so two equal strings are two different keys.  That has cost
 ;;; something three times in this tree already.
-vars lp_kana_rom = newproperty([], 512, false, "perm"),
-     lp_kana_rom_ready = false;
+vars lp_kana_rom = newproperty([], 512, false, "perm");
 
 define lp_kata_of(hira) -> kata;
     lvars hira, kata, c;

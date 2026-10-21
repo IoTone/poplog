@@ -288,6 +288,67 @@ check_true('including the youon rows -- densya for でんしゃ',
 check_true('and Hepburn remains the canonical spelling',
            hd(lp_romaji_variants('でんしゃ')) = 'densha');
 
+;;; ------------------------------------------------- inferred evidence
+;;; Reading 誕生日 says something about 日 without the student ever being
+;;; asked about 日.  The DAG is what makes that free -- and the cap is
+;;; what keeps it honest, because the inference is sometimes false:
+;;; 大人 is おとな and decomposes into neither 大 nor 人.
+
+;;; Which edges carry an inference at all.  requires/2 does not
+;;; distinguish its three uses, so containment is decided from the forms.
+if lp_ilang("k_65e5") then
+    check_true('a kanji written inside a word is contained',
+               lp_contains("w_tanjoubi", "k_65e5"));
+    check_false('an antonym is not contained',
+                lp_contains("w_mijikai", "w_nagai"));
+    check_false('and neither is a skill with no written form',
+                lp_contains("w_tanjoubi", "hiragana_all"));
+
+    "inferrer" -> lp_user;
+    [] -> lp_journal;
+    lp_record("w_tanjoubi", "read", 1, "right", 900);
+    check_true('reading the word moves the kanji it contains',
+               lp_bel("k_65e5", "read") > 0.0);
+    check('by as much as a check would',
+          lp_bel("k_65e5", "read"), lp_bel("w_tanjoubi", "read"));
+    check('but not the roll-up it also requires',
+          lp_bel("hiragana_all", "read"), 0.0);
+    check('and it is recorded as inferred, not as a check',
+          lp_journal(1)(3), 4);
+
+    ;;; It never reaches mastery, so the item is confirmed once on
+    ;;; contact rather than taught from scratch.  That is exactly what a
+    ;;; learner who already knows 500 kanji needs.
+    lvars n;
+    for n from 1 to 8 do lp_record("w_tanjoubi", "read", 1, "right", 900) endfor;
+    check_true('the word itself masters', lp_mastered("w_tanjoubi"));
+    check('the inferred kanji stops at the cap',
+          lp_bel("k_65e5", "read"), INFERRED_CAP);
+    check_false('so it is never treated as known', lp_mastered("k_65e5"));
+
+    ;;; One level only: inferring transitively would compound an
+    ;;; inference that is already sometimes wrong.
+    check('an inference does not infer again',
+          lp_bel("hiragana_all", "read"), 0.0);
+
+    ;;; And only a CHECK infers.  A self-report must not propagate.
+    "inferrer2" -> lp_user;
+    lp_record("w_tanjoubi", "read", 2, "right", 0);
+    check('a reported result infers nothing', lp_bel("k_65e5", "read"), 0.0);
+
+    ;;; Nor does a wrong answer, in either direction.
+    "inferrer3" -> lp_user;
+    lp_record("w_tanjoubi", "read", 1, "wrong", 900);
+    check('a wrong answer infers nothing', lp_bel("k_65e5", "read"), 0.0);
+else
+    printf(';;; imported content not built -- inference not checked\n');
+endif;
+
+;;; The caps are the evidence policy and belong in one place.
+check_true('inferred evidence cannot reach mastery', INFERRED_CAP < MASTERY);
+check_true('and outranks a self-reported result', INFERRED_CAP < MASTERY
+           and TIER2_CAP < MASTERY);
+
 ;;; ----------------------------------------------------- difficulty
 ;;; rank/3 is an ordinal difficulty proxy on a named scale.  Placement is
 ;;; what wants it: probing 103 kanji one at a time to find out whether
