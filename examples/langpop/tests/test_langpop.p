@@ -781,6 +781,132 @@ check('and records when it was last checked',
       hd(tl(tl(tl(tl(tl(r)))))) sys_>< '', '2026-10-19');
 
 
+
+;;; ------------------------------------------------------------ morae
+;;; A mora is a unit of TIME, and --audit called skill(mora_count) and
+;;; skill(mora_sokuon) `thin` over a set of one item -- あ -- which
+;;; cannot demonstrate beat counting whatever a student does with it.
+;;; The obvious reading was "timing needs audio".  It does not:
+;;; PRODUCING correct timing needs a microphone, but KNOWING how many
+;;; beats a word has is a reading question with a number for an answer.
+
+;;; The two rules that make the question worth asking.  きょう looks like
+;;; three characters and is two beats; きって looks like three and is
+;;; three.  A student who gets both right has the thing the criterion is
+;;; named for.
+check('きょう is two beats, not three', lp_morae('きょう'), 2);
+check('きって is three, not two', lp_morae('きって'), 3);
+check('がっこう is four', lp_morae('がっこう'), 4);
+check('ちょっと is three', lp_morae('ちょっと'), 3);
+check('ほん is two, because ん is its own beat', lp_morae('ほん'), 2);
+check('コーヒー is four, because ー is a beat', lp_morae('コーヒー'), 4);
+check('みず is two', lp_morae('みず'), 2);
+check('a single kana is one', lp_morae('あ'), 1);
+check('and nothing is none', lp_morae(''), 0);
+
+;;; Small ゃゅょ join the kana before them and add no beat.  Small っ is
+;;; NOT one of them -- it is a beat, of silence, and that is the whole of
+;;; skill(mora_sokuon).
+check_true('small ゃ combines', lp_small_kana(16:3083));
+check_true('and small ぃ', lp_small_kana(16:3043));
+check_true('and their katakana twins', lp_small_kana(16:30E3));
+check_false('small っ does not -- it is a beat', lp_small_kana(16:3063));
+check_false('nor does a full-size や', lp_small_kana(16:3084));
+
+;;; ---------------------------------------------- what exercises what
+check_true('がっこう has a sokuon', lp_kana_feature('がっこう', "sokuon"));
+check_false('みず does not', lp_kana_feature('みず', "sokuon"));
+check_true('きょう has a youon', lp_kana_feature('きょう', "youon"));
+check_false('きって does not', lp_kana_feature('きって', "youon"));
+check_true('ほん has a moraic n', lp_kana_feature('ほん', "moraic_n"));
+check_false('ひと does not', lp_kana_feature('ひと', "moraic_n"));
+
+;;; The long-vowel test is the one that went wrong.  いえ is `ie`: two
+;;; vowels, and two DIFFERENT ones -- い then え, two beats of two
+;;; sounds, no length anywhere.  The first version took any adjacent
+;;; pair and duly offered いえ as a long-vowel exercise.
+check_false('いえ is not a long vowel', lp_kana_feature('いえ', "long_vowel"));
+check_true('おおきい is', lp_kana_feature('おおきい', "long_vowel"));
+check_true('and がっこう, spelled おう', lp_kana_feature('がっこう', "long_vowel"));
+check_true('and せんせい, spelled えい', lp_kana_feature('せんせい', "long_vowel"));
+check_true('and コーヒー, spelled with ー', lp_kana_feature('コーヒー', "long_vowel"));
+
+;;; `any` is two beats or more, because "how many beats" asked of a
+;;; one-beat word is not a question.
+check_true('ひと is material', lp_kana_feature('ひと', "any"));
+check_false('あ is not', lp_kana_feature('あ', "any"));
+
+;;; -------------------------------------------------- the question
+;;; A skill with a probe is measured over ITSELF: the answers accumulate
+;;; against the skill and the material varies every time.  A skill
+;;; without one is measured over what it rolls up over.
+check_true('mora_count carries a probe', lp_probe_of("mora_count"));
+check_false('dakuten does not -- reading the voiced kana IS the evidence',
+            lp_probe_of("dakuten"));
+;;; The criterion as a TERM, off the ladder.  lp_ask takes a Prolog
+;;; term and not the word that prints like one, which is a distinction
+;;; this suite has tripped over twice now.
+define crit_named(name) -> c;
+    lvars name, e, c = false;
+    for e in lp_exits do
+        if lp_term_str(hd(tl(tl(e)))) = name then
+            hd(tl(tl(e))) -> c; return
+        endif;
+    endfor;
+enddefine;
+
+check('so mora_count is measured over itself',
+      lp_ask(crit_named('skill(mora_count)'), "criterion_items", 1),
+      [mora_count]);
+check_true('while dakuten is measured over the voiced kana',
+           length(lp_ask(crit_named('skill(dakuten)'),
+                         "criterion_items", 1)) >= 46);
+
+lvars (msh, mpr, man, mop) = lp_question("mora_count");
+check('it can be asked', msh, "count");
+check_true('with a word for a prompt', length(mpr) > 0);
+check('and a number for an answer', length(man), 1);
+check_true('which is the beats of that word',
+           hd(man) = (lp_morae(mpr) sys_>< ''));
+check_true('and the skill is drillable, which it never was before',
+           lp_drillable("mora_count"));
+
+;;; The material is drawn from the graph, so a content build that adds a
+;;; thousand words adds a thousand questions.
+check_true('there is material', length(lp_mora_material("mora_count")) > 20);
+check_true('sokuon material is narrower',
+           length(lp_mora_material("mora_sokuon"))
+           < length(lp_mora_material("mora_count")));
+check_true('and every piece of it has a sokuon in it',
+           [% lvars i; for i in lp_mora_material("mora_sokuon") do
+                  unless lp_kana_feature(lp_form_of(i, "hiragana"), "sokuon")
+                  then i endunless endfor %] == []);
+
+;;; At this level or below.  The question is about beats and not about
+;;; meaning, but it is still asked in kana, and showing a pre-school
+;;; student an N5 word is showing them characters they have not met.
+check_true('nothing above the level is used as material',
+           [% lvars i; for i in lp_mora_material("mora_count") do
+                  unless lp_level_index(lp_ilevel(i)) <= 0 then i endunless;
+              endfor %] == []);
+
+;;; Rotated by how often the SKILL has been asked, so a student meets a
+;;; different word each time and the tutor remembers nothing -- the
+;;; journal already knows.
+"morauser" -> lp_user; [] -> lp_journal;
+lvars first = lp_mora_item("mora_count");
+lp_record("mora_count", "read", 1, "right", 900);
+check_true('the next asking uses different material',
+           lp_mora_item("mora_count") /== first);
+
+;;; ------------------------------------------------- what it unblocked
+;;; One item, many questions.  Counting the item would call the
+;;; criterion thin when it is not -- and the reverse matters more: when
+;;; the material runs to one word, the criterion IS thin.
+check('a kana is one question', lp_probe_breadth("hi_a"), 1);
+check_true('a probed skill is as many as there is material',
+           lp_probe_breadth("mora_count") > 20);
+
 ;;; ------------------------------------------------------- the audit
 ;;; --check proves the graph is CONSISTENT; it says nothing about
 ;;; whether the ladder can be climbed.  exit(ja, n1, kanji(2230, read))
@@ -830,10 +956,23 @@ check_false('nothing anywhere is a criterion with no probe',
 check('dakuten is reachable', ad(4), "ok");
 check_true('over every voiced pair, both scripts', ad(6) >= 46);
 
-;;; Thin is not a bug and not an ok: it is a percentage over so few items
-;;; that passing says very little.  Stated rather than hidden.
+;;; Thin is not a bug and not an ok: it is a percentage over so few
+;;; DISTINCT QUESTIONS that passing says very little.  skill(mora_count)
+;;; was thin, over a set of one item -- あ -- that could not demonstrate
+;;; beat counting at all; it now carries a generated probe and is asked
+;;; about every word in the graph with two beats or more.
 lvars amc = arow("ja", "preschool", 'skill(mora_count)');
-check('one askable item is thin, not ok', amc(4), "thin");
+check('a skill with a probe is one item', amc(5), 1);
+check_true('and many questions', amc(6) > 20);
+check('so it is reachable', amc(4), "ok");
+
+;;; Which is the whole of what `thin` now counts: questions, not items.
+;;; The reverse is what matters -- when the material runs to one word the
+;;; criterion IS thin, and nothing else would say so.
+check_true('a thin verdict needs few QUESTIONS, not few items',
+           [% lvars e; for e in arows do
+                  if e(4) == "thin" and e(6) >= AUDIT_THIN then e endif;
+              endfor %] == []);
 
 ;;; A count criterion reports the shortfall rather than a percentage of
 ;;; a student who has never been shown the content.

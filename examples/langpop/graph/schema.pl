@@ -199,8 +199,24 @@ edges.
 skill_leaf(S, I) :- requires(S, I), \+ item(I, skill, _, _, _).
 skill_leaf(S, I) :- requires(S, X), item(X, skill, _, _, _), skill_leaf(X, I).
 
+% A skill with a PROBE of its own is measured over ITSELF, and a skill
+% without one over what it rolls up over.
+%
+% The difference is which thing the question is about.  skill(dakuten)
+% is "read the voiced kana", so reading them is the evidence and the
+% criterion is measured over the 46 of them.  skill(mora_count) is
+% "count the beats", and reading あ is no evidence of that whatever --
+% which is why it sat at `thin` in --audit over a set of one item that
+% could not demonstrate it.  Its question is generated: a word is drawn
+% from the graph, its beats are counted from its kana, and the student
+% is asked for the number.  So the answers accumulate against the skill,
+% the material varies every time, and the skill is the item.
+%
+% probe(Skill, morae(Feature)) says so, and names the material the
+% feature picks out.  See lp_morae/1 and lp_kana_feature/2.
 criterion_item(recognise(Script), I) :- kana(I, Script, _, _, _).
-criterion_item(skill(S), I) :- skill_leaf(S, I).
+criterion_item(skill(S), S) :- probe(S, _).
+criterion_item(skill(S), I) :- \+ probe(S, _), skill_leaf(S, I).
 criterion_item(Named, I) :- atom(Named), requires(Named, I).
 
 % The ladder rungs that hold nothing, for the --check report.
@@ -220,3 +236,10 @@ criterion_items(_).
 kana_table :- kana(I, Script, Glyph, Romaji, Row),
               lp_take(k(I, Script, Glyph, Romaji, Row)), fail.
 kana_table.
+
+% The skills that carry a generated question.  Guarded, like rank/3, so
+% that a graph holding none of them still answers rather than raising.
+probe(none, none).
+
+probes :- probe(S, F), S \== none, lp_take(p(S, F)), fail.
+probes.

@@ -391,6 +391,37 @@ check_true('and only that language',
                   then 1 endunless endfor %] == []);
 
 
+;;; -------------------------------------------------- counting beats
+;;; A third question shape, over the wire unchanged: the protocol
+;;; carries whatever lp_question returns, so a client that can render
+;;; `type` and `pick` gets `count` for free -- it is a prompt and a
+;;; text box like any other.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'beater',
+                                          'language', 'ja' %])).erase;
+vars bsid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'beater' %]))('session_id');
+
+vars bq = result('langpop/next', jsonrpc_obj([% 'session_id', bsid %]));
+check_true('a question comes back', bq('item') /== false);
+
+;;; Asked about the skill directly, since the plan starts on the kana.
+lvars (bsh, bpr, ban, bop) = lp_question("mora_count");
+vars bw = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', bsid, 'item', 'mora_count',
+                                'answer', hd(ban) %]));
+check('the right number is right', bw('correct'), true);
+check('and recorded against the skill', bw('item'), 'mora_count');
+check('on the read channel', bw('outcome'), 'right');
+
+;;; A wrong count is an ordinary wrong answer and says what it should
+;;; have been -- the number, not the word.
+vars bx = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', bsid, 'item', 'mora_count',
+                                'answer', '99' %]));
+check('a wrong count is wrong', bx('outcome'), 'wrong');
+check_true('and the expected answer is a number',
+           strnumber(bx('expected')) /== false);
+
 ;;; ------------------------------------------------------- the sheets
 ;;; A chart is a picture of the GRAPH and needs no session; a zine is a
 ;;; picture of one student's standing and needs one.  This is the only

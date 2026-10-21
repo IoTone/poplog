@@ -1261,6 +1261,161 @@ enddefine;
 ;;; and the moment a probe accepted a reading in either kana or romaji it
 ;;; had to become a set.  hd(answer) is what the tutor says when the
 ;;; student is wrong, so it is the kana: "It is やま", not "It is yama".
+
+;;; ------------------------------------------------------------ morae
+;;; A mora is a unit of TIME, and it is the thing about Japanese that an
+;;; English speaker gets wrong without noticing: きって is three beats,
+;;; not two syllables, and がっこう is four.
+;;;
+;;; --audit reported skill(mora_count) and skill(mora_sokuon) as `thin`
+;;; over a set of one item -- あ -- which cannot demonstrate beat
+;;; counting whatever the student does with it.  The obvious reading of
+;;; that was "timing needs audio".  It does not: PRODUCING correct timing
+;;; needs a microphone, but KNOWING how many beats a word has is a
+;;; reading question with a number for an answer, and the number is
+;;; computable from the kana.
+;;;
+;;; The rules, and all four matter:
+;;;
+;;;   every kana        one beat
+;;;   small ゃゅょ       no beat -- it joins the kana before it
+;;;   small っ          one beat, of silence
+;;;   ん                one beat, which is why it is `moraic`
+;;;   ー                one beat
+;;;
+;;; The first two are what make this worth asking at all.  きょう looks
+;;; like three characters and is two beats; きって looks like three and is
+;;; three.  A student who gets both right has the thing the criterion is
+;;; named for.
+
+;;; The small kana that COMBINE with the one before, and so add no beat.
+;;; Small っ is deliberately not among them -- it IS a beat, of silence,
+;;; and that is the whole of skill(mora_sokuon).
+define lp_small_kana(cp) -> yes;
+    lvars cp, c, yes = false;
+    for c in [% 16:3041, 16:3043, 16:3045, 16:3047, 16:3049,     ;;; ぁぃぅぇぉ
+                 16:3083, 16:3085, 16:3087, 16:308E %] do        ;;; ゃゅょゎ
+        if cp == c or cp == c + 16:60 then true -> yes; return endif;
+    endfor;
+enddefine;
+
+define lp_morae(kana) -> n;
+    lvars kana, cp, n = 0;
+    for cp in [% utf8_explode(kana sys_>< '') %] do
+        nextif(lp_small_kana(cp));
+        n + 1 -> n;
+    endfor;
+enddefine;
+
+;;; Does this kana string exercise the feature a probe asks about?
+;;;
+;;; `long_vowel` is the awkward one.  ー is explicit, but hiragana spells
+;;; a long vowel by doubling: おおきい is お+お, こうこう is お+う.  So the
+;;; test is a vowel-or-u following the kana whose vowel it lengthens,
+;;; which is the same `last vowel` the romaji builder already computes --
+;;; asked of lp_romaji rather than spelled a second time, because two
+;;; spellings of one rule is how きょう came out as ko the first time.
+define lp_kana_feature(kana, f) -> yes;
+    lvars kana, f, cps, i, n, rom, yes = false;
+    [% utf8_explode(kana sys_>< '') %] -> cps;
+    length(cps) -> n;
+    if f == "any" then
+        return(lp_morae(kana) >= 2 -> yes);
+    elseif f == "sokuon" then
+        for i from 1 to n do
+            if lp_sokuon(cps(i)) then true -> yes; return endif;
+        endfor;
+    elseif f == "moraic_n" then
+        for i from 1 to n do
+            if cps(i) == 16:3093 or cps(i) == 16:30F3 then
+                true -> yes; return
+            endif;
+        endfor;
+    elseif f == "youon" then
+        for i from 1 to n do
+            if lp_youon(cps(i)) then true -> yes; return endif;
+        endfor;
+    elseif f == "long_vowel" then
+        for i from 1 to n do
+            if lp_longmark(cps(i)) then true -> yes; return endif;
+        endfor;
+        ;;; Otherwise the romaji is where it shows -- but NOT simply as
+        ;;; two vowels in a row.  いえ is `ie`, which is two vowels and
+        ;;; two different ones: い then え, two beats of two sounds, no
+        ;;; length anywhere.  The first version of this test took any
+        ;;; adjacent pair and duly offered いえ as a long-vowel exercise.
+        ;;;
+        ;;; A long vowel is the SAME vowel twice, or one of the two
+        ;;; spellings Japanese uses for a long one: おう and えい.
+        lp_romaji(kana) -> rom;
+        returnunless(rom);
+        rom sys_>< '' -> rom;
+        for i from 1 to length(rom) - 1 do
+            nextunless(lp_is_vowel_c(rom(i)) and lp_is_vowel_c(rom(i + 1)));
+            if rom(i) == rom(i + 1)
+            or (rom(i) == `o` and rom(i + 1) == `u`)
+            or (rom(i) == `e` and rom(i + 1) == `i`) then
+                true -> yes; return
+            endif;
+        endfor;
+    endif;
+enddefine;
+
+;;; Which skills carry a generated question, from the graph.  Built on
+;;; first use, the same way the kana map and the edges are, and for the
+;;; same reason: the tutor does not need it until something asks.
+vars lp_probes = newproperty([], 16, false, "perm"),
+     lp_probes_ready = false;
+
+define lp_probe_of(skill) -> f;
+    lvars skill, t, f;
+    unless lp_probes_ready then
+        true -> lp_probes_ready;
+        clearproperty(lp_probes);
+        lvars p;
+        for p in lp_ask("probes", 0) do
+            prolog_full_deref(prolog_arg(2, p))
+                -> lp_probes(prolog_deref(prolog_arg(1, p)));
+        endfor;
+    endunless;
+    lp_probes(skill) -> f;
+enddefine;
+
+;;; The material: every word or kanji in this language whose kana form
+;;; has the feature, with at least two beats so the question is a real
+;;; one.  Drawn from the graph rather than listed, so a content build
+;;; that adds a thousand N5 words adds a thousand mora questions.
+define lp_mora_material(skill) -> items;
+    lvars skill, f = lp_probe_of(skill), i, k, items = [];
+    returnunless(f and prolog_complexterm(f));
+    prolog_deref(prolog_arg(1, f)) -> f;
+    lvars top = lp_level_index(lp_level);
+    for i in lp_items do
+        nextunless(lp_ilang(i) == "ja");
+        nextif(lp_kind(i) == "skill");
+        ;;; At this level or below.  The question is about beats and not
+        ;;; about meaning, but it is still asked in kana, and showing a
+        ;;; pre-school student an N5 word is showing them characters they
+        ;;; have not been taught.
+        nextunless(lp_level_index(lp_ilevel(i)) >= 0
+                   and lp_level_index(lp_ilevel(i)) <= top);
+        lp_form_of(i, "hiragana") -> k;
+        nextunless(k);
+        nextunless(lp_morae(k) >= 2);
+        if lp_kana_feature(k, f) then items <> [^i] -> items endif;
+    endfor;
+enddefine;
+
+;;; Which piece of material to use this time.  Rotated by how often the
+;;; SKILL has been asked, so a student meets a different word each time
+;;; without the tutor having to remember anything -- the journal already
+;;; knows.
+define lp_mora_item(skill) -> i;
+    lvars skill, items = lp_mora_material(skill), i = false;
+    returnif(items == []);
+    items(1 + (lp_asked(skill) mod length(items))) -> i;
+enddefine;
+
 define lp_question(item) -> (shape, prompt, answer, options);
     lvars item, k = lp_kind(item), r, en, ja, glyph, kanji, reads;
     ("none", '', [], []) -> (shape, prompt, answer, options);
@@ -1298,6 +1453,17 @@ define lp_question(item) -> (shape, prompt, answer, options);
             ("type", kanji sys_>< '', reads, [])
                 -> (shape, prompt, answer, options);
         endunless;
+    elseif k == "skill" and lp_probe_of(item) then
+        ;;; "How many beats is this?"  The material comes from the graph
+        ;;; and the answer is counted from the kana, so neither is
+        ;;; written down anywhere and a bigger graph is a bigger question
+        ;;; bank for free.
+        lvars m = lp_mora_item(item), mk;
+        if m then
+            lp_form_of(m, "hiragana") -> mk;
+            ("count", mk sys_>< '', [% lp_morae(mk) sys_>< '' %], [])
+                -> (shape, prompt, answer, options);
+        endif;
     elseif k == "word" and lp_ilang(item) == "en" then
         lp_gloss_of(item, "en") -> en;
         lp_gloss_of(item, "ja") -> ja;
@@ -1459,6 +1625,12 @@ define lp_drill(item) -> done;
         0 -> i;
         if shape == "type" then
             printf('\n  %p    -> ', [^prompt]);
+        elseif shape == "count" then
+            ;;; The word, then the question, because the question is the
+            ;;; same every time and the word is not -- a student reading
+            ;;; down the transcript should see what changed.
+            printf('\n  %p\n', [^prompt]);
+            printf('  %p  -> ', [% lp_line('beats') %]);
         else
             printf('\n  %p\n', [^prompt]);
             for o in options do i + 1 -> i; printf('    %p) %p\n', [% i, o %]) endfor;
@@ -2175,6 +2347,16 @@ define lp_probeable(item, ch) -> yes;
     lp_drillable(item) -> yes;
 enddefine;
 
+;;; How many DIFFERENT questions this item can be asked.  One, for
+;;; anything with a written form; for a skill whose probe is generated,
+;;; as many as there is material in the graph.
+define lp_probe_breadth(item) -> n;
+    lvars item, n = 1;
+    if lp_kind(item) == "skill" and lp_probe_of(item) then
+        length(lp_mora_material(item)) -> n;
+    endif;
+enddefine;
+
 ;;; Items of a countable kind at this level or below, in this language.
 ;;; Cumulative, because the criteria are: kanji(2230) at N1 means every
 ;;; kanji through N1 and not 2230 more of them.
@@ -2224,7 +2406,16 @@ define lp_audit_one(crit, level) -> (verdict, have, askable, want);
         length(items) -> have;
         lvars audible = 0;
         for i in items do
-            if lp_probeable(i, lp_primary(i)) then n + 1 -> n
+            if lp_probeable(i, lp_primary(i)) then
+                ;;; DISTINCT QUESTIONS, not items.  A skill with a
+                ;;; generated probe is one item that can be asked about
+                ;;; forty words, and counting it as one would call the
+                ;;; criterion thin when it is not.  The reverse matters
+                ;;; more: when the material runs to a single word, the
+                ;;; criterion IS thin, and nothing else would say so --
+                ;;; skill(mora_sokuon) has exactly one pre-school word
+                ;;; with a small っ in it.
+                n + lp_probe_breadth(i) -> n
             elseunless lp_verifiable(lp_primary(i)) then
                 audible + 1 -> audible
             endif;

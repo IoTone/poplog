@@ -324,6 +324,26 @@ requires(youon,           hi_ya).
 % one thing that cannot demonstrate the contrast the skill is named for.
 requires(dakuten, V) :- voiced(V, _, _).
 
+% --- The mora skills carry their own question ----------------------------
+% A mora is a unit of TIME, and nothing about reading a kana demonstrates
+% it: --audit reported skill(mora_count) and skill(mora_sokuon) as `thin`
+% over a set of one item, あ, which cannot show whether a student hears
+% きって as two beats or three.
+%
+% But the question does not need a microphone.  "How many beats is this?"
+% is a reading question with a number for an answer, and the number is
+% computable from the kana -- every kana is one beat, a small ゃゅょ joins
+% the one before it, and っ, ん and ー are beats of their own.  So the
+% material is drawn from the graph and the answer is derived, and nothing
+% here is written out by hand.
+%
+% probe(Skill, morae(Feature)) -- Feature picks the material.
+probe(mora_count,      morae(any)).
+probe(mora_sokuon,     morae(sokuon)).
+probe(mora_long_vowel, morae(long_vowel)).
+probe(mora_moraic_n,   morae(moraic_n)).
+probe(youon,           morae(youon)).
+
 % --- Two aggregates, so words do not each list 46 prerequisites ----------
 % "You may start on words once you can read the script" is one teaching
 % decision, so it is one node.  requires/2 fans out from it by rule.

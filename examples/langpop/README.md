@@ -69,7 +69,7 @@ teach a syllabary, a sound contrast and a sentence pattern.
 | `graph/schema.pl` | the relations, the teaching rule, the integrity checks | — |
 | `graph/ja/ladder.pl` | pre-school → N5 → N1, with exit criteria | 6 levels |
 | `graph/ja/kana.pl` | both syllabaries, voiced included, confusable pairs, mora skills | 138 kana |
-| `graph/ja/items.pl` | 40 starter words, kana-only, 3 patterns | 43 |
+| `graph/ja/items.pl` | 50 starter words, kana-only, 3 patterns | 53 |
 | `graph/en/ladder.pl` | pre-school → A1 → C1, CEFR bands and section floors | 6 levels |
 | `graph/en/items.pl` | 12 sound contrasts, 12 loanword traps | 27 |
 | `graph/resources.pl` | the catalogue: URLs and check dates, never content | 9 |
@@ -925,6 +925,114 @@ answers and needs one. Refusing a kana chart to someone who has not
 logged in would be a privilege check protecting a table anybody can buy
 on a poster.
 
+
+## A mora is a unit of time, and you can ask about it by typing
+
+`--audit` called `skill(mora_count)` and `skill(mora_sokuon)` **thin**,
+over a set of one item — あ — which cannot demonstrate beat counting
+whatever a student does with it. The obvious reading of that was *timing
+needs audio*, and it was wrong.
+
+**Producing** correct timing needs a microphone. **Knowing** how many
+beats a word has is a reading question with a number for an answer, and
+the number is computable from the kana:
+
+```
+every kana       one beat
+small ゃゅょ      no beat -- it joins the kana before it
+small っ         one beat, of silence
+ん               one beat, which is why it is `moraic`
+ー               one beat
+```
+
+The first two are what make it worth asking. **きょう looks like three
+characters and is two beats; きって looks like three and is three.** A
+student who gets both right has the thing the criterion is named for.
+
+```
+Aoi>
+  きょう
+  何拍ですか。How many beats?  ->  3
+  Not yet. We will come back to it.  It is 2.
+
+Aoi>
+  ちょっと
+  Count the beats, not the letters:  ->  3
+  そうです。
+```
+
+### A skill with a probe is measured over itself
+
+```prolog
+criterion_item(skill(S), S) :- probe(S, _).
+criterion_item(skill(S), I) :- \+ probe(S, _), skill_leaf(S, I).
+```
+
+The difference is which thing the question is about. `skill(dakuten)` is
+*read the voiced kana*, so reading them is the evidence and the criterion
+is measured over the 46 of them. `skill(mora_count)` is *count the
+beats*, and reading あ is no evidence of that at all.
+
+`probe(Skill, morae(Feature))` says a skill carries a generated question,
+and names the material the feature picks out — `sokuon`, `youon`,
+`moraic_n`, `long_vowel`, `any`. The material is drawn from the graph and
+the answer is counted from the kana, so **neither is written down
+anywhere** and a content build that adds a thousand N5 words adds a
+thousand mora questions.
+
+### So the audit counts questions, not items
+
+A skill with a generated probe is one item that can be asked about fifty
+words. Counting it as one would call the criterion thin when it is not —
+and **the reverse matters more**: when the material runs to a single
+word, the criterion *is* thin, and nothing else would have said so.
+`skill(mora_sokuon)` had exactly one pre-school word with a small っ in
+it.
+
+### Which named the curation, precisely
+
+Two numbers from the same audit turned out to be one job:
+
+| | before | after |
+| --- | --- | --- |
+| `vocabulary(50, read)` | short by 10 | **50 of 50, ok** |
+| `skill(mora_sokuon)` | 1 question, thin | **7 questions, ok** |
+| `skill(mora_count)` | 1 item, thin | **51 questions, ok** |
+
+Ten more starter words, chosen as **words normally written in kana** —
+which is the criterion a kana-only list should have had from the start
+and did not. The first draft picked きっぷ, ざっし, でんしゃ, おちゃ, じしょ,
+しゅくだい and でんわ: all good mora examples, and **all seven already in
+the N5 pick list** as 切符, 雑誌, 電車, お茶, 辞書, 宿題 and 電話.
+`--check` caught it as `requires_from_above` — one id, two levels, the
+pre-school word inheriting the N5 word's kanji prerequisites.
+
+Adverbs and expressions are the right material anyway. A learner meets
+ちょっと and たくさん constantly, in kana, and will never meet them as
+一寸 and 沢山 — so teaching them here costs nothing later, where teaching
+でんしゃ in kana is teaching a word that has to be re-learned as 電車 two
+rungs up.
+
+**The whole Japanese pre-school rung is now `ok`.** It is the first rung
+of either ladder that is.
+
+### The long-vowel test, which went wrong first
+
+いえ is `ie`: two vowels, and two **different** ones — い then え, two
+beats of two sounds, no length anywhere. The first version of the test
+took any adjacent vowel pair and duly offered いえ as a long-vowel
+exercise. A long vowel is the same vowel twice, or one of the two
+spellings Japanese uses for one: おう and えい.
+
+### Still open
+
+**The small kana are not in the table.** っ, ゃ, ゅ, ょ and the small
+vowels are hiragana, and `recognise(hiragana)` claims to cover every
+hiragana, but `kana/5` holds none of them — they are modifiers rather
+than syllables, which is why the graph carries `youon` and
+`mora_sokuon` as skills instead. Defensible, and worth stating: a word
+using one now says so (`requires(w_omocha, youon)`), but the glyph
+itself has no item and does not appear on the chart.
 
 ## The study plan, as a booklet
 
