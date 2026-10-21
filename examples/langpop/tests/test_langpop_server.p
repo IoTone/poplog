@@ -68,7 +68,7 @@ enddefine;
 ;;; ------------------------------------------------------------- the door
 check('ping', result('ping', false), 'pong');
 check_true('methods are listable',
-           length(result('langpop/methods', false)) == 12);
+           length(result('langpop/methods', false)) == 14);
 check_true('and the list names them, not just counts them',
            member('langpop/card.render',
                   [% explode(result('langpop/methods', false)) %]) /== false);
@@ -299,6 +299,57 @@ if lp_ilang("w_yama") then
 else
     printf(';;; imported content not built -- import answers not checked\n');
 endif;
+
+
+;;; ------------------------------------------------------- placement
+;;; Deliberately not a stateful test.  There is no placement session and
+;;; nothing to resume, because lp_place_next is a pure function of the
+;;; beliefs already recorded -- so a dropped connection costs the one
+;;; question in flight and nothing else.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'placed',
+                                          'language', 'ja' %])).erase;
+vars psid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'placed' %]))('session_id');
+
+vars pq = result('langpop/placement.next', jsonrpc_obj([% 'session_id', psid %]));
+check('a fresh student has somewhere to start', pq('done'), false);
+check_true('and is told which axis it is about', pq('axis') /== false);
+check_true('with a level', pq('level') /== false);
+check_true('and a question to ask', pq('shape') /== 'none');
+
+;;; The whole descent, answered correctly, ends.
+vars pn = 0, pitem;
+repeat
+    result('langpop/placement.next', jsonrpc_obj([% 'session_id', psid %])) -> pq;
+    quitif(pq('done'));
+    pq('item') -> pitem;
+    ;;; answer it right, whatever it is
+    lvars (psh, ppr, pans, popt) = lp_question(consword(pitem));
+    result('langpop/answer',
+           jsonrpc_obj([% 'session_id', psid, 'item', pitem,
+                          'answer', hd(pans) %])).erase;
+    pn + 1 -> pn;
+    quitif(pn > 60);
+endrepeat;
+check_true('a placement terminates', pn < 60);
+check_true('and does not take all day', pn < 40);
+
+vars prep = result('langpop/placement.report', jsonrpc_obj([% 'session_id', psid %]));
+check_true('every axis is reported', length(prep('axes')) > 3);
+check_true('with a level to teach at', prep('level') /== false);
+
+;;; An axis with nothing askable says so, rather than being reported as
+;;; a failure -- three different things used to look like one.
+vars pwhy = [% lvars x;
+               for x in [% explode(prep('axes')) %] do x('why') endfor %];
+check_true('the reasons are named', member('askable', pwhy) /== false);
+
+;;; Placement needs a session, because it writes beliefs against a
+;;; student.
+check('placement.next needs a session',
+      errcode('langpop/placement.next', false), -32001);
+check('and so does the report',
+      errcode('langpop/placement.report', false), -32001);
 
 ;;; ----------------------------------------------------------- recognition
 ;;; The one thing the TUI could do that the protocol could not, which made

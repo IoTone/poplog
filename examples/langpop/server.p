@@ -629,6 +629,65 @@ define lp_m_card_render(msg) -> res;
 enddefine;
 
 ;;; ------------------------------------------------------------ dispatch
+
+;;; --------------------------------------------------------- placement
+;;; The descent, over the wire.  Deliberately not a stateful test: there
+;;; is no placement session, no cursor and nothing to resume, because
+;;; lp_place_next is a pure function of the beliefs already recorded.  A
+;;; client asks what to ask, answers it through the ordinary
+;;; langpop/answer, and asks again -- so a dropped connection costs the
+;;; one question in flight and nothing else.
+;;;
+;;; One question at a time, for the same reason the TUI does it: a
+;;; second freeze has to end that axis immediately, and a client handed
+;;; a whole batch would keep asking past it.
+define lp_m_place_next(msg) -> res;
+    lvars msg, res, s = lp_need_session(msg),
+          axis, level, items, item, shape, prompt, answer, options;
+    returnif(lp_is_err(s))(s -> res);
+    lp_place_next() -> (axis, level, items);
+    unless axis and items /== [] then
+        jsonrpc_obj([% 'done', true,
+                       'level', lp_jkey(lp_place_level() or lp_level) %]) -> res;
+        return;
+    endunless;
+    hd(items) -> item;
+    lp_question(item) -> (shape, prompt, answer, options);
+    ;;; the clock is ours, exactly as in langpop/next -- the speed half
+    ;;; of a pre-school criterion is worth nothing if a client can send
+    ;;; latency_ms: 1
+    item -> s(3);
+    lp_now_ms() -> s(4);
+    jsonrpc_obj([% 'done', false,
+                   'axis', axis(1),
+                   'level', lp_jkey(level),
+                   'item', lp_jkey(item),
+                   'shape', lp_jkey(shape),
+                   'prompt', lp_jkey(prompt),
+                   'options', lp_vec([% lvars o;
+                                        for o in options do lp_jkey(o) endfor %]),
+                   'kind', lp_jkey(lp_kind(item)) %]) -> res;
+enddefine;
+
+;;; Where the student stands on each axis.  Read-only, and callable at
+;;; any point -- halfway through a placement it reports what is settled
+;;; so far, which is what a client showing progress wants.
+define lp_m_place_report(msg) -> res;
+    lvars msg, res, s = lp_need_session(msg), r;
+    returnif(lp_is_err(s))(s -> res);
+    jsonrpc_obj([% 'axes', lp_vec([% for r in lp_place_report() do
+                       jsonrpc_obj([% 'axis', r(1),
+                                      'placed', if r(2) then lp_jkey(r(2))
+                                                else json_null endif,
+                                      ;;; why there is no placement, which
+                                      ;;; is three different things: not
+                                      ;;; passed, not reached, or nothing
+                                      ;;; askable at all
+                                      'why', lp_jkey(r(3)) %]);
+                   endfor %]),
+                   'level', lp_jkey(lp_place_level() or lp_level) %]) -> res;
+enddefine;
+
 lconstant METHODS = [
     ['langpop/recognise'     ^lp_m_recognise]
     ['langpop/register'      ^lp_m_register]
@@ -639,6 +698,8 @@ lconstant METHODS = [
     ['langpop/answer'        ^lp_m_answer]
     ['langpop/explain'       ^lp_m_explain]
     ['langpop/status'        ^lp_m_status]
+    ['langpop/placement.next'   ^lp_m_place_next]
+    ['langpop/placement.report' ^lp_m_place_report]
     ['langpop/assign'        ^lp_m_assign]
     ['langpop/report'        ^lp_m_report]
     ['langpop/card.render'   ^lp_m_card_render]

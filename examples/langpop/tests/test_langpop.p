@@ -288,6 +288,127 @@ check_true('including the youon rows -- densya for でんしゃ',
 check_true('and Hepburn remains the canonical spelling',
            hd(lp_romaji_variants('でんしゃ')) = 'densha');
 
+
+;;; ------------------------------------------------------- placement
+;;; "Go ahead and introduce yourself."  A beginner freezes; one who
+;;; answers gets another question, harder, until they stop.  The point
+;;; is that the teacher starts ABOVE where they expect and lets failure
+;;; locate the student -- per axis, because a learner who knows 500
+;;; kanji and forgets katakana is not "at" any single level.
+"placer" -> lp_user; "ja" -> lp_lang; [] -> lp_journal;
+
+lvars axes = lp_place_axes(), ax, nm;
+define ax_named(nm) -> a;
+    lvars nm, a = false, x;
+    for x in lp_place_axes() do if x(1) = nm then x -> a; return endif endfor;
+enddefine;
+
+check_true('the exit criteria give the axes', length(axes) > 3);
+check_true('recognise is one', ax_named('recognise katakana') /== false);
+check_true('and so is the kanji count', ax_named('kanji') /== false);
+check_false('a coverage criterion is not -- there is nothing to probe',
+            ax_named('coverage') /== false);
+
+;;; The order is the teacher's: hardest first.
+;;; An axis with nothing askable anywhere sorts last and has no level
+;;; at all, so compare the two that do.
+lvars withlv = [% for ax in axes do
+                      if lp_place_levels(ax) /== [] then ax endif endfor %];
+check_true('the hardest axis comes first',
+           lp_level_index(hd(lp_place_levels(hd(withlv))))
+           >= lp_level_index(hd(lp_place_levels(last(withlv)))));
+
+;;; recognise(hiragana) means the KANA, not everything carrying a
+;;; hiragana form.  An imported kanji has one -- its kun reading -- so a
+;;; form scan pulled all 103 into the syllabary axis.  The schema
+;;; already answers this through criterion_item/2, which is why the axis
+;;; asks it rather than guessing.
+if lp_ilang("k_65e5") then
+    lvars hira = lp_place_items(ax_named('recognise hiragana'), "preschool");
+    check_false('a kanji is not a hiragana probe', member("k_65e5", hira));
+    check_true('but the kana are', member("hi_a", hira));
+    check('and the syllabary axis lives only at pre-school',
+          lp_place_levels(ax_named('recognise hiragana')), [preschool]);
+    check('while vocabulary is searched from the top down',
+          lp_place_levels(ax_named('vocabulary')), [n5 preschool]);
+
+    ;;; Sampling spreads across a real difficulty scale where there is
+    ;;; one -- four probes along a frequency rank instead of 103.
+    lvars ks = lp_place_sample(lp_place_items(ax_named('kanji'), "n5"), 4);
+    check('four probes, not a hundred and three', length(ks), 4);
+    check_true('spread across the scale rather than bunched',
+               lp_rank_of(last(ks), "freq") - lp_rank_of(hd(ks), "freq") > 200);
+else
+    printf(';;; imported content not built -- kanji axis not checked\n');
+endif;
+
+;;; Where there is no scale, the confusable ones come first.  A katakana
+;;; test made of ア and ヲ certifies everybody.
+lvars kat = lp_place_sample(lp_place_items(ax_named('recognise katakana'),
+                                           "preschool"), 4), k;
+check('four katakana probes', length(kat), 4);
+lvars allconf = true;
+for k in kat do unless lp_confs(k) /== [] then false -> allconf endunless endfor;
+check_true('every one of them is half of a confusable pair', allconf);
+
+;;; An axis settles once the sample is in -- or once everything there is
+;;; has been asked.  skill(mora_count) has exactly one askable item, and
+;;; a driver looping on lp_place_next would otherwise ask about it
+;;; forever.
+lvars small = ax_named('skill mora_count');
+if small and lp_place_items(small, "preschool") /== [] then
+    lvars i;
+    for i in lp_place_items(small, "preschool") do
+        lp_record(i, lp_primary(i), 1, "right", 500);
+    endfor;
+    lvars (st0, , , ) = lp_place_state(small, "preschool");
+    check('an axis smaller than the sample still settles', st0, "passed");
+endif;
+
+;;; A freeze ends an axis, which is the behaviour the whole thing is
+;;; modelled on.
+"placer2" -> lp_user; [] -> lp_journal;
+lvars kats = lp_place_items(ax_named('recognise katakana'), "preschool");
+lp_record(hd(kats), "read", 1, "skip", 900);
+lvars (st1, , , f1) = lp_place_state(ax_named('recognise katakana'), "preschool");
+check('one freeze is not yet a verdict', st1, "untested");
+lp_record(hd(tl(kats)), "read", 1, "skip", 900);
+lvars (st2, , , f2) = lp_place_state(ax_named('recognise katakana'), "preschool");
+check('two freezes end it', st2, "failed");
+check('and it is the freezes that did it', f2, 2);
+
+;;; The descent, and the thing that makes it cheap: passing high means
+;;; nothing below gets asked.
+if lp_ilang("k_65e5") then
+    "placer3" -> lp_user; [] -> lp_journal;
+    lvars vs = lp_place_sample(lp_place_items(ax_named('vocabulary'), "n5"), 4);
+    for k in vs do lp_record(k, lp_primary(k), 1, "right", 800) endfor;
+    lvars (stv, , , ) = lp_place_state(ax_named('vocabulary'), "n5");
+    check('passing at the top settles the axis', stv, "passed");
+    lvars r, found = false;
+    for r in lp_place_report() do
+        if r(1) = 'vocabulary' then r -> found endif;
+    endfor;
+    check('and it is placed there', found(2), "n5");
+endif;
+
+;;; lp_place_next never offers the same item twice: sampling the whole
+;;; set each time returns the same head every time.
+"placer4" -> lp_user; [] -> lp_journal;
+lvars seen = [], a2, l2, its2, n2;
+for n2 from 1 to 6 do
+    lp_place_next() -> (a2, l2, its2);
+    quitunless(a2);
+    quitif(its2 == []);
+    check_false('an item is never offered twice', member(hd(its2), seen));
+    seen <> [% hd(its2) %] -> seen;
+    lp_record(hd(its2), lp_primary(hd(its2)), 1, "right", 700);
+endfor;
+
+;;; And the level is DERIVED: the lowest rung with something unsettled.
+check_true('a fresh student is placed at the bottom',
+           lp_place_level() == "preschool" or lp_place_level() == false);
+
 ;;; ------------------------------------------------- inferred evidence
 ;;; Reading 誕生日 says something about 日 without the student ever being
 ;;; asked about 日.  The DAG is what makes that free -- and the cap is

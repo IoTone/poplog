@@ -1284,6 +1284,350 @@ define lp_report(id, outcome) -> ok;
     true -> ok;
 enddefine;
 
+;;; ------------------------------------------------------------ placement
+;;; "Go ahead and introduce yourself."  A true beginner freezes; one who
+;;; answers gets "and what day is it today?", and so on until they stop
+;;; -- which is how a teacher works out, in five minutes, which section
+;;; somebody belongs in.  The point is not the questions.  It is that the
+;;; teacher starts ABOVE where they expect and lets failure locate the
+;;; student, and that a freeze ends the line of questioning.
+;;;
+;;; Placement is NOT a teaching mode.  It is a fast way to populate the
+;;; belief overlay, and everything downstream already works off beliefs:
+;;; lp_choose takes the lowest belief first, so a correctly placed
+;;; student gets their weak spots immediately and skims what they know.
+;;;
+;;; So there is no placement state anywhere.  lp_place_next is a pure
+;;; function of the beliefs already recorded -- "given what I know about
+;;; you, what should I ask to locate you?" -- which means it can be
+;;; called from the TUI in a loop, or over the wire by a client that
+;;; answers through the ordinary langpop/answer, and nothing has to
+;;; remember a session halfway through a test.
+;;;
+;;; ONE SCALAR WOULD BE THE WRONG ANSWER.  A learner who knows 500 kanji
+;;; and keeps forgetting katakana is not "at" any single level, and
+;;; placing them by one number would either drown them or bore them.  So
+;;; the search runs per AXIS, and an axis is a kind of criterion rather
+;;; than a level: the exit criteria already name them.
+
+;;; How many answers settle an axis, and how well they have to go.
+lconstant PLACE_SAMPLE = 4, PLACE_PASS = 0.75, PLACE_FREEZE = 2;
+
+;;; The axes, as [name kind script] -- kind and script say which items
+;;; probe it.  Derived from the exit criteria the language declares, so
+;;; a ladder that adds a criterion gets an axis for free.
+define lp_place_axes() -> axes;
+    lvars e, c, f, axes = [], a;
+    for e in lp_exits do
+        nextunless(hd(e) == lp_lang);
+        hd(tl(tl(e))) -> c;
+        nextunless(prolog_complexterm(c));
+        prolog_functor(c) -> f;
+        ;;; {name  how  arg}, where `how` says which items probe it:
+        ;;;   crit  ask the schema -- criterion_item/2 already answers
+        ;;;         this for recognise and skill, and asking it here
+        ;;;         rather than guessing from the forms is the whole
+        ;;;         point.  A form scan looked right and was not: an
+        ;;;         imported kanji carries a hiragana form (its kun
+        ;;;         reading), so "every grapheme with a hiragana form"
+        ;;;         pulled all 103 kanji into recognise(hiragana).
+        ;;;   skill probe what the skill REQUIRES; a roll-up cannot be
+        ;;;         typed, so the skill itself is not a question.
+        ;;;   kind  scan by kind and script, for the counting criteria
+        ;;;         that criterion_item/2 deliberately does not answer.
+        if     f == "recognise" then
+            {% 'recognise ' <> (prolog_deref(prolog_arg(1, c)) sys_>< ''),
+               "crit", c %} -> a
+        elseif f == "skill" then
+            {% 'skill ' <> (prolog_deref(prolog_arg(1, c)) sys_>< ''),
+               "skill", prolog_deref(prolog_arg(1, c)) %} -> a
+        elseif f == "kanji" then
+            ;;; a character is read, never heard: the reading is the
+            ;;; word's channel, not the character's
+            {% 'kanji', "kind", [grapheme kanji] %} -> a
+        elseif f == "vocabulary" then
+            nextunless(lp_verifiable(prolog_deref(prolog_arg(2, c))));
+            {% 'vocabulary', "kind", [% "word", false %] %} -> a
+        else
+            nextloop                        ;;; coverage: nothing to probe
+        endif;
+        unless lp_place_seen(axes, a) then axes <> [^a] -> axes endunless;
+    endfor;
+    ;;; Hardest first, which is the teacher's move: open above where you
+    ;;; expect them to be and let failure locate them.  An axis is as
+    ;;; hard as the highest rung it reaches.  Every axis is still
+    ;;; searched -- knowing 500 kanji says nothing about katakana, which
+    ;;; is the whole reason this runs per axis -- so the order is about
+    ;;; the shape of the conversation rather than the result.
+    syssort(axes, false, procedure(x, y);
+        lvars x, y, lx = lp_place_levels(x), ly = lp_place_levels(y);
+        lp_level_index(if lx == [] then false else hd(lx) endif)
+            > lp_level_index(if ly == [] then false else hd(ly) endif);
+    endprocedure) -> axes;
+enddefine;
+
+;;; Where a level sits on its ladder, or -1 for none.
+define lp_level_index(level) -> n;
+    lvars level, l, n = -1;
+    returnunless(level);
+    for l in lp_ladders do
+        if hd(l) == lp_lang and hd(tl(tl(l))) == level then
+            hd(tl(l)) -> n; return
+        endif;
+    endfor;
+enddefine;
+
+;;; Two axes are the same if they have the same name.  Needed because a
+;;; criterion is declared once per level and the axis is one thing.
+define lp_place_seen(axes, a) -> yes;
+    lvars axes, a, x, yes = false;
+    for x in axes do
+        if x(1) = a(1) then true -> yes; return endif;
+    endfor;
+enddefine;
+
+;;; The items at one level that probe one axis, and that can be asked.
+;;; An axis with nothing askable at a level is not searched there, which
+;;; is how the empty rungs and the unprobeable roll-ups drop out.
+define lp_place_items(axis, level) -> items;
+    lvars axis, level, i, items = [], pool, sh, how = axis(2), arg = axis(3);
+    if     how == "crit"  then lp_ask(arg, "criterion_items", 1) -> pool
+    elseif how == "skill" then lp_edges_of(arg) -> pool
+    else                       lp_items -> pool
+    endif;
+    for i in pool do
+        nextunless(lp_ilang(i) == lp_lang and lp_ilevel(i) == level);
+        if how == "kind" then
+            nextunless(lp_kind(i) == hd(arg));
+            nextunless(not(hd(tl(arg))) or lp_form_of(i, hd(tl(arg))));
+        endif;
+        lp_question(i) -> (sh, , , );
+        nextif(sh == "none");
+        items <> [^i] -> items;
+    endfor;
+enddefine;
+
+;;; n items spread across the difficulty of the set, which is the whole
+;;; reason rank/3 was imported: probing 103 kanji one at a time to find
+;;; out whether somebody reads kanji is absurd, and four spread along a
+;;; frequency rank locate them.
+;;;
+;;; Where there is no scale, confusable items come first -- a katakana
+;;; test made of ア and ヲ certifies everybody, while シ against ツ and ソ
+;;; against ン is where forgetting actually shows.  Only then does it
+;;; fall back to an even spread of whatever order the graph gave.
+define lp_place_sample(items, n) -> sample;
+    lvars items, n, sample = [], ranked = [], ordered, i, stride, k, len;
+    returnif(items == []) ([] -> sample);
+
+    for i in items do
+        if lp_rank_of(i, "freq") then ranked <> [^i] -> ranked endif;
+    endfor;
+
+    if length(ranked) >= n then
+        ;;; A real difficulty scale: sort by it and take an EVEN SPREAD,
+        ;;; which is what locates somebody in four questions rather than
+        ;;; a hundred.  Taking the first four would only ever ask about
+        ;;; the four commonest characters.
+        syssort(ranked, false, procedure(a, b); lvars a, b;
+            lp_rank_of(a, "freq") < lp_rank_of(b, "freq") endprocedure)
+            -> ordered;
+        length(ordered) -> len;
+        returnif(len <= n) (ordered -> sample);
+        max(1, len div n) -> stride;
+        [% for k from 1 by stride to len do ordered(k) endfor %] -> sample;
+    else
+        ;;; No scale: put the confusable ones first and take them from
+        ;;; the FRONT, because that ordering already is the difficulty
+        ;;; ordering.  Spreading across it with a stride would reach
+        ;;; past them into the easy tail -- and a katakana test made of
+        ;;; ア and ヲ certifies everybody, while シ against ツ and ソ
+        ;;; against ン is where forgetting actually shows.
+        [% for i in items do if lp_confs(i) /== [] then i endif endfor;
+           for i in items do if lp_confs(i) == [] then i endif endfor %]
+            -> ordered;
+        ordered -> sample;
+    endif;
+    [% for k from 1 to min(n, length(sample)) do sample(k) endfor %] -> sample;
+enddefine;
+
+;;; How an axis stands at a level, from the evidence already recorded.
+;;; No state: this is read back out of the journal every time.
+define lp_place_state(axis, level) -> (state, acc, n, frozen);
+    lvars axis, level, items = lp_place_items(axis, level), e, acc, fast, n,
+          frozen = 0, state;
+    "nothing" -> state; 0.0 -> acc; 0 -> n;
+    returnif(items == []);
+    lp_measure(items, 99999999) -> (acc, fast, n);
+    for e in lp_journal do
+        if e(3) == 1 and e(4) == "skip" and member(e(1), items) then
+            frozen + 1 -> frozen
+        endif;
+    endfor;
+    ;;; Settled once the sample is in -- OR once everything there is has
+    ;;; been asked.  An axis with fewer probeable items than PLACE_SAMPLE
+    ;;; would otherwise never settle, and a driver looping on
+    ;;; lp_place_next would ask about it forever.  skill(mora_count) has
+    ;;; exactly one askable item, so this is not hypothetical.
+    if     frozen >= PLACE_FREEZE                     then "failed"
+    elseif n < min(PLACE_SAMPLE, length(items))       then "untested"
+    elseif n == 0                                     then "nothing"
+    elseif acc >= PLACE_PASS                          then "passed"
+    else                                                   "failed"
+    endif -> state;
+enddefine;
+
+;;; The levels an axis can be searched at, highest first.
+define lp_place_levels(axis) -> ls;
+    lvars axis, l, ls = [];
+    for l in lp_levels(lp_lang) do
+        unless lp_place_items(axis, l) == [] then
+            conspair(l, ls) -> ls              ;;; reversing as it goes
+        endunless;
+    endfor;
+enddefine;
+
+;;; What to ask next, or false when there is nothing left to settle.
+;;;
+;;; The descent, and it is the teacher's: start at the highest level the
+;;; axis exists at.  Passed there -- nothing below needs asking, they are
+;;; at least that good.  Failed or frozen -- drop one rung and ask again.
+define lp_place_next() -> (axis, level, items);
+    lvars axis, level, items, a, l, st, acc, n, frozen;
+    (false, false, []) -> (axis, level, items);
+    for a in lp_place_axes() do
+        for l in lp_place_levels(a) do
+            lp_place_state(a, l) -> (st, acc, n, frozen);
+            ;;; Passed here: nothing below this rung needs asking, they
+            ;;; are at least that good.  quitloop and not return -- this
+            ;;; settles the AXIS, and the next one still has to be
+            ;;; searched.  Returning here placed a student on the first
+            ;;; axis they passed and never asked about anything else.
+            quitif(st == "passed");
+            if st == "untested" then
+                ;;; Sampled from what has NOT been asked yet.  Sampling
+                ;;; the whole set each time returns the same head every
+                ;;; time, so a driver that asks one question and looks
+                ;;; again asked ウ four times running.
+                lvars pool = [% lvars i;
+                                for i in lp_place_items(a, l) do
+                                    if lp_asked(i) == 0 then i endif;
+                                endfor %];
+                quitif(pool == []);
+                (a, l, lp_place_sample(pool, PLACE_SAMPLE - n))
+                    -> (axis, level, items);
+                return;
+            endif;
+            ;;; failed here: try the rung below
+        endfor;
+    endfor;
+enddefine;
+
+;;; Where the student has been placed, per axis.  The highest level each
+;;; axis passed at, or below the ladder if it passed nowhere.
+;;; Where the student has been placed, per axis: the highest level each
+;;; one passed at.  `why` says why an axis has no placement, which is
+;;; three different things and used to be reported as one --
+;;;   "askable"  tested, and did not pass
+;;;   "unasked"  there are questions for it, but it was not reached
+;;;   "none"     there is nothing here that can be asked at all
+define lp_place_report() -> rows;
+    lvars rows = [], a, l, st, acc, n, frozen, placed, tested, any, why;
+    for a in lp_place_axes() do
+        false -> placed; false -> tested; false -> any;
+        for l in lp_place_levels(a) do
+            true -> any;
+            lp_place_state(a, l) -> (st, acc, n, frozen);
+            nextif(st == "nothing");
+            unless st == "untested" then true -> tested endunless;
+            if st == "passed" and not(placed) then l -> placed endif;
+        endfor;
+        if     placed      then "askable"
+        elseif not(any)    then "none"
+        elseif tested      then "askable"
+        else                    "unasked"
+        endif -> why;
+        rows <> [[% a(1), placed, why %]] -> rows;
+    endfor;
+enddefine;
+
+
+;;; Where teaching should START, derived rather than chosen: the lowest
+;;; rung that still has an axis the student has not passed.
+;;;
+;;; This is why placement writes beliefs rather than a verdict.  The
+;;; spiky learner above is put at pre-school to fix katakana, and the
+;;; N5 kanji they proved they can read are already sitting near mastery
+;;; in the overlay -- so lp_choose, which takes the lowest belief first,
+;;; gives them their katakana immediately and skims the rest.
+define lp_place_level() -> level;
+    lvars level = false, a, l, st, acc, n, frozen;
+    for l in lp_levels(lp_lang) do
+        for a in lp_place_axes() do
+            nextif(lp_place_items(a, l) == []);
+            lp_place_state(a, l) -> (st, acc, n, frozen);
+            if st /== "passed" then l -> level; return endif;
+        endfor;
+    endfor;
+enddefine;
+
+;;; How many questions a placement may take before it gives up.  A
+;;; placement that outlasts the patience of the person taking it has
+;;; failed whatever it concluded -- and the one thing a learner in this
+;;; position has had plenty of is being tested.
+lconstant PLACE_MAX = 40;
+
+define lp_place_show();
+    lvars r, rows = lp_place_report(), lv;
+    printf('\n  Here is where I think you are.\n');
+    for r in rows do
+        printf('    %p: %p\n',
+               [% r(1),
+                  if r(2) then r(2) sys_>< ''
+                  elseif r(3) == "none" then
+                      'nothing here I can ask about'
+                  elseif r(3) == "unasked" then
+                      'not asked about yet'
+                  else 'below the ladder' endif %]);
+    endfor;
+    lp_place_level() -> lv;
+    if lv then
+        lv -> lp_level;
+        printf('\n  We will work at %p -- that is the lowest thing not yet\n', [^lv]);
+        printf('  settled.  What you already showed me is remembered, so I\n');
+        printf('  will not teach you those again.\n');
+    else
+        printf('\n  Nothing here is left to settle.\n');
+    endif;
+enddefine;
+
+define lp_place_run();
+    lvars ax, lv, its, asked = 0, last = false;
+    printf('\n  Let me find out where you are rather than guess.  Say nothing\n');
+    printf('  -- just press enter -- for anything you do not know; that is\n');
+    printf('  worth more to me than a guess.\n');
+    repeat
+        lp_place_next() -> (ax, lv, its);
+        quitunless(ax);
+        quitif(its == []);
+        ;;; ONE question, then look again.  Asking a whole sample before
+        ;;; re-reading the state meant a student could freeze twice and
+        ;;; still be asked the rest of the batch -- and stopping on the
+        ;;; freeze is the entire point of having one.  The axis header is
+        ;;; printed only when it changes, so the conversation still reads
+        ;;; as sections rather than as forty separate questions.
+        unless last = (ax(1) sys_>< '') <> '/' <> (lv sys_>< '') then
+            printf('\n  -- %p, at %p\n', [% ax(1), lv %]);
+            (ax(1) sys_>< '') <> '/' <> (lv sys_>< '') -> last;
+        endunless;
+        quitunless(lp_drill(hd(its)));
+        asked + 1 -> asked;
+        quitif(asked >= PLACE_MAX);
+    endrepeat;
+    printf('\n  %p questions.\n', [^asked]);
+    lp_place_show();
+enddefine;
+
 ;;; ----------------------------------------------------------------- status
 define lp_count_mastered(kind, ch) -> n;
     lvars kind, ch, i, n = 0;
@@ -1626,6 +1970,7 @@ define lp_help();
     printf('  :plan            what is ready now, and why that order\n');
     printf('  :why <item>      the derivation: prerequisites, source, belief\n');
     printf('  :status          the exit criteria of this level, measured\n');
+    printf('  :place           find out where you are, instead of guessing\n');
     printf('  :card <item>     draw it, and open it in the system viewer\n');
     printf('  :assign          something to do away from the keyboard\n');
     printf('  :report <n> ok   done it (compliance)\n');
@@ -1708,6 +2053,7 @@ define lp_session();
                 if arg = '' then printf('  :why <item id>\n')
                 else lp_why(consword(arg)) endif;
             elseif cmd = 'status' then lp_status();
+            elseif cmd = 'place' then lp_place_run();
             elseif cmd = 'card' then
                 if arg = '' then printf('  :card <item id>\n')
                 else lp_show_card(consword(arg)) endif;

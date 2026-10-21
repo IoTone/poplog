@@ -459,6 +459,75 @@ import brought in characters. `:why k_4e00` headed itself ひと rather than
 一, and the card for 山 came out as a card reading やま with no reading
 line at all. A flashcard for 山 is 山 on the front and やま underneath.
 
+## Placement: find out where they are, rather than ask
+
+> *"A teacher will jump right into 'go ahead and introduce yourself.' A
+> true beginner will freeze. If they answer properly, the teacher keeps
+> going — 'what day is it today?' — until they work out which section
+> this person belongs in."*
+
+The point is not the questions. It is that the teacher **starts above**
+where they expect and lets failure locate the student, and that a freeze
+ends that line of questioning.
+
+`:place` in the TUI, `langpop/placement.next` on the wire.
+
+**Placement is not a teaching mode.** It is a fast way to populate the
+belief overlay, and everything downstream already works off beliefs —
+`lp_choose` takes the lowest belief first, so a correctly placed student
+gets their weak spots immediately and skims what they know. Which means
+there is **no placement state anywhere**: `lp_place_next/0` is a pure
+function of the evidence already recorded, so a client asks what to ask,
+answers it through the ordinary `langpop/answer`, and asks again. A
+dropped connection costs the one question in flight.
+
+**One scalar would be the wrong answer.** A learner who knows 500 kanji
+and keeps forgetting katakana is not *at* any single level, and placing
+them by one number would either drown them or bore them. So the search
+runs per **axis**, and the axes are the exit criteria — a ladder that
+adds a criterion gets an axis for free. Simulating exactly that learner:
+
+```
+kanji              : up to n5           <- knows kanji
+vocabulary         : up to preschool    <- thin at N5
+recognise katakana : below the ladder   <- froze on シ/ツ, ソ/ン
+recognise hiragana : up to preschool
+skill mora_sokuon  : nothing here I can ask about
+
+teach at: preschool
+```
+
+Twenty questions. And the level is **derived**, not chosen: the lowest
+rung that still has an axis the student has not passed. The N5 kanji
+they proved they can read sit near mastery in the overlay, so they are
+not taught again.
+
+Four things make it cheap, and each one came out of the graph rather
+than out of a parameter:
+
+**It samples across a difficulty scale.** Probing 103 kanji one at a
+time to find out whether somebody reads kanji is absurd; four spread
+along `rank(_, freq, _)` locate them — 日, 上, 話, 聞.
+
+**Where there is no scale, confusable items come first.** A katakana
+test made of ア and ヲ certifies everybody. シ against ツ and ソ against
+ン is where forgetting actually shows, and the graph already records
+which 18 pairs those are.
+
+**A freeze ends an axis**, after two. That is the behaviour the whole
+thing is modelled on, so the loop asks **one** question and looks again
+— a driver handed a whole batch would keep asking past the freeze.
+
+**Passing high means nothing below gets asked.** Failing drops one rung
+and asks again. That is the descent.
+
+One correction worth recording, because it looked right and was not.
+`recognise(hiragana)` was first implemented as "every grapheme carrying
+a hiragana form" — which pulls in all 103 imported kanji, because a
+kanji carries its kun reading as a hiragana form. The schema already
+answers this properly through `criterion_item/2`, so the axis asks it
+rather than guessing from the forms.
+
 ## Seeing the graph
 
 The tutor reads the graph one item at a time, chosen for one student. That
