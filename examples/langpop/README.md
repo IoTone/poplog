@@ -926,6 +926,116 @@ logged in would be a privilege check protecting a table anybody can buy
 on a poster.
 
 
+## What about English
+
+Worse than Japanese, and in a way the audit measured but could not see.
+
+```
+  en  preschool  sound_contrasts       12  0   needs_audio
+  en  preschool  no_katakana_reading   12  12  ok
+  en  preschool  final_consonants      1   0   needs_audio
+```
+
+Two of the three criteria on the first rung needed audio, so the rung
+could not be exited. But the real problem was worse than that: it could
+not be **entered**.
+
+### A gate nothing can open
+
+`lp_mastered` reads the **gate** channel, and for a `sound` item the gate
+is `hear` — which is outside `VERIFIABLE`, so a sound can never be
+mastered, so anything requiring one is locked for ever. **All twelve
+English contrasts are sounds.**
+
+The symptom was not a bad measurement. The English pre-school rung had
+*nothing ready*, ever, and the tutor said **"nothing here can be checked
+by typing"** to every student who ever opened it.
+
+```prolog
+gate_ok(S, Pre) :- lp_known(S, Pre).
+gate_ok(_, Pre) :- lp_unverifiable(Pre).
+```
+
+A prerequisite the tutor has no way to check does not hold the door
+shut. The channels note already makes this argument one level down —
+*"if the gate demanded every channel, then with no way to verify `hear`
+nothing would ever unlock and the ladder could not be climbed at all"* —
+and this is the same argument about prerequisites. The edge is still
+true and still teaches order; it simply cannot be a *condition*, because
+nothing can satisfy it.
+
+**It does not let anybody pass anything.** `s_final` is still unmastered,
+`sound_contrasts` is still `needs_audio`, and `--audit` still says so. It
+unlocks the teaching, not the criterion.
+
+### How many syllables does `slim` have?
+
+A Japanese speaker says ドッグ for *dog* — three beats where English has
+one syllable — because Japanese cannot end a syllable in a consonant and
+puts a vowel there instead. That is what `skill(final_consonants)` is
+named for: *ends a word without adding a vowel*.
+
+Producing a final consonant does need a microphone. **Knowing** that
+English does not add a vowel is a count, exactly as the mora half was:
+
+```
+mansion    2 syllables   vs  マンション  4 beats
+slim       1             vs  スマート    4
+part-time  2             vs  アルバイト  5
+excited    3             vs  ハイテンション 6
+```
+
+One syllable per vowel nucleus, counted from the IPA CMUdict provides.
+The five diphthongs are two symbols and one nucleus — counting vowel
+*symbols* makes `child` two syllables — and the pairs are exactly the
+five ARPABET diphthongs the importer maps, so this is not a guess about
+English but the inverse of a table in `import.p`.
+
+**The material picks itself.** An item with both an English pronunciation
+and a katakana one, where the katakana takes more beats. The twelve
+loanword traps are exactly that set — a happy consequence of what they
+were curated for, since they were chosen as words a Japanese speaker
+already half-knows in katakana.
+
+### The wrong answer worth naming
+
+```
+  mansion
+  How many syllables? English, not the katakana.  ->  4
+  Almost.  That is the beats in マンション.  The English word has 2.
+```
+
+A learner who answers four has not guessed. They have read the katakana,
+honestly, which is the whole of the katakana box. So it is recorded as
+`near` rather than `wrong`, and the tutor says **which count they gave** —
+a verdict that only says *no* teaches nothing, because they already know
+they got it wrong and not why. `langpop/answer` carries it as
+`counted_instead`.
+
+### What the import found on the way
+
+The traps had never been enriched: `--source cmudict` filters by level
+and had only ever been run for `a1`. Running it for `preschool` wrote
+`graph/en/generated/preschool-sounds.pl` — and `imp_verify` reported all
+23 facts as **LOST**, because `GRAPH_GENERATED` is a hand-written list
+and the engine never loaded the file.
+
+The verifier was right and the message was baffling, so the importer now
+refuses the write instead:
+
+```
+import: the engine does not load that file -- add it to
+GRAPH_GENERATED in langpop.p, or pass --out
+```
+
+And one card quietly changed. `TERM_ORDER_EN` put `ipa` before
+`katakana`, so the moment the traps gained a pronunciation every trap
+card swapped マンション for `/mˈænʃən/` and stopped showing the thing the
+item exists to contrast. A katakana form on an English item *means* the
+word is a loanword trap; the IPA is a pronunciation guide, and the trap
+is the point.
+
+
 ## The characters that are not syllables
 
 `kana/5` holds the 138 kana that stand for a mora **on their own**. It

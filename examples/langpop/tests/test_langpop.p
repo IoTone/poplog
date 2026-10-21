@@ -972,6 +972,110 @@ check('a kana is one question', lp_probe_breadth("hi_a"), 1);
 check_true('a probed skill is as many as there is material',
            lp_probe_breadth("mora_count") > 20);
 
+
+;;; ------------------------------------------------------- syllables
+;;; The English half of the mora idea, and the same mistake underneath.
+;;; A Japanese speaker says ドッグ for `dog` -- three beats where English
+;;; has one syllable -- because Japanese cannot end a syllable in a
+;;; consonant and puts a vowel there instead.
+"en" -> lp_lang; "preschool" -> lp_level;
+
+;;; One per vowel nucleus.  The five diphthongs are two symbols and one
+;;; nucleus: counting SYMBOLS makes `child` two syllables.
+check('child is one syllable, not two', lp_syllables('/tʃaɪld/'), 1);
+check('friend is one', lp_syllables('/frɛnd/'), 1);
+check('people is two', lp_syllables('/pˈipəl/'), 2);
+check('family is three', lp_syllables('/fˈæməli/'), 3);
+check('part-time is two, across the diphthong',
+      lp_syllables('/pˈɑrttˈaɪm/'), 2);
+check('excited is three', lp_syllables('/ɪksˈaɪtəd/'), 3);
+check('outlet is two, and aʊ is one nucleus',
+      lp_syllables('/ˈaʊtlˌɛt/'), 2);
+check('complaint is two, and eɪ is one', lp_syllables('/kəmplˈeɪnt/'), 2);
+check('a vowel hiatus is NOT a diphthong',
+      lp_syllables('/aɪdˈiə/'), 3);
+check('and nothing is none', lp_syllables('//'), 0);
+
+;;; final_consonants carries a probe, so it is measured over itself.  It
+;;; used to be measured over s_final -- a `hear` item -- so --audit
+;;; called it needs_audio and two of this rung's three criteria were
+;;; unreachable.
+check_true('final_consonants carries a probe',
+           lp_probe_of("final_consonants"));
+check('and it is a syllable question, not a mora one',
+      lp_probe_kind("final_consonants"), "syllables");
+
+;;; The material is an item with BOTH pronunciations where the katakana
+;;; takes more beats.  An item where the two agree would be a question
+;;; with nothing in it.
+;;;
+;;; The IPA comes from CMUdict, so these need the content build -- which
+;;; is the honest state of the criterion too: without the import,
+;;; final_consonants has no material and --audit says so.
+if lp_form_of("t_mansion", "ipa") then
+    lvars enm = lp_probe_material("final_consonants");
+    check_true('there is material', enm /== []);
+    check_true('every piece of it has a katakana that takes longer',
+               [% lvars i; for i in enm do
+                      unless lp_morae(lp_form_of(i, "katakana"))
+                             > lp_syllables(lp_form_of(i, "ipa"))
+                      then i endunless endfor %] == []);
+
+    ;;; The question is the English word, and the answer its syllables.
+    lvars (esh, epr, ean, eop) = lp_question("final_consonants");
+    check('it can be asked', esh, "count");
+    check_true('with an English word for a prompt', length(epr) > 0);
+    check('and one number for an answer', length(ean), 1);
+
+    ;;; THE WRONG ANSWER WORTH NAMING.  A Japanese speaker asked how
+    ;;; many syllables `slim` has will answer four, because スマート has
+    ;;; four beats -- and that is not a guess, it is the katakana box
+    ;;; answered honestly.  So it is a near miss, and the tutor says
+    ;;; which count they gave: a verdict that only says `no` teaches
+    ;;; nothing, because they already know they got it wrong and not why.
+    lvars first = lp_mora_item("final_consonants"),
+          fk = lp_form_of(first, "katakana");
+    check_true('the katakana count is diagnosed',
+               lp_count_near("final_consonants",
+                             lp_morae(fk) sys_>< '') /== false);
+    check('and names the katakana they counted',
+          lp_count_near("final_consonants", lp_morae(fk) sys_>< '') sys_>< '',
+          fk sys_>< '');
+    check_false('a number that is neither is just wrong',
+                lp_count_near("final_consonants", '99'));
+    check_false('and a Japanese mora question is not diagnosed this way',
+                lp_count_near("mora_count", '3'));
+else
+    printf(';;; cmudict not built -- the syllable probe not checked\n');
+endif;
+
+;;; ------------------------------------- a gate nothing can open
+;;; lp_mastered reads the GATE channel, and for a sound the gate is
+;;; `hear` -- outside VERIFIABLE, so a sound can never be mastered, so
+;;; anything requiring one was locked for ever.  All twelve English
+;;; contrasts are sounds.  The symptom was not a bad measurement: the
+;;; English pre-school rung had NOTHING READY, ever.
+check_false('a sound cannot be mastered, by construction',
+            lp_verifiable(lp_primary("s_final")));
+;;; lp_unverifiable/1 is a Prolog predicate and not a Pop-11 procedure,
+;;; so it is tested by what it does rather than by calling it: the rung
+;;; it unlocked.
+check_true('while a word can be, so a word still gates',
+           lp_verifiable(lp_primary("t_mansion")));
+
+"gatekeeper" -> lp_user;
+check_true('and the English rung now has something ready',
+           length(lp_plan()) > 0);
+check_true('including the skill whose prerequisite is a sound',
+           member("final_consonants", lp_plan()));
+
+;;; What it does NOT do is let anybody pass anything.  The criterion is
+;;; still measured, the sound is still unmastered, and sound_contrasts
+;;; is still unreachable.
+check_false('the sound is still not known', lp_mastered("s_final"));
+
+"ja" -> lp_lang; "preschool" -> lp_level;
+
 ;;; ------------------------------------------------------- the audit
 ;;; --check proves the graph is CONSISTENT; it says nothing about
 ;;; whether the ladder can be climbed.  exit(ja, n1, kanji(2230, read))
@@ -1011,10 +1115,20 @@ check_false('and is no longer a criterion with no probe', ad(4) == "no_probe");
 lvars asok = arow("ja", "preschool", 'skill(mora_sokuon)');
 check_true('a skill of a skill expands all the way down', asok(6) > 0);
 
-check_false('nothing anywhere is a criterion with no probe',
-            [% lvars e; for e in arows do
-                   if e(4) == "no_probe" then lp_term_str(e(3)) endif
-               endfor %] /== []);
+;;; With the content built, nothing anywhere is a criterion with no
+;;; probe.  WITHOUT it, final_consonants is one -- its material is the
+;;; loanword traps and their pronunciations come from CMUdict -- and
+;;; that is the verdict's documented second meaning: "a bug, OR an
+;;; unbuilt import".  So the assertion is guarded on the thing it
+;;; depends on rather than weakened to cover both.
+if lp_form_of("t_mansion", "ipa") then
+    check_false('nothing anywhere is a criterion with no probe',
+                [% lvars e; for e in arows do
+                       if e(4) == "no_probe" then lp_term_str(e(3)) endif
+                   endfor %] /== []);
+else
+    printf(';;; cmudict not built -- final_consonants is rightly no_probe\n');
+endif;
 
 ;;; The dakuten skill is now measured over every voiced kana rather than
 ;;; over か, which could not demonstrate the contrast it is named for.

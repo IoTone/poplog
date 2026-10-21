@@ -198,6 +198,33 @@ define :prolog lp_known_now/1(i, contn);
     if lp_mastered(prolog_deref(i)) then chain(contn) endif;
 enddefine;
 
+;;; A prerequisite nothing can check does not hold the door shut.
+;;;
+;;; lp_mastered reads the GATE channel, and for a sound item the gate is
+;;; `hear` -- which is outside VERIFIABLE, so a sound can never be
+;;; mastered, so anything requiring one is locked for ever.  All twelve
+;;; English contrasts are sounds.  The consequence was not that the
+;;; English pre-school rung measured badly: it was that the rung had
+;;; NOTHING READY, ever, and the tutor said "nothing here can be checked
+;;; by typing" to every student who ever opened it.
+;;;
+;;; The channels note already makes this argument one level down -- "if
+;;; the gate demanded every channel, then with no way to verify hear
+;;; nothing would ever unlock and the ladder could not be climbed at
+;;; all" -- and this is the same argument about prerequisites.  The edge
+;;; is still true and still teaches order; it simply cannot be a
+;;; condition, because the tutor has no way to satisfy it.
+;;;
+;;; What it does NOT do is let the student pass anything.  s_final is
+;;; still unmastered, sound_contrasts is still unreachable, and --audit
+;;; still says needs_audio.  It unlocks the teaching, not the criterion.
+define :prolog lp_unverifiable/1(i, contn);
+    lvars i, contn;
+    unless lp_verifiable(lp_primary(prolog_deref(i))) then
+        chain(contn)
+    endunless;
+enddefine;
+
 define :prolog lp_take/1(x, contn);
     lvars x, contn;
     conspair(prolog_full_deref(x), lp_taken) -> lp_taken;
@@ -321,9 +348,20 @@ lconstant GRAPH_FILES = ['graph/schema.pl' 'graph/resources.pl'
 ;;; is that a curator who adds an import should have to say so here: a
 ;;; graph that grew a level because a file appeared in a build directory
 ;;; is not a graph anybody can reason about.
+;;; The build products the engine will load if they are there.  Hand
+;;; listed rather than globbed, which is the right trade -- a directory
+;;; scan would load whatever happened to be lying in it -- but it means a
+;;; new import level has to be declared here, and nothing used to say so:
+;;; `--source cmudict --level preschool` wrote preschool-sounds.pl, the
+;;; engine never read it, and imp_verify duly reported all 23 facts as
+;;; LOST.  The verifier was right and the message was baffling, so the
+;;; importer now refuses the write instead (see lp_generated_files).
 lconstant GRAPH_GENERATED = ['graph/ja/generated/n5-kanji.pl'
                              'graph/ja/generated/n5-words.pl'
-                             'graph/en/generated/a1-sounds.pl'];
+                             'graph/en/generated/a1-sounds.pl'
+                             'graph/en/generated/preschool-sounds.pl'];
+
+define lp_generated_files() -> l; lvars l = GRAPH_GENERATED; enddefine;
 
 ;;; Load the graph, optionally holding one generated file back.  The
 ;;; importer is why that argument exists: it reads the graph to check that
@@ -1361,6 +1399,53 @@ define lp_kana_feature(kana, f) -> yes;
     endif;
 enddefine;
 
+;;; --------------------------------------------------------- syllables
+;;; The English half of the same idea, and the same mistake underneath.
+;;;
+;;; A Japanese speaker says ドッグ for `dog` -- three beats where English
+;;; has one syllable -- because Japanese has no way to end a syllable in
+;;; a consonant and puts a vowel there instead.  That is what
+;;; skill(final_consonants) is named for: "ends a word without adding a
+;;; vowel".  It was measured over s_final, a `hear` item, so it needed
+;;; audio and the English pre-school rung could not be exited.
+;;;
+;;; But the knowledge half is countable, exactly as the mora half was:
+;;; how many syllables does the English word have?  One per vowel
+;;; nucleus, and the IPA CMUdict gives us is enough to count them.
+;;;
+;;; The five diphthongs are two symbols and one nucleus.  Counting
+;;; vowel SYMBOLS makes `child` two syllables; counting nuclei makes it
+;;; one.  The pairs are exactly the five ARPABET diphthongs the importer
+;;; maps, so this is not a guess about English, it is the inverse of a
+;;; table in import.p.
+lconstant EN_VOWELS = 'ɑæʌɔɛɜəɪiʊueoɝɚa';
+lconstant EN_DIPHTHONGS = ['aʊ' 'aɪ' 'eɪ' 'oʊ' 'ɔɪ'];
+
+define lp_en_vowel(cp) -> yes;
+    lvars cp, c, yes = false;
+    for c in [% utf8_explode(EN_VOWELS) %] do
+        if c == cp then true -> yes; return endif;
+    endfor;
+enddefine;
+
+define lp_syllables(ipa) -> n;
+    lvars ipa, cps, i, len, n = 0, pair;
+    [% utf8_explode(ipa sys_>< '') %] -> cps;
+    length(cps) -> len;
+    1 -> i;
+    until i > len do
+        unless lp_en_vowel(cps(i)) then i + 1 -> i; nextloop endunless;
+        n + 1 -> n;
+        ;;; one nucleus, and the glide of a diphthong belongs to it
+        if i < len and lp_en_vowel(cps(i + 1))
+        and member(consutf8(#| cps(i), cps(i + 1) |#), EN_DIPHTHONGS) then
+            i + 2 -> i
+        else
+            i + 1 -> i
+        endif;
+    enduntil;
+enddefine;
+
 ;;; Which skills carry a generated question, from the graph.  Built on
 ;;; first use, the same way the kana map and the edges are, and for the
 ;;; same reason: the tutor does not need it until something asks.
@@ -1379,6 +1464,37 @@ define lp_probe_of(skill) -> f;
         endfor;
     endunless;
     lp_probes(skill) -> f;
+enddefine;
+
+;;; Which kind of question a skill's probe is: `morae` or `syllables`.
+define lp_probe_kind(skill) -> k;
+    lvars skill, f = lp_probe_of(skill), k = false;
+    returnunless(f and prolog_complexterm(f));
+    prolog_functor(f) -> k;
+enddefine;
+
+;;; The English material: an item with BOTH an English pronunciation and
+;;; a katakana one, where the katakana takes more beats than the English
+;;; takes syllables.  That difference is the lesson, and an item where
+;;; the two agree would be a question with nothing in it.
+;;;
+;;; The twelve loanword traps are exactly this set, which is a happy
+;;; accident of what they were curated for rather than a coincidence:
+;;; they were chosen as words a Japanese speaker already half-knows in
+;;; katakana.
+define lp_syl_material(skill) -> items;
+    lvars skill, i, ipa, kata, items = [], top = lp_level_index(lp_level);
+    for i in lp_items do
+        nextunless(lp_ilang(i) == "en");
+        nextunless(lp_level_index(lp_ilevel(i)) >= 0
+                   and lp_level_index(lp_ilevel(i)) <= top);
+        lp_form_of(i, "ipa") -> ipa;
+        lp_form_of(i, "katakana") -> kata;
+        nextunless(ipa and kata);
+        if lp_morae(kata) > lp_syllables(ipa) then
+            items <> [^i] -> items
+        endif;
+    endfor;
 enddefine;
 
 ;;; The material: every word or kanji in this language whose kana form
@@ -1406,14 +1522,58 @@ define lp_mora_material(skill) -> items;
     endfor;
 enddefine;
 
+;;; Either kind, one procedure, so lp_question and --audit both ask the
+;;; same question about a skill rather than each knowing the two cases.
+define lp_probe_material(skill) -> items;
+    lvars skill, k = lp_probe_kind(skill), items = [];
+    if     k == "morae"     then lp_mora_material(skill) -> items
+    elseif k == "syllables" then lp_syl_material(skill) -> items
+    endif;
+enddefine;
+
 ;;; Which piece of material to use this time.  Rotated by how often the
 ;;; SKILL has been asked, so a student meets a different word each time
 ;;; without the tutor having to remember anything -- the journal already
 ;;; knows.
 define lp_mora_item(skill) -> i;
-    lvars skill, items = lp_mora_material(skill), i = false;
+    lvars skill, items = lp_probe_material(skill), i = false;
     returnif(items == []);
     items(1 + (lp_asked(skill) mod length(items))) -> i;
+enddefine;
+
+;;; The prompt and the answer for one piece of material.
+define lp_probe_ask(skill, m) -> (prompt, answer);
+    lvars skill, m, k = lp_probe_kind(skill), f;
+    (false, false) -> (prompt, answer);
+    if k == "morae" then
+        lp_form_of(m, "hiragana") -> f;
+        if f then (f sys_>< '', lp_morae(f)) -> (prompt, answer) endif;
+    elseif k == "syllables" then
+        lp_form_of(m, "latin") -> f;
+        if f then
+            (f sys_>< '', lp_syllables(lp_form_of(m, "ipa"))) -> (prompt, answer)
+        endif;
+    endif;
+enddefine;
+
+;;; The wrong answer worth naming.
+;;;
+;;; A Japanese speaker asked how many syllables `slim` has will answer
+;;; four, because スマート has four beats -- and that is not a guess, it
+;;; is the katakana box, answered honestly.  So it is recorded as `near`
+;;; rather than `wrong`, and the tutor says which count they gave.  A
+;;; verdict that only says `no` to this teaches nothing: they already
+;;; know they got it wrong, and not why.
+define lp_count_near(item, typed) -> why;
+    lvars item, typed, kata, why = false, n;
+    returnunless(lp_probe_kind(item) == "syllables");
+    lp_mora_item(item) -> item;
+    returnunless(item);
+    lp_form_of(item, "katakana") -> kata;
+    returnunless(kata);
+    strnumber(typed sys_>< '') -> n;
+    returnunless(n and n == lp_morae(kata));
+    (kata sys_>< '') -> why;
 enddefine;
 
 define lp_question(item) -> (shape, prompt, answer, options);
@@ -1454,15 +1614,17 @@ define lp_question(item) -> (shape, prompt, answer, options);
                 -> (shape, prompt, answer, options);
         endunless;
     elseif k == "skill" and lp_probe_of(item) then
-        ;;; "How many beats is this?"  The material comes from the graph
-        ;;; and the answer is counted from the kana, so neither is
-        ;;; written down anywhere and a bigger graph is a bigger question
-        ;;; bank for free.
-        lvars m = lp_mora_item(item), mk;
+        ;;; "How many beats is this?", or "how many syllables?"  The
+        ;;; material comes from the graph and the answer is counted from
+        ;;; the forms, so neither is written down anywhere and a bigger
+        ;;; graph is a bigger question bank for free.
+        lvars m = lp_mora_item(item), mp, ma;
         if m then
-            lp_form_of(m, "hiragana") -> mk;
-            ("count", mk sys_>< '', [% lp_morae(mk) sys_>< '' %], [])
-                -> (shape, prompt, answer, options);
+            lp_probe_ask(item, m) -> (mp, ma);
+            if mp then
+                ("count", mp, [% ma sys_>< '' %], [])
+                    -> (shape, prompt, answer, options);
+            endif;
         endif;
     elseif k == "word" and lp_ilang(item) == "en" then
         lp_gloss_of(item, "en") -> en;
@@ -1616,7 +1778,7 @@ enddefine;
 
 define lp_drill(item) -> done;
     lvars item, shape, prompt, answer, options, o, i = 0, t0, line, typed,
-          other, retried = false;
+          other, kslip = false, retried = false;
     true -> done;
     lp_question(item) -> (shape, prompt, answer, options);
     returnif(shape == "none")(false -> done);
@@ -1629,8 +1791,15 @@ define lp_drill(item) -> done;
             ;;; The word, then the question, because the question is the
             ;;; same every time and the word is not -- a student reading
             ;;; down the transcript should see what changed.
+            ;;;
+            ;;; Beats or syllables depending on which it is: asking a
+            ;;; Japanese speaker how many BEATS `mansion` has is asking
+            ;;; them for the katakana count, which is the one answer the
+            ;;; question exists to catch.
             printf('\n  %p\n', [^prompt]);
-            printf('  %p  -> ', [% lp_line('beats') %]);
+            printf('  %p  -> ',
+                   [% lp_line(if lp_probe_kind(item) == "syllables"
+                              then 'syllables' else 'beats' endif) %]);
         else
             printf('\n  %p\n', [^prompt]);
             for o in options do i + 1 -> i; printf('    %p) %p\n', [% i, o %]) endfor;
@@ -1703,11 +1872,20 @@ define lp_drill(item) -> done;
         lp_record(item, lp_primary(item), 1, "skip", lp_now_ms() - t0);
         printf('  %p  It is %p.\n', [% lp_line('skip'), hd(answer) %]);
     else
+        ;;; The wrong answer worth naming: a count that is the katakana's
+        ;;; and not the English word's.  Computed BEFORE lp_record,
+        ;;; because recording changes lp_asked and lp_asked is what
+        ;;; chooses the material.
+        if shape == "count" then lp_count_near(item, typed) -> kslip endif;
         lp_record(item, lp_primary(item), 1,
-                  if other then "near" else "wrong" endif, lp_now_ms() - t0);
+                  if other or kslip then "near" else "wrong" endif,
+                  lp_now_ms() - t0);
         if other then
             printf('  %p  That is %p -- the two are confused constantly.\n',
                    [% lp_line('almost'), lp_any_form(other) %]);
+        elseif kslip then
+            printf('  %p  That is the beats in %p.  The English word has %p.\n',
+                   [% lp_line('almost'), kslip, hd(answer) %]);
         else
             printf('  %p  It is %p.\n', [% lp_line('wrong'), hd(answer) %]);
         endif;
@@ -2353,7 +2531,7 @@ enddefine;
 define lp_probe_breadth(item) -> n;
     lvars item, n = 1;
     if lp_kind(item) == "skill" and lp_probe_of(item) then
-        length(lp_mora_material(item)) -> n;
+        length(lp_probe_material(item)) -> n;
     endif;
 enddefine;
 

@@ -28,6 +28,10 @@
     "Put it aside. It will come round again today.",
     "Fine -- later it is. I will not forget it."
   ],
+  "syllables": [
+    "How many syllables? English, not the katakana.",
+    "Count the syllables the English word has:"
+  ],
   "beats": [
     "How many beats?",
     "Count the beats, not the letters:"

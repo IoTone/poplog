@@ -1147,6 +1147,15 @@ define imp_main();
     ;;; The graph as it stands: for the collision check, and for the kanji
     ;;; edges a word import draws against the characters already in it.
     imp_outpath or imp_default_out() -> out;
+    ;;; Refuse to write a file the engine will not read.  GRAPH_GENERATED
+    ;;; is hand listed, so a new level needs an entry there -- and
+    ;;; without this check the symptom was imp_verify reporting every
+    ;;; fact it had just written as LOST, which is true, alarming, and
+    ;;; says nothing about the cause.
+    unless imp_outpath or member(out, lp_generated_files()) then
+        mishap(out, 1, 'import: the engine does not load that file -- add it '
+                       <> 'to GRAPH_GENERATED in langpop.p, or pass --out')
+    endunless;
     lp_load_except(out);
     lp_index();
 

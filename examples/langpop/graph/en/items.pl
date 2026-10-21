@@ -95,3 +95,14 @@ requires(sound_contrasts, Id) :- contrast(Id, _, _, _).
 item(final_consonants, skill, en, preschool, own(contrast)).
 gloss(final_consonants, en, 'ends a word without adding a vowel').
 requires(final_consonants, s_final).
+
+% And it carries its own question, which is why the English pre-school
+% rung can be exited at all.
+%
+% The skill was measured over s_final -- a `hear` item -- so --audit
+% reported it as needs_audio, and two of this rung's three criteria were
+% unreachable.  Producing a final consonant without a vowel after it
+% does need a microphone.  KNOWING that English does not add one is a
+% count: `slim` is one syllable and スマート is four, and a learner who
+% answers four has told you exactly which of the two they are reading.
+probe(final_consonants, syllables(katakana)).

@@ -97,10 +97,17 @@ level_empty(Lang, Level) :-
 % it requires.  This is the whole of the tutor's choice, and it is one
 % clause because the prerequisite edges carry the pedagogy.
 
+% A prerequisite the tutor has no way to check does not hold the door
+% shut -- lp_unverifiable/1, and see its comment in langpop.p.  Every
+% English sound contrast is on the `hear` channel, so without this
+% clause the whole English pre-school rung had nothing ready, ever.
+gate_ok(S, Pre) :- lp_known(S, Pre).
+gate_ok(_, Pre) :- lp_unverifiable(Pre).
+
 ready(S, Lang, Level, I) :-
     item(I, _, Lang, Level, _),
     \+ lp_known(S, I),
-    all_hold(requires(I, Pre), lp_known(S, Pre)).
+    all_hold(requires(I, Pre), gate_ok(S, Pre)).
 
 % Everything ready at the student's current level, for the Pop-11 driver.
 plan(S, Lang, Level) :- ready(S, Lang, Level, I), lp_take(I), fail.
@@ -217,7 +224,17 @@ skill_leaf(S, I) :- requires(S, X), item(X, skill, _, _, _), skill_leaf(X, I).
 criterion_item(recognise(Script), I) :- kana(I, Script, _, _, _).
 criterion_item(skill(S), S) :- probe(S, _).
 criterion_item(skill(S), I) :- \+ probe(S, _), skill_leaf(S, I).
-criterion_item(Named, I) :- atom(Named), requires(Named, I).
+
+% A criterion named by a bare atom -- sound_contrasts, final_consonants
+% -- takes the same bargain.  It is a separate pair of clauses and not a
+% special case of the ones above because the Japanese ladder writes
+% skill(mora_count) and the English one writes final_consonants, two
+% spellings of one idea that nobody has reconciled; the probe should
+% work under either, and did not under the second, which is why
+% final_consonants stayed at needs_audio after it was given one.
+criterion_item(Named, Named) :- atom(Named), probe(Named, _).
+criterion_item(Named, I) :-
+    atom(Named), \+ probe(Named, _), requires(Named, I).
 
 % The ladder rungs that hold nothing, for the --check report.
 empties :- level_empty(Lang, Level), lp_take(empty(Lang, Level)), fail.

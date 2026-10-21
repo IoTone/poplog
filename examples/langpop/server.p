@@ -499,9 +499,16 @@ define lp_m_answer(msg) -> res;
     endif;
     false -> s(5);
 
+    ;;; A count that is the katakana's and not the English word's is a
+    ;;; near miss and not a wrong answer -- it is the katakana box,
+    ;;; answered honestly, and the reply names which count they gave.
+    lvars kslip = false;
+    if shape == "count" and not(correct) then
+        lp_count_near(item, typed) -> kslip
+    endif;
     if     correct              then "right" -> outcome
     elseif typed = '' or typed = '?' then "skip" -> outcome; false -> other
-    elseif other                then "near"  -> outcome
+    elseif other or kslip       then "near"  -> outcome
     else                             "wrong" -> outcome
     endif;
     ;;; Wrapped, so that action:oops has something to take back.
@@ -531,6 +538,10 @@ define lp_m_answer(msg) -> res;
                    'expected', if correct then json_null
                                else lp_jkey(hd(answer)) endif,
                    'mistook_for', if other then lp_jkey(other) else json_null endif,
+                   ;;; the katakana whose beats they counted, so a client
+                   ;;; can show the two side by side
+                   'counted_instead', if kslip then lp_jkey(kslip)
+                                      else json_null endif,
                    'mistook_form', if other then lp_jkey(lp_any_form(other))
                                    else json_null endif,
                    'belief', lp_bel(item, lp_primary(item)),

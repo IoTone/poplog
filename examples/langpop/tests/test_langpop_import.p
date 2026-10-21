@@ -360,9 +360,13 @@ check('a fresh id is not', length(imp_collisions(ws)), 0);
 ;;; level whose content was never built.  Both have no items.
 check_true('content_built answers for a level that was imported',
            not(lp_gens == []) == not(lp_gens == []));
-check_true('pre-school was never imported and says so',
+;;; n4 rather than pre-school, which was the original example and
+;;; stopped being true the day the loanword traps were enriched from
+;;; CMUdict -- a test that asserts "nobody has imported this yet" has a
+;;; shelf life, and the fix is to name a level nobody is about to.
+check_true('a level nobody has imported says so',
            not(any(lp_gens, procedure(g); lvars g;
-               hd(tl(tl(g))) == "preschool" endprocedure)));
+               hd(tl(tl(g))) == "n4" endprocedure)));
 
 
 ;;; -------------------------------------------------------------- CMUdict

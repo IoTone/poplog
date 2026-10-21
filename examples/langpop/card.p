@@ -130,11 +130,17 @@ define lp_card_term(i) -> (term, reading);
         ;;; do
         lp_gloss_of(i, "ja") -> reading;
     elseif found == "latin" then
-        ;;; The pronunciation where there is one -- and for a loanword
-        ;;; trap, which has none, the katakana the learner would reach
-        ;;; for instead.  That is the whole item on one card: `mansion`
+        ;;; The KATAKANA first where there is one, and the pronunciation
+        ;;; otherwise.  That is the whole item on one card: `mansion`
         ;;; over マンション over 大邸宅.
-        lp_form_of(i, "ipa") or lp_form_of(i, "katakana") -> reading;
+        ;;;
+        ;;; The order was the other way round, and it was right until the
+        ;;; traps were enriched from CMUdict -- at which point every trap
+        ;;; card quietly swapped マンション for /mˈænʃən/ and stopped
+        ;;; showing the thing the item exists to contrast.  A katakana
+        ;;; form on an English item means the word is a loanword trap;
+        ;;; the IPA is a pronunciation guide, and the trap is the point.
+        lp_form_of(i, "katakana") or lp_form_of(i, "ipa") -> reading;
     elseif found == "kanji" then
         ;;; The reading of a character or a kanji-written word is its
         ;;; kana, which is the one thing it has and the romaji is not.
