@@ -475,6 +475,85 @@ lconstant
     Z_TINY  = 42,                      ;;; 6pt
     Z_GLYPH = 130;                     ;;; 18pt, for a kana or a kanji
 
+;;; ------------------------------------------- the booklet's own words
+;;; A study booklet has to be readable by the person studying, and the
+;;; one language they cannot be assumed to read is the one they are
+;;; learning.  The first draft of this page had every heading in English
+;;; -- fine for a English speaker learning Japanese, useless for the
+;;; Japanese speaker learning English, who is the harder half of the
+;;; problem this project exists for.  Printing it and looking at it is
+;;; what showed that.
+;;;
+;;; So the chrome is in lp_learner_lang(), which is the OTHER language
+;;; from the ladder being climbed.  Each entry is {key, en, ja}.
+;;;
+;;; This is not a persona file.  A persona is what a teacher SAYS, and
+;;; varies by teacher; these are the labels on a page, and vary only by
+;;; who is reading.  Two different things, kept apart.
+lconstant ZINE_WORDS = [
+    {cover      'Study plan'           '学習プラン'}
+    ;;; The motto is the ONE phrase on the booklet in the language
+    ;;; being learned rather than the one being read -- see
+    ;;; zine_say_target.  So its columns are the other way round from
+    ;;; every other row here: the English column is what an English
+    ;;; learner meets, the Japanese column what a Japanese learner does.
+    {motto      'you can do this'      'がんばって'}
+    {where      'Where you are'        'いまの実力'}
+    {working    'working at'           'いまのレベル'}
+    {doing      'How it is going'      'とちゅう経過'}
+    {ready      'ready to learn now'   '学べる項目'}
+    {switched   'switched off'         'オフにした補助'}
+    {next       'Next'                 'つぎ'}
+    {then       'Then'                 'そのつぎ'}
+    {ladder     'The ladder'           'レベル表'}
+    {allofit    'all of it'            '全レベル'}
+    {youhere    'you are here'         'いまここ'}
+    {rung       'A rung opens when the one below it is met, not when a date passes.'
+                'つぎのレベルは、まえのレベルを満たしたときに開きます。日付ではありません。'}
+    {again      'Worth another look'   'もう一度'}
+    {nomiss     'Nothing missed lately. That is either very good or a sign the questions are too easy.'
+                'さいきん間違いはありません。とても良いか、問題がやさしすぎるかのどちらかです。'}
+    {nomore     'Nothing more is ready yet. These unlock as the ones before them are learned.'
+                'いまは、これ以上ありません。まえの項目を覚えると開きます。'}
+    {noplace    'Nothing placed yet. Run :place and this page will say where each part of the language stands on its own.'
+                'まだ判定していません。:place を実行すると、分野ごとの実力がここに出ます。'}
+    {fold       'Fold it'              'おりかた'}
+    {howto      'Print one sided. Fold in half the short way, three times, then open it out. Fold in half the long way and cut the dashed line. Open, fold the long way again, push the ends together until the cut opens, and flatten it into a booklet.'
+                '片面印刷。みじかい辺で半分に三回おって、ひらきます。ながい辺で半分におり、点線を切ります。ひらいて、もう一度ながい辺でおり、両はしを押して切れ目をひらき、平らにして本にします。'}
+    {onp7       'On page 7'            '7ページの記号'}
+    {legend1    '+ right · ~ near miss'    '+ 正解 · ~ おしい'}
+    {legend2    '? did not know · x wrong' '? わからない · x 間違い'}
+    {privacy    'Drawn from your own answers, on this machine. Nothing here was downloaded and nothing was sent anywhere.'
+                'あなたの答えから、このパソコンの中だけで作りました。ダウンロードも送信もしていません。'}
+    {cut        'cut along here'       'ここを切る'}
+];
+
+define zine_word(key, ja) -> s;
+    lvars key, ja, e, s = key sys_>< '';
+    for e in ZINE_WORDS do
+        if e(1) == key then
+            (if ja then e(3) else e(2) endif) sys_>< '' -> s;
+            return;
+        endif;
+    endfor;
+enddefine;
+
+;;; What the booklet says to its reader: in the language they can
+;;; already read, which is the other one from the ladder.
+define zine_say(key) -> s;
+    lvars key, s = zine_word(key, lp_learner_lang() == "ja");
+enddefine;
+
+;;; And the one exception, on the cover.  A booklet carrying a single
+;;; phrase of encouragement in the language being LEARNED is a flourish
+;;; the student will meet soon and can be proud of reading; a booklet
+;;; whose navigation is in that language is one they cannot use.  The
+;;; difference is the whole of this distinction, so it gets its own
+;;; procedure rather than a flag.
+define zine_say_target(key) -> s;
+    lvars key, s = zine_word(key, lp_lang == "ja");
+enddefine;
+
 define zine_panel(n) -> (x, y, rot);
     lvars n, p;
     (false, false, 0) -> (x, y, rot);
@@ -524,7 +603,7 @@ define zine_guides() -> out;
                    <> 'stroke-dasharray="30 22"/>\n',
                    [% PW, PH, 3 * PW, PH %])
         <> sheet_text(2 * PW, PH - 30, 46, '#b9b2a4', 'middle',
-                      'cut along here') -> out;
+                      zine_say("cut")) -> out;
 enddefine;
 
 ;;; ------------------------------------------------- panel furniture
@@ -548,26 +627,65 @@ enddefine;
 ;;; Break a line at spaces so it fits a 74mm panel.  Crude on purpose:
 ;;; the prose on a zine page is two sentences, and a hyphenating
 ;;; paragraph engine would be more machinery than the problem has.
-define zine_words(s) -> ws;
-    lvars s, i, j, n, ws = [];
-    s sys_>< '' -> s; length(s) -> n; 1 -> i;
-    until i > n do
-        while i <= n and s(i) == ` ` do i + 1 -> i endwhile;
-        quitif(i > n);
-        i -> j;
-        while j <= n and s(j) /== ` ` do j + 1 -> j endwhile;
-        ws <> [% substring(i, j - i, s) %] -> ws;
-        j -> i;
-    enduntil;
+;;; How wide one character is, in columns.  A kana or a kanji occupies
+;;; the width of two latin letters in every face this page will be set
+;;; in, so counting characters rather than columns made a Japanese line
+;;; twice as long as the panel it was supposed to fit in.
+define zine_cw(cp) -> w;
+    lvars cp, w = 1;
+    if cp >= 16:1100 then 2 -> w endif;
+enddefine;
+
+;;; Japanese has no spaces, so a space-splitting wrap put a whole
+;;; sentence on one line and ran it off the sheet and across the three
+;;; panels beside it.  Printing an English-ladder booklet is what showed
+;;; that: every Japanese paragraph on it escaped its panel.
+;;;
+;;; So: break at a space when there is one, and between characters when
+;;; there is not, which is how Japanese is set anyway.
+;;;
+;;; The one typographic rule worth keeping is kinsoku: a line may not
+;;; BEGIN with closing punctuation.  Without it a sentence breaks before
+;;; its own full stop and the next line opens with a lone 。
+lconstant NO_LINE_START = '。、）」』！？・ー,.)]}';
+
+define zine_nostart(cp) -> yes;
+    lvars cp, c, yes = false;
+    for c in [% utf8_explode(NO_LINE_START) %] do
+        if c == cp then true -> yes; return endif;
+    endfor;
 enddefine;
 
 define zine_wrap(s, cols) -> lines;
-    lvars s, cols, w, line = '', lines = [];
-    for w in zine_words(s) do
-        if length(line) + length(w) + 1 > cols and line /= '' then
-            lines <> [^line] -> lines; '' -> line;
+    lvars s, cols, cps, cp, i, n, line = '', w = 0, lines = [],
+          sp = false, spw = 0;
+    [% utf8_explode(s sys_>< '') %] -> cps;
+    length(cps) -> n;
+    for i from 1 to n do
+        cps(i) -> cp;
+        ;;; a leading space on a fresh line is dropped rather than drawn
+        if cp == ` ` and line = '' then nextloop endif;
+        ;;; Break between characters only where that is how the script
+        ;;; is set.  Japanese breaks anywhere; English does not, and a
+        ;;; wrap that split `supercalifragilistic` across two lines
+        ;;; without a hyphen would be worse than one that let it hang
+        ;;; over the edge.  So a mid-word break needs a wide character.
+        if w + zine_cw(cp) > cols and line /= ''
+        and not(zine_nostart(cp))
+        and (sp or zine_cw(cp) == 2) then
+            ;;; prefer the last space, so English still breaks at words
+            if sp and sp > 1 then
+                lines <> [% substring(1, sp - 1, line) %] -> lines;
+                substring(sp + 1, length(line) - sp, line) -> line;
+                w - spw - 1 -> w;
+            else
+                lines <> [^line] -> lines; '' -> line; 0 -> w;
+            endif;
+            false -> sp;
         endif;
-        if line = '' then w else line <> ' ' <> w endif -> line;
+        if cp == ` ` then length(line) + 1 -> sp; w -> spw endif;
+        line <> consutf8(#| cp |#) -> line;
+        w + zine_cw(cp) -> w;
     endfor;
     if line /= '' then lines <> [^line] -> lines endif;
 enddefine;
@@ -586,13 +704,13 @@ define zine_cover(display) -> out;
     sprintf('    <rect x="%p" y="%p" width="%p" height="%p" fill="none" '
             <> 'stroke="#d9d5cc" stroke-width="3"/>\n',
             [% 70, 70, PW - 140, PH - 140 %])
-    <> sheet_text(PW div 2, 640, 165, '#1b1a17', 'middle', 'Study plan')
+    <> sheet_text(PW div 2, 640, 165, '#1b1a17', 'middle', zine_say("cover"))
     <> sheet_text(PW div 2, 760, Z_HEAD, '#8a8275', 'middle',
                   display or (lp_user sys_>< ''))
     ;;; Sized to the PANEL, not to taste: five kana at 290 units each
     ;;; overran 1485 and broke out of the cover frame.
     <> sheet_text(PW div 2, 1250, 215, '#1b1a17', 'middle',
-                  if lp_lang == "ja" then 'がんばって' else 'one page' endif)
+                  zine_say_target("motto"))
     <> sheet_text(PW div 2, 1760, Z_BODY, '#8a8275', 'middle',
                   (lp_lang sys_>< '') <> '  ·  ' <> (lp_level sys_>< ''))
     <> sheet_text(PW div 2, 1860, Z_SMALL, '#b9b2a4', 'middle',
@@ -605,8 +723,8 @@ enddefine;
 ;;; kanji is at n5 is the fact a single level would hide.
 define zine_where() -> out;
     lvars out, r, y = 560, n = 0, placed;
-    zine_title('Where you are', 'working at ' <> (lp_level sys_>< ''))
-        -> out;
+    zine_title(zine_say("where"),
+               zine_say("working") <> ' ' <> (lp_level sys_>< '')) -> out;
     for r in lp_place_report() do
         n + 1 -> n; quitif(n > 10);
         r(2) -> placed;
@@ -626,17 +744,32 @@ define zine_where() -> out;
         endif;
     endfor;
     if n == 0 then
-        out <> zine_para(y, Z_BODY, '#6b6457',
-                         'Nothing placed yet. Run :place and this page '
-                         <> 'will say where each part of the language '
-                         <> 'stands on its own.', 26) -> out;
+        out <> zine_para(y, Z_BODY, '#6b6457', zine_say("noplace"), 26) -> out;
     endif;
     out <> zine_num(2) -> out;
 enddefine;
 
+;;; The same numbers as :status, worded for whoever is holding the page.
+;;; lp_status_rows carries the numbers and nothing else, exactly so that
+;;; this can exist without being a second measurement.
+define zine_status_text(r) -> txt;
+    lvars r, txt;
+    returnif(lp_learner_lang() /== "ja")(lp_status_text(r) -> txt);
+    if     r(2) == "counted" then
+        sprintf('%p / %p 習得（グラフに %p）', [% r(3), r(4), r(5) %])
+    elseif r(2) == "audio" then
+        sprintf('ここでは測れません。音声が必要です（グラフに %p）', [% r(5) %])
+    elseif r(2) == "unbuilt" then
+        'コンテンツ未生成のため、まだ測っていません'
+    else
+        sprintf('正解 %p%%・%pms 以内 %p%%・%p 問（必要 %p%%）',
+                [% r(3), r(5), r(4), r(6), r(7) %])
+    endif -> txt;
+enddefine;
+
 define zine_doing() -> out;
-    lvars out, r, y = 500, n = 0, off, wrapped;
-    zine_title('How it is going', false) -> out;
+    lvars out, r, y = 500, n = 0, off, wrapped, txt;
+    zine_title(zine_say("doing"), false) -> out;
     for r in lp_status_rows() do
         ;;; Stop when the page is full rather than when a count says so:
         ;;; a criterion's text wraps to one line or to three, and a fixed
@@ -645,19 +778,22 @@ define zine_doing() -> out;
         n + 1 -> n;
         out <> sheet_text(ZPAD, y, Z_BODY, '#1b1a17', 'start', r(1)) -> out;
         y + 80 -> y;
-        zine_wrap(r(2), 32) -> wrapped;
-        out <> zine_para(y, Z_SMALL, '#6b6457', r(2), 32) -> out;
+        zine_status_text(r) -> txt;
+        zine_wrap(txt, 32) -> wrapped;
+        out <> zine_para(y, Z_SMALL, '#6b6457', txt, 32) -> out;
         y + 65 * length(wrapped) + 40 -> y;
     endfor;
     out <> sheet_text(ZPAD, PH - 280, Z_BODY, '#8a8275', 'start',
-                      (length(lp_plan()) sys_>< '') <> ' ready to learn now')
+                      (length(lp_plan()) sys_>< '') <> ' '
+                      <> zine_say("ready"))
         -> out;
     ;;; A number read without this is a number of unknown strictness.
     [% lvars a; for a in lp_aid_names() do
            unless lp_aid(a) then a endunless endfor %] -> off;
     if off /== [] then
         out <> sheet_text(ZPAD, PH - 190, Z_SMALL, '#8a8275', 'start',
-                          'switched off: ' <> (off sys_>< '')) -> out;
+                          zine_say("switched") <> ': '
+                          <> (off sys_>< '')) -> out;
     endif;
     out <> zine_num(3) -> out;
 enddefine;
@@ -665,55 +801,77 @@ enddefine;
 ;;; The plan itself, over three pages.  Weakest belief first, which is
 ;;; the order the tutor would ask them in, so the booklet and the
 ;;; session agree about what comes next.
+;;; What to print under an item: its reading if it has one, else the
+;;; gloss IN THE LANGUAGE THE STUDENT READS.
+;;;
+;;; And cut to length.  A romaji reading is four characters; a gloss
+;;; imported from a dictionary is "a very large and rather grand house,
+;;; in American usage an apartment building" -- which, set as one line
+;;; anchored to the right edge, ran clean across the sheet and over the
+;;; three panels beside it.  Nothing in SVG clips by default, so a line
+;;; that does not fit does not wrap, it escapes.
+define zine_hint(i, cols) -> h;
+    lvars i, cols, h = lp_form_of(i, "romaji"), ls;
+    unless h then
+        lp_gloss_of(i, lp_learner_lang()) or lp_gloss_of(i, lp_ilang(i))
+            -> h;
+    endunless;
+    returnunless(h);
+    h sys_>< '' -> h;
+    ;;; one line, and an ellipsis rather than a silent cut, so a reader
+    ;;; can tell a short gloss from a trimmed one
+    if length(h) > cols then
+        zine_wrap(h, cols) -> ls;
+        hd(ls) <> (if length(ls) > 1 then ' ...' else '' endif) -> h;
+    endif;
+enddefine;
+
 define zine_plan_page(items, skip, page, title) -> out;
     lvars items, skip, page, title, i, out, y = 520, n = 0, g, rd;
     zine_title(title, false) -> out;
     for i in items do
         n + 1 -> n;
         nextif(n <= skip);
-        quitif(n > skip + 9);
+        quitif(n > skip + 8);
         lp_any_form(i) -> g;
-        lp_form_of(i, "romaji") -> rd;
-        unless rd then lp_gloss_of(i, "en") -> rd endunless;
+        zine_hint(i, 34) -> rd;
+        ;;; the term, then the hint UNDER it rather than beside it: an
+        ;;; English item's term is a word and not a glyph, so the two
+        ;;; would collide in the middle of the panel
         out <> sheet_text(ZPAD, y, Z_GLYPH, '#1b1a17', 'start', g sys_>< '')
             -> out;
         if rd then
-            out <> sheet_text(PW - ZPAD, y, Z_SMALL, '#6b6457', 'end',
-                              rd sys_>< '') -> out;
+            out <> sheet_text(ZPAD, y + 62, Z_TINY, '#6b6457', 'start', rd)
+                -> out;
         endif;
-        y + 165 -> y;
+        y + 185 -> y;
     endfor;
     if n <= skip then
-        out <> zine_para(y, Z_BODY, '#6b6457',
-                         'Nothing more is ready yet. These unlock as the '
-                         <> 'ones before them are learned.', 26) -> out;
+        out <> zine_para(y, Z_BODY, '#6b6457', zine_say("nomore"), 26) -> out;
     endif;
     out <> zine_num(page) -> out;
 enddefine;
 
 define zine_again(rows) -> out;
     lvars rows, r, out, y = 520, n = 0, g, rd;
-    zine_title('Worth another look', false) -> out;
+    zine_title(zine_say("again"), false) -> out;
     for r in rows do
         nextif(r(2) == "right");
         n + 1 -> n; quitif(n > 9);
         lp_any_form(r(1)) -> g;
-        lp_form_of(r(1), "romaji") -> rd;
+        zine_hint(r(1), 30) -> rd;
         out <> sheet_text(ZPAD, y, Z_BODY, '#8a8275', 'start',
                           sheet_mark(r(2)))
             <> sheet_text(ZPAD + 110, y, Z_GLYPH, '#2f4a7a', 'start',
                           g sys_>< '') -> out;
         if rd then
-            out <> sheet_text(PW - ZPAD, y, Z_SMALL, '#8a8275', 'end',
-                              rd sys_>< '') -> out;
+            out <> sheet_text(ZPAD + 110, y + 62, Z_TINY, '#8a8275', 'start',
+                              rd) -> out;
         endif;
-        y + 165 -> y;
+        y + 185 -> y;
     endfor;
     if n == 0 then
-        out <> zine_para(y, Z_BODY, '#6b6457',
-                         'Nothing missed lately. That is either very good '
-                         <> 'or a sign the questions are too easy.',
-                         26) -> out;
+        out <> zine_para(y, Z_BODY, '#6b6457', zine_say("nomiss"), 26) -> out;
     endif;
     out <> zine_num(7) -> out;
 enddefine;
@@ -726,7 +884,8 @@ enddefine;
 ;;; part of.
 define zine_ladder() -> out;
     lvars out, l, y = 540, here = false;
-    zine_title('The ladder', (lp_lang sys_>< '') <> ', all of it') -> out;
+    zine_title(zine_say("ladder"),
+               (lp_lang sys_>< '') <> ', ' <> zine_say("allofit")) -> out;
     for l in lp_levels(lp_lang) do
         (l == lp_level) -> here;
         out <> sheet_text(ZPAD, y, Z_BODY, if here then '#1b1a17'
@@ -734,39 +893,30 @@ define zine_ladder() -> out;
                           'start', l sys_>< '') -> out;
         if here then
             out <> sheet_text(PW - ZPAD, y, Z_SMALL, '#2f4a7a', 'end',
-                              'you are here') -> out;
+                              zine_say("youhere")) -> out;
         endif;
         y + 150 -> y;
     endfor;
-    out <> zine_para(y + 60, Z_SMALL, '#8a8275',
-        'A rung opens when the one below it is met, not when a date '
-        <> 'passes.', 32)
+    out <> zine_para(y + 60, Z_SMALL, '#8a8275', zine_say("rung"), 32)
         <> zine_num(6) -> out;
 enddefine;
 
 define zine_back() -> out;
     lvars out, y;
-    zine_title('Fold it', false) -> out;
+    zine_title(zine_say("fold"), false) -> out;
     460 -> y;
-    out <> zine_para(y, Z_SMALL, '#6b6457',
-        'Print one sided. Fold in half the short way, three times, then '
-        <> 'open it out. Fold in half the long way and cut the dashed '
-        <> 'line. Open, fold the long way again, push the ends together '
-        <> 'until the cut opens, and flatten it into a booklet.', 32)
-        -> out;
+    out <> zine_para(y, Z_SMALL, '#6b6457', zine_say("howto"), 32) -> out;
     1240 -> y;
     ;;; Separated by a dot and not by spaces: SVG collapses runs of
     ;;; whitespace, so the columns I lined up in the source arrived on
     ;;; paper as "? did not know x wrong".
-    out <> sheet_text(ZPAD, y, Z_BODY, '#1b1a17', 'start', 'On page 7')
+    out <> sheet_text(ZPAD, y, Z_BODY, '#1b1a17', 'start', zine_say("onp7"))
         <> sheet_text(ZPAD, y + 95, Z_SMALL, '#6b6457', 'start',
-                      '+ right · ~ near miss')
+                      zine_say("legend1"))
         <> sheet_text(ZPAD, y + 165, Z_SMALL, '#6b6457', 'start',
-                      '? did not know · x wrong')
+                      zine_say("legend2"))
         -> out;
-    out <> zine_para(1620, Z_TINY, '#8a8275',
-        'Drawn from your own answers, on this machine. Nothing here was '
-        <> 'downloaded and nothing was sent anywhere.', 38)
+    out <> zine_para(1620, Z_TINY, '#8a8275', zine_say("privacy"), 38)
         <> sheet_text(ZPAD, PH - 150, Z_TINY, '#b9b2a4', 'start', 'langpop')
         <> zine_num(8) -> out;
 enddefine;
@@ -785,8 +935,8 @@ define zine_svg(display) -> svg;
     <> zine_place(1, zine_cover(display))
     <> zine_place(2, zine_where())
     <> zine_place(3, zine_doing())
-    <> zine_place(4, zine_plan_page(plan, 0, 4, 'Next'))
-    <> zine_place(5, zine_plan_page(plan, 9, 5, 'Then'))
+    <> zine_place(4, zine_plan_page(plan, 0, 4, zine_say("next")))
+    <> zine_place(5, zine_plan_page(plan, 9, 5, zine_say("then")))
     <> zine_place(6, zine_ladder())
     <> zine_place(7, zine_again(rows))
     <> zine_place(8, zine_back())

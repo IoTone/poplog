@@ -337,8 +337,117 @@ check('a long one breaks at a space', length(zine_wrap('aaaa bbbb cccc dddd', 10
 check('and never mid-word',
       hd(zine_wrap('aaaa bbbb cccc', 6)), 'aaaa');
 check('an empty string is no lines', length(zine_wrap('', 20)), 0);
-check('a word longer than the column still comes out',
+;;; English does not break mid-word -- a wrap that split a long word
+;;; across two lines without a hyphen would be worse than one that let
+;;; it hang over the edge.
+check('a word longer than the column still comes out whole',
       length(zine_wrap('supercalifragilistic', 5)), 1);
+
+;;; Japanese does, because Japanese has no spaces to break at and is set
+;;; that way anyway.  Printing an English-ladder booklet is what found
+;;; this: every Japanese paragraph on it ran off its panel and across
+;;; the three beside it.
+check_true('Japanese breaks between characters',
+           length(zine_wrap('いまのレベルはこれです', 6)) > 1);
+;;; A kana is two columns wide, so six columns is three kana.
+check('three kana to a six-column line',
+      utf8_length(hd(zine_wrap('あいうえおかきくけこ', 6))), 3);
+
+;;; Kinsoku, the one typographic rule worth keeping: a line may not
+;;; BEGIN with closing punctuation, or a sentence breaks before its own
+;;; full stop and the next line opens with a lone 。
+check_true('a line does not start with a full stop',
+           [% lvars l; for l in zine_wrap('あいう。えお。かきく。', 6) do
+                  if utf8_length(l) > 0
+                  and issubstring_lim('。', 1, 1, 1, l) then l endif;
+              endfor %] == []);
+
+
+;;; ------------------------------------------ the language it speaks
+;;; A study booklet has to be readable by the person studying, and the
+;;; one language they cannot be assumed to read is the one they are
+;;; learning.  The first draft had every heading in English: fine for an
+;;; English speaker learning Japanese, useless for the Japanese speaker
+;;; learning English -- who is the harder half of the problem this
+;;; project exists for.  Printing one and looking at it is what showed
+;;; that, which is the third time this session that has been true.
+"ja" -> lp_lang;
+check('a Japanese ladder is read by an English speaker',
+      lp_learner_lang(), "en");
+check('its headings are English', zine_say("where"), 'Where you are');
+
+"en" -> lp_lang;
+check('an English ladder is read by a Japanese speaker',
+      lp_learner_lang(), "ja");
+check('and its headings are Japanese', zine_say("where"), 'いまの実力');
+check('including the long ones',
+      issubstring('片面印刷', zine_say("howto")), 1);
+
+;;; The cover motto is the one exception, and it goes the other way: a
+;;; single phrase in the language being LEARNED is a flourish the
+;;; student will meet soon, where navigation in that language is a
+;;; booklet they cannot use.
+check('the motto is in the language being learned',
+      zine_say_target("motto"), 'you can do this');
+"ja" -> lp_lang;
+check('and so it changes with the ladder, not the reader',
+      zine_say_target("motto"), 'がんばって');
+check('while everything else follows the reader',
+      zine_say("motto"), 'you can do this');
+
+;;; An unknown key gives back the key rather than an empty string: a
+;;; missing heading should be visible on the page, not invisible.
+check('an unknown key is its own name', zine_say("nosuchkey"), 'nosuchkey');
+
+;;; A whole English-ladder booklet, checked for the defect rather than
+;;; for one string.
+"en" -> lp_lang; "preschool" -> lp_level;
+lvars enz = zine_svg('Kenji');
+check_true('the English booklet is in Japanese',
+           issubstring('学習プラン', enz) /== false);
+check_true('its ladder page too', issubstring('レベル表', enz) /== false);
+check_false('and none of it is in English headings',
+            issubstring('Where you are', enz) /== false);
+check_false('nor the fold instructions',
+            issubstring('Print one sided', enz) /== false);
+check_true('the measured criteria are worded for the reader too',
+           issubstring('正解', enz) /== false);
+check_false('and not twice, in English as well',
+            issubstring('% right,', enz) /== false);
+
+;;; Which is only honest if the numbers are the SAME numbers: the page
+;;; and the screen read one measurement, worded twice.
+lvars sr = lp_status_rows();
+check_true('there are criteria', sr /== []);
+check_true('every row carries a kind the booklet can word',
+           [% lvars r; for r in sr do
+                  unless member(r(2), [counted audio unbuilt measured])
+                  then r(2) endunless endfor %] == []);
+check_true('the English wording still exists for the TUI',
+           length(lp_status_text(hd(sr))) > 0);
+
+;;; A dictionary gloss runs to a sentence.  Set as one line anchored to
+;;; the right edge it ran clean across the sheet and over the three
+;;; panels beside it -- nothing in SVG clips, so a line that does not
+;;; fit does not wrap, it escapes.
+check_true('a short gloss is left alone',
+           issubstring('...', zine_hint("t_mansion", 20)) == false);
+check('and is the one the READER can read', zine_hint("t_mansion", 20),
+      '大邸宅');
+"ja" -> lp_lang;
+if lp_ilang("k_4f1a") then
+    ;;; an imported kanji has no romaji and a dictionary gloss
+    check_true('a long gloss is cut to the panel',
+               length(zine_hint("k_4f1a", 14)) < 40);
+    check_true('and says it was cut, rather than stopping mid-word',
+               issubstring('...', zine_hint("k_4f1a", 14)) /== false);
+else
+    printf(';;; imported content not built -- gloss truncation not checked\n');
+endif;
+"en" -> lp_lang;
+check_true('nothing escapes the English booklet', sheet_maxy(enz) <= 4200);
+
+"ja" -> lp_lang; "preschool" -> lp_level;
 
 ;;; --------------------------------------------------------- escaping
 ;;; A gloss is human-written text; nothing stops one holding a quote or

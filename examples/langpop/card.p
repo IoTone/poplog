@@ -181,6 +181,9 @@ enddefine;
 ;;; other one.  That is a two-language assumption and it is stated here
 ;;; rather than assumed silently; a third language would need the
 ;;; student's L1 on the profile instead.
+;;; Keyed off the ITEM's language rather than off lp_lang, because a
+;;; card can be drawn for an item from either ladder; lp_learner_lang
+;;; answers the same question for the session as a whole.
 define lp_card_gloss(i) -> g;
     lvars i, g, mine = lp_ilang(i), theirs;
     if mine == "ja" then "en" else "ja" endif -> theirs;

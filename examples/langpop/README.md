@@ -992,6 +992,70 @@ top row inverted, and the cut line spanning the middle two columns
 **only**. A dashed line the full width would be an instruction to cut the
 booklet in half, which is the one mistake that cannot be undone.
 
+### The booklet speaks the language the reader can read
+
+Printing one for a Japanese speaker learning English is what showed the
+first draft was unusable for exactly the person it was for: every
+heading on it — *Study plan*, *Where you are*, *How it is going*, *Fold
+it* — was in **English**, which is the one language a beginner English
+learner cannot be assumed to read. That is the metalanguage problem this
+project started from, turned round: *a question about grammar in
+Japanese will be too challenging because the vocabulary used to talk
+about grammar exceeds beginner level.*
+
+So the chrome is in `lp_learner_lang()` — the **other** language from the
+ladder being climbed. `card.p` has had this rule since the cards were
+drawn (a loanword trap carries a Japanese gloss because the person
+reading it reads Japanese), but it was spelled inside `lp_card_gloss`
+and could not be used anywhere else.
+
+| | `--lang ja` | `--lang en` |
+| --- | --- | --- |
+| cover | Study plan | 学習プラン |
+| page 2 | Where you are | いまの実力 |
+| page 3 | How it is going | とちゅう経過 |
+| page 6 | The ladder | レベル表 |
+| page 8 | Fold it | おりかた |
+| the cut line | cut along here | ここを切る |
+
+**The cover motto is the one exception, and it goes the other way.** A
+single phrase in the language being *learned* — がんばって, *you can do
+this* — is a flourish the student will meet soon and can be proud of
+reading. Navigation in that language is a booklet they cannot use. The
+difference is the whole of the distinction, so it has its own procedure
+(`zine_say_target`) rather than a flag.
+
+And the status page is worded twice from **one** set of numbers.
+`lp_status_rows/0` returns `{criterion, kind, a, b, c, d}` and nothing
+else; `lp_status_text/1` words it for the TUI and `zine_status_text/1`
+for the page. Formatting the sentence in `lp_status_rows` was fine until
+a second reader wanted it in a second language — at which point two
+renderings would have become two measurements.
+
+### Two things a printed page does that a screen does not
+
+**Nothing clips.** A dictionary gloss — *"a very large and rather grand
+house, in American usage an apartment building"* — set as one line
+anchored to the right edge ran clean across the sheet and over the three
+panels beside it. SVG does not wrap and does not clip: a line that does
+not fit does not get smaller, it escapes. `zine_hint/2` cuts to the
+column and marks the cut with an ellipsis, so a reader can tell a short
+gloss from a trimmed one.
+
+**Japanese has no spaces.** A space-splitting wrap put a whole Japanese
+sentence on one line and sent it off the panel the same way. `zine_wrap`
+now measures in **columns** (a kana is two), breaks at a space where
+there is one and between characters where there is not, and keeps the
+one typographic rule worth keeping — kinsoku: a line may not *begin*
+with closing punctuation, or a sentence breaks before its own full stop
+and the next line opens with a lone 。
+
+English still does not break mid-word. A wrap that split
+`supercalifragilistic` across two lines without a hyphen would be worse
+than one that let it hang over the edge, so a mid-word break requires a
+wide character.
+
+
 ### Not TeX, and why
 
 TeX would do this, and it was the obvious fallback for a page with

@@ -2023,8 +2023,22 @@ enddefine;
 ;;; paper, and two renderings of a number is one too many: the sheet
 ;;; would quietly drift from the screen and nobody would notice which
 ;;; was right.  lp_status prints these; so does the booklet.
+;;; One criterion, measured, as NUMBERS and not as a sentence:
+;;;
+;;;     {criterion-text, kind, a, b, c, d}
+;;;
+;;;   counted   a of b mastered, c in the graph
+;;;   audio     c in the graph, and nothing here can check them
+;;;   unbuilt   nothing measures it
+;;;   measured  a% right, b% within c ms, over d answers
+;;;
+;;; The sentence used to be built here, which was fine until a second
+;;; thing wanted to print it: the study booklet, whose reader may not
+;;; read English.  Formatting it twice would be two renderings of one
+;;; measurement -- paper drifting from screen -- so the NUMBERS are the
+;;; shared thing and each caller words them.
 define lp_status_rows() -> rows;
-    lvars e, c, th, ms, items, acc, fast, n, want, ch, rows = [], txt;
+    lvars e, c, th, ms, items, acc, fast, n, want, ch, rows = [], row;
     for e in lp_exits do
         nextunless(hd(e) == lp_lang and hd(tl(e)) == lp_level);
         hd(tl(tl(e))) -> c; hd(tl(tl(tl(e)))) -> th; hd(tl(tl(tl(tl(e))))) -> ms;
@@ -2032,33 +2046,49 @@ define lp_status_rows() -> rows;
             prolog_full_deref(prolog_arg(1, c)) -> want;
             prolog_deref(prolog_arg(2, c)) -> ch;
             if lp_verifiable(ch) then
-                sprintf('%p of %p words mastered (%p in the graph)',
-                        [% lp_count_mastered("word", ch), want,
-                           lp_count_items("word") %])
+                {% "counted", lp_count_mastered("word", ch), want,
+                   lp_count_items("word"), "word" %}
             else
                 ;;; Said rather than scored.  Reporting 0 of 800 would
                 ;;; read as a student who has learned nothing, when what
                 ;;; is true is that nothing here can measure it.
-                sprintf('cannot be checked here -- needs audio (%p in the graph)',
-                        [% lp_count_items("word") %])
-            endif -> txt;
+                {% "audio", 0, want, lp_count_items("word"), "word" %}
+            endif -> row;
         elseif prolog_complexterm(c) and prolog_functor(c) == "kanji" then
             prolog_full_deref(prolog_arg(1, c)) -> want;
             prolog_deref(prolog_arg(2, c)) -> ch;
-            sprintf('%p of %p kanji mastered (%p in the graph)',
-                    [% lp_count_mastered_kanji(ch), want,
-                       lp_count_items("kanji") %]) -> txt;
+            {% "counted", lp_count_mastered_kanji(ch), want,
+               lp_count_items("kanji"), "kanji" %} -> row;
         elseif prolog_complexterm(c) and prolog_functor(c) == "coverage" then
-            'needs the content build (not measured yet)' -> txt;
+            {% "unbuilt", 0, 0, 0, false %} -> row;
         else
             lp_ask(c, "criterion_items", 1) -> items;
             lp_measure(items, ms) -> (acc, fast, n);
-            sprintf('%p%% right, %p%% within %pms, over %p answers (need %p)',
-                    [% round(acc * 100), round(fast * 100),
-                       ms, n, round(th * 100) %]) -> txt;
+            {% "measured", round(acc * 100), round(fast * 100), ms, n,
+               round(th * 100) %} -> row;
         endif;
-        rows <> [{% lp_term_str(c), txt %}] -> rows;
+        rows <> [{% lp_term_str(c), row(1), row(2), row(3), row(4), row(5),
+                    if length(row) > 5 then row(6) else false endif %}]
+            -> rows;
     endfor;
+enddefine;
+
+;;; The English wording, which is what the TUI prints.  The booklet has
+;;; its own, in the language its reader can read.
+define lp_status_text(r) -> txt;
+    lvars r, txt;
+    if     r(2) == "counted" then
+        sprintf('%p of %p %ps mastered (%p in the graph)',
+                [% r(3), r(4), r(6), r(5) %])
+    elseif r(2) == "audio" then
+        sprintf('cannot be checked here -- needs audio (%p in the graph)',
+                [% r(5) %])
+    elseif r(2) == "unbuilt" then
+        'needs the content build (not measured yet)'
+    else
+        sprintf('%p%% right, %p%% within %pms, over %p answers (need %p)',
+                [% r(3), r(4), r(5), r(6), r(7) %])
+    endif -> txt;
 enddefine;
 
 define lp_status();
@@ -2066,7 +2096,7 @@ define lp_status();
     printf('\n  %p, %p -- level %p\n',
            [% lp_display or (lp_user sys_>< ''), lp_lang, lp_level %]);
     for r in lp_status_rows() do
-        printf('    %p: %p\n', [% r(1), r(2) %]);
+        printf('    %p: %p\n', [% r(1), lp_status_text(r) %]);
     endfor;
     printf('    %p items ready to teach now\n', [% length(lp_plan()) %]);
     ;;; What was helping, if anything was not.  A number read without
@@ -2688,6 +2718,23 @@ define lp_session();
     endrepeat;
     lp_save();
     printf('\n%p\n', [% lp_line('signoff') %]);
+enddefine;
+
+;;; --------------------------------------------------- the other language
+;;; Which language the STUDENT can already read.  Not lp_lang, which is
+;;; what they are learning and therefore the one thing they cannot be
+;;; assumed to follow.
+;;;
+;;; card.p has had this rule since the cards were drawn -- a loanword
+;;; trap carries a Japanese gloss because the person reading it reads
+;;; Japanese -- but it was spelled inside lp_card_gloss and so could not
+;;; be used anywhere else.  It is needed anywhere else the moment a page
+;;; carries words of its own: a study booklet for a Japanese speaker
+;;; learning English, whose every heading was in English, is the same
+;;; defect as asking a beginner a grammar question in vocabulary they do
+;;; not have.
+define lp_learner_lang() -> l;
+    lvars l = if lp_lang == "ja" then "en" else "ja" endif;
 enddefine;
 
 ;;; ---------------------------------------------------------------- sheets
