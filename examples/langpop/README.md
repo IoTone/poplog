@@ -504,9 +504,9 @@ a deliberate slip cannot buy thinking time.
 
 **`:oops`** is for what the detector cannot catch — an input method that
 ate the line, enter hit a word early. It takes back the last answer and
-asks again, and it restores *every* belief that answer moved, which is
-more than one: a correct check also credits whatever it contained, so
-undoing it has to undo those too.
+puts the question back in the queue, and it restores *every* belief that
+answer moved, which is more than one: a correct check also credits
+whatever it contained, so undoing it has to undo those too.
 
 ```
 before:        誕生日=0.0   生=0.0   日=0.0   journal=0
@@ -520,6 +520,88 @@ On the wire the same thing is a reply rather than a reprompt:
 `langpop/answer` returns `"outcome": "slip"` with `"recorded": false`
 and an `expected` of `null`, and the client asks again. Sending the same
 near miss twice records it — the retry is offered once, not forever.
+`{"action": "oops"}` is the button version of `:oops`.
+
+## Putting a question off, and taking an answer back
+
+Spaced-repetition services have worked this out already. WaniKani lets a
+student say they mistyped — the answer does not count and the item comes
+back later — and lets them skip a question without it counting as a
+failure, where it returns in the same session. Both can be **switched
+off**, so a student who suspects they are leaning on them can find out.
+That is the right shape, and langpop adopts it with two differences.
+
+**The difference from a skip.** langpop already has four outcomes, so it
+does not have to guess what a student meant by declining:
+
+| at a question | means | recorded? |
+| --- | --- | --- |
+| *enter* | "I do not know" | **yes** — `skip`, and it counts in the denominator |
+| `later` | "not this one, not now" | no |
+
+Pressing enter is the most informative thing a beginner does: it is what
+stops a placement descent, and a student who could raise their accuracy
+by answering only what they knew would be measuring the wrong thing. So
+it stays recorded. `later` is the other gesture, and it records nothing.
+
+**The gap is what makes `:oops` honest.** Both routes put the item back
+in the queue, and neither re-asks it immediately:
+
+```
+あ   ->  later
+後で。Put it aside -- I will bring it back.
+い   ->  i        そうです。
+う   ->  u        そうです。
+え   ->  e        そうです。
+  Back to this one.
+あ   ->
+```
+
+Three questions, counted in answers actually recorded. `:oops` is used
+*after* the tutor has said what the answer was, so asking again straight
+away would measure the echo rather than the memory — it would hand a free
+correct answer to anything got wrong. (The first version did exactly
+that: the deferred item had the lowest belief of anything ready, which is
+precisely what `lp_choose` picks, so it came back as the very next
+question. Only running it showed that.)
+
+Twice per item, and then it has to be answered. Without a limit, `later`
+is a way never to be wrong about anything.
+
+**The switches.** `:aids` lists them; `:aids later off` takes one away.
+
+```
+    on  slip   one more go when a typed answer looks mistyped
+    on  oops   :oops takes back the answer you just gave
+    off later  puts a question off until later today -- type it at a question
+```
+
+An aid that cannot be refused is indistinguishable from a lower
+standard, and a learner who suspects they are leaning on one has no way
+to find out except to take it away. So they are the student's to switch,
+not the tutor's.
+
+They are **recorded rather than policed**. Turning one off and on again
+around a hard item would otherwise be invisible; instead every change is
+logged with its time, every journal entry already carries one, so what
+was available at any given answer is reconstructible exactly — at the
+cost of one record per change rather than a wider field on every answer.
+`:status` names anything switched off, so a number is never read without
+knowing which standard produced it.
+
+On the wire: `langpop/aids` reads and sets them, and `langpop/answer`
+takes `{"action": "later"}` and `{"action": "oops"}`. `langpop/next`
+reports `"requeued": true` when it is handing back something owed, so a
+client can say so rather than showing it as a fresh question. The queue
+dies with the session, which is what "comes back in the same session"
+means; `langpop/session.close` reports how much was still owed.
+
+Both are stored by **name** rather than as a map of booleans — on disk as
+`aids_off`, on the wire as `{"off": ["slip"]}` — because an absent JSON
+field and a field set to `false` arrive indistinguishable, so a map could
+not tell a profile written before an aid existed from one that switched
+it off, and reading the first as the second would silently take an aid
+away.
 
 ## Placement: find out where they are, rather than ask
 
@@ -892,7 +974,11 @@ asserts the doubled form would **not** have survived.
 | *empty line* | the next thing to learn — weakest belief first, then least asked |
 | `:plan` | what is ready now |
 | `:why <item>` | the derivation: prerequisites, source, belief |
-| `:status` | this level's exit criteria, measured |
+| `:status` | this level's exit criteria, measured, and which aids are off |
+| `:place` | find out where they are, rather than ask |
+| `later` | *at a question:* put it off until later this session |
+| `:oops` | that answer was an accident — take it back and ask again later |
+| `:aids` | which helps are on; `:aids later off` takes one away |
 | `:assign` | something to do away from the keyboard |
 | `:report <n> ok` | done it (tier 3) |
 | `:report <n> 17/20` | done it, with a result (tier 2) |
@@ -975,6 +1061,9 @@ speak to it with no shim. `--port N` for TCP, nothing for stdio.
 | `langpop/answer` | the judging, which stays on this side |
 | `langpop/explain` | the derivation: prerequisites, provenance, belief |
 | `langpop/status` | the level's exit criteria, measured |
+| `langpop/placement.next` / `placement.report` | find out where they are |
+| `langpop/aids` | which helps are on, and switching them |
+| `langpop/card.render` | the item as a picture |
 | `langpop/assign` / `report` | work to do elsewhere, and what came of it |
 
 Three things are deliberately on the server's side of the line, and each

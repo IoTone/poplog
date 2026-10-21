@@ -37,14 +37,36 @@ vars
     lp_session_seq = 0,
 ;
 
-;;; {student, opened_ms, asked_item, asked_ms}
 define lp_new_session(student) -> sid;
     lvars student, sid;
     lp_session_seq + 1 -> lp_session_seq;
     'sess-' <> (lp_session_seq sys_>< '') -> sid;
-    ;;; student, opened, item asked, when it was asked, and the item a
-    ;;; typing slip has already been offered a retry on
-    {% student, lp_now_ms(), false, 0, false %} -> lp_sessions(consword(sid));
+    ;;; student, opened, item asked, when it was asked, the item a typing
+    ;;; slip has already been offered a retry on, and then the three
+    ;;; pieces of queue state.
+    ;;;
+    ;;; The queue is HERE and not in the engine's globals, although the
+    ;;; engine owns it, because "comes back in the same session" has to
+    ;;; mean this connection's session.  lp_bind returns early when the
+    ;;; student has not changed, so a global queue would survive a close
+    ;;; and reopen and bring yesterday's deferred questions back as
+    ;;; though they had just been put off.
+    {% student, lp_now_ms(), false, 0, false,
+       [], 0, newproperty([], 32, 0, "perm") %} -> lp_sessions(consword(sid));
+enddefine;
+
+;;; The engine reads and writes the queue through its own globals, so a
+;;; method that touches it swaps this session's copy in on the way past.
+;;; lp_need_session does the loading; a method that changes anything says
+;;; so with lp_q_out.
+define lp_q_in(s);
+    lvars s;
+    s(6) -> lp_pending; s(7) -> lp_asked_n; s(8) -> lp_laters;
+enddefine;
+
+define lp_q_out(s);
+    lvars s;
+    lp_pending -> s(6); lp_asked_n -> s(7); lp_laters -> s(8);
 enddefine;
 
 define lp_session(sid) -> s;
@@ -289,7 +311,9 @@ define lp_need_session(msg) -> s;
     endunless;
     unless lp_bind(s(1)) then
         lp_err(LP_E_STUDENT, 'session: that student is gone') -> s;
+        return;
     endunless;
+    lp_q_in(s);
 enddefine;
 
 define lp_m_plan(msg) -> res;
@@ -309,7 +333,22 @@ enddefine;
 define lp_m_next(msg) -> res;
     lvars msg, res, s = lp_need_session(msg), item, shape, prompt, answer, options;
     returnif(lp_is_err(s))(s -> res);
-    lp_choose(lp_plan()) -> item;
+    ;;; Anything put off, or taken back with oops, is owed: the student
+    ;;; was told it would come round again, so it comes before anything
+    ;;; new.  Reported as `requeued` so a client can say so rather than
+    ;;; showing it as a fresh question.
+    lvars requeued = lp_due();
+    (requeued or lp_choose(lp_plan())) -> item;
+    ;;; Everything ready is deferred and nothing else can be asked: the
+    ;;; gap gives way rather than handing the client an empty reply.
+    if not(item) and lp_pending /== [] then
+        hd(lp_pending)(1) -> item; true -> requeued;
+    endif;
+    ;;; Everything ready is deferred and nothing else can be asked: the
+    ;;; gap gives way rather than handing the client an empty reply.
+    if not(item) and lp_pending /== [] then
+        hd(lp_pending)(1) -> item; true -> requeued;
+    endif;
     unless item then
         jsonrpc_obj([% 'item', json_null,
                        'note', 'nothing here can be checked by typing -- try assign' %])
@@ -329,6 +368,7 @@ define lp_m_next(msg) -> res;
                    'prompt', lp_jkey(prompt),
                    'options', lp_vec([% lvars o; for o in options do lp_jkey(o) endfor %]),
                    'kind', lp_jkey(lp_kind(item)),
+                   'requeued', requeued and true,
                    'belief', lp_bel(item, lp_primary(item)) %]) -> res;
 enddefine;
 
@@ -340,14 +380,77 @@ define lp_m_answer(msg) -> res;
           latency = lp_param(msg, 'latency_ms'),
           shape, prompt, answer, options, typed, correct, other = false;
     returnif(lp_is_err(s))(s -> res);
+
+    ;;; An ACTION instead of an answer.  Both of these say "do not record
+    ;;; what I just did", and they are the two halves of one admission:
+    ;;; `later` before answering, `oops` after.  Neither is a wrong
+    ;;; answer and neither moves a belief.
+    lvars act = lp_param(msg, 'action');
+    if act then (act sys_>< '') -> act endif;
+
+    if act = 'oops' then
+        unless lp_aid("oops") then
+            lp_err(LP_E_PARAMS, 'oops is switched off for this student') -> res;
+            return;
+        endunless;
+        lvars took = lp_undo_last();
+        ;;; Requeued, not re-asked: the previous reply carried `expected`,
+        ;;; so the client has already shown the answer, and asking again
+        ;;; straight away would hand over a free correct one.
+        if took then lp_requeue(took); lp_q_out(s); lp_save() endif;
+        jsonrpc_obj([% 'outcome', 'oops',
+                       'accepted', took and true,
+                       'item', if took then lp_jkey(took) else json_null endif,
+                       'recorded', false,
+                       'requeued', took and true,
+                       'reply', if took then 'Taken back. It will come round again.'
+                                else 'nothing to take back' endif,
+                       'belief', if took then lp_bel(took, lp_primary(took))
+                                 else json_null endif %]) -> res;
+        return;
+    endif;
+
     ;;; `given` may be the empty string: that is a client saying "I do
-    ;;; not know", which is an answer and not a missing parameter.
-    unless item and isstring(given) then
+    ;;; not know", which is an answer and not a missing parameter.  An
+    ;;; action does not need one at all.
+    unless item and (isstring(given) or act) then
         lp_err(LP_E_PARAMS, 'answer: item and answer needed') -> res; return
     endunless;
     consword(item sys_>< '') -> item;
     unless lp_kind(item) then
         lp_err(LP_E_ITEM, 'no such item: ' <> (item sys_>< '')) -> res; return
+    endunless;
+
+    if act = 'later' then
+        unless lp_aid("later") then
+            lp_err(LP_E_PARAMS, 'later is switched off for this student') -> res;
+            return;
+        endunless;
+        ;;; Twice, and then it has to be answered -- see lp_can_later.
+        ;;; Refused with a reply rather than an error, because the client
+        ;;; did nothing wrong: it asked, and the answer is no.
+        lvars may = lp_can_later(item);
+        if may then lp_later(item); lp_q_out(s) endif;
+        ;;; s(3) and s(4) are left alone.  A deferred question is asked
+        ;;; again from scratch, so there is no clock to stop, and the
+        ;;; item in flight stays in flight until something is recorded.
+        jsonrpc_obj([% 'item', lp_jkey(item),
+                       'outcome', 'later',
+                       'accepted', may,
+                       'recorded', false,
+                       'requeued', may,
+                       'reply', if may then lp_line('later')
+                                else 'that one has been put off twice -- it needs an answer'
+                                endif,
+                       'belief', lp_bel(item, lp_primary(item)) %]) -> res;
+        return;
+    endif;
+    unless act == false or act = '' or act = 'answer' then
+        lp_err(LP_E_PARAMS, 'answer: action must be later, oops or answer') -> res;
+        return;
+    endunless;
+    unless isstring(given) then
+        lp_err(LP_E_PARAMS, 'answer: item and answer needed') -> res; return
     endunless;
     ;;; Server-side timing wins whenever this is the item we asked about;
     ;;; the client's figure is kept only as a fallback for a caller that
@@ -380,7 +483,8 @@ define lp_m_answer(msg) -> res;
     ;;;
     ;;; Once per item, which is what s(5) remembers -- a client that
     ;;; sends the same near-miss twice gets it recorded the second time.
-    if not(correct) and not(other) and typed /= '' and typed /= '?'
+    if lp_aid("slip") and not(correct) and not(other)
+    and typed /= '' and typed /= '?'
     and lp_slip(typed, answer) and s(5) /== item then
         item -> s(5);
         jsonrpc_obj([% 'item', lp_jkey(item),
@@ -399,7 +503,15 @@ define lp_m_answer(msg) -> res;
     elseif other                then "near"  -> outcome
     else                             "wrong" -> outcome
     endif;
+    ;;; Wrapped, so that action:oops has something to take back.
+    ;;; lp_undo_last restores every belief this moved, which is more than
+    ;;; one whenever a correct answer inferred a prerequisite from what
+    ;;; the item contains.
+    lp_undo_start(item);
     lp_record(item, lp_primary(item), 1, outcome, used);
+    lp_undo_stop();
+    lp_answered(item);
+    lp_q_out(s);
     lp_save();
     jsonrpc_obj([% 'item', lp_jkey(item),
                    'correct', correct,
@@ -611,8 +723,16 @@ define lp_m_session_close(msg) -> res;
     lvars msg, res, s = lp_need_session(msg), sid = lp_param(msg, 'session_id');
     returnif(lp_is_err(s))(s -> res);
     lp_save();
+    ;;; Counted BEFORE the reset, which is the whole of what it reports:
+    ;;; questions the student put off and the session ended before it
+    ;;; could come back to.
+    lvars owed = length(lp_pending);
+    ;;; The queue dies with the session, by definition -- and so does the
+    ;;; count of how often each item was put off.
+    lp_queue_reset();
     false -> lp_sessions(consword(sid sys_>< ''));
     jsonrpc_obj([% 'saved', true,
+                   'put_off_unanswered', owed,
                    'signoff', lp_line('signoff'),
                    'answers_recorded', length(lp_journal) %]) -> res;
 enddefine;
@@ -669,6 +789,11 @@ enddefine;
 ;;; One question at a time, for the same reason the TUI does it: a
 ;;; second freeze has to end that axis immediately, and a client handed
 ;;; a whole batch would keep asking past it.
+;;;
+;;; action:later needs no special case here, although the TUI refuses it
+;;; during a placement.  Nothing is recorded, and this is a function of
+;;; the record, so the same question simply comes back -- and lp_can_later
+;;; refuses the third attempt, so it cannot be used to stall a descent.
 define lp_m_place_next(msg) -> res;
     lvars msg, res, s = lp_need_session(msg),
           axis, level, items, item, shape, prompt, answer, options;
@@ -716,6 +841,44 @@ define lp_m_place_report(msg) -> res;
                    'level', lp_jkey(lp_place_level() or lp_level) %]) -> res;
 enddefine;
 
+;;; --------------------------------------------------------------- aids
+;;; Read, and switch.  A client that offers "I typed it wrong" and a skip
+;;; button has to be able to offer the settings too, or the student can
+;;; only refuse the help by not pressing the button -- which is not the
+;;; same thing, because the point of switching one off is to stop having
+;;; to decide each time.
+;;;
+;;; NAMES rather than a map of booleans, for the reason given in lp_save:
+;;; an absent JSON field and a field set to false arrive here
+;;; indistinguishable, so {"slip": false} could not be told from a client
+;;; that simply did not mention slip.  {"off": ["slip"]} can.
+define lp_m_aids(msg) -> res;
+    lvars msg, res, s = lp_need_session(msg), a, i, pair, changed = [];
+    returnif(lp_is_err(s))(s -> res);
+    for pair in [% {% lp_param(msg, 'on'),  true  %},
+                   {% lp_param(msg, 'off'), false %} %] do
+        nextunless(pair(1) and isvector(pair(1)));
+        for i from 1 to length(pair(1)) do
+            consword(pair(1)(i) sys_>< '') -> a;
+            unless lp_aid_set(a, pair(2)) then
+                lp_err(LP_E_PARAMS, 'no such aid: ' <> (a sys_>< '')) -> res;
+                return;
+            endunless;
+            changed <> [^a] -> changed;
+        endfor;
+    endfor;
+    ;;; Saved immediately.  A switch that did not survive a crash would be
+    ;;; the one setting a student had to remember to set again, and the
+    ;;; log of changes is part of the record, not a session nicety.
+    if changed /== [] then lp_save() endif;
+    jsonrpc_obj([% 'aids', jsonrpc_obj([% for a in lp_aid_names() do
+                                             a sys_>< '', lp_aid(a) endfor %]),
+                   'changed', lp_vec([% for a in changed do lp_jkey(a) endfor %]),
+                   'changes_logged', length(lp_aid_log),
+                   'note', 'every change is logged with its time, so what was '
+                           <> 'available at any answer stays recoverable' %]) -> res;
+enddefine;
+
 lconstant METHODS = [
     ['langpop/recognise'     ^lp_m_recognise]
     ['langpop/register'      ^lp_m_register]
@@ -726,6 +889,7 @@ lconstant METHODS = [
     ['langpop/answer'        ^lp_m_answer]
     ['langpop/explain'       ^lp_m_explain]
     ['langpop/status'        ^lp_m_status]
+    ['langpop/aids'          ^lp_m_aids]
     ['langpop/placement.next'   ^lp_m_place_next]
     ['langpop/placement.report' ^lp_m_place_report]
     ['langpop/assign'        ^lp_m_assign]

@@ -68,7 +68,7 @@ enddefine;
 ;;; ------------------------------------------------------------- the door
 check('ping', result('ping', false), 'pong');
 check_true('methods are listable',
-           length(result('langpop/methods', false)) == 14);
+           length(result('langpop/methods', false)) == 15);
 check_true('and the list names them, not just counts them',
            member('langpop/card.render',
                   [% explode(result('langpop/methods', false)) %]) /== false);
@@ -342,6 +342,172 @@ vars sl4 = result('langpop/answer',
                                  'answer', 'a' %]));
 check('a right answer is recorded', sl4('recorded'), true);
 check('and named right', sl4('outcome'), 'right');
+
+;;; ------------------------------------------------ later, oops, aids
+;;; The two halves of one admission: `later` before answering, `oops`
+;;; after.  Neither is a wrong answer, so neither moves a belief -- and
+;;; both put the question back in this session's queue, because the
+;;; student was told it would come round again.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'deferrer',
+                                          'language', 'ja' %])).erase;
+vars dsid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'deferrer' %]))('session_id');
+
+vars la = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', dsid, 'item', 'hi_a',
+                                'action', 'later' %]));
+check('later is accepted', la('accepted'), true);
+check('and named', la('outcome'), 'later');
+check('nothing is recorded', la('recorded'), false);
+check('it is requeued', la('requeued'), true);
+check('and the belief did not move', la('belief'), 0.0);
+check('no answer is needed to defer one', la('item'), 'hi_a');
+
+;;; Twice, and then it has to be answered.  Refused with a reply rather
+;;; than an error: the client asked, and the answer is no.
+result('langpop/answer', jsonrpc_obj([% 'session_id', dsid, 'item', 'hi_a',
+                                        'action', 'later' %])).erase;
+vars la3 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', dsid, 'item', 'hi_a',
+                                 'action', 'later' %]));
+check('a third deferral is refused', la3('accepted'), false);
+check('and not requeued again', la3('requeued'), false);
+check('still nothing recorded', la3('recorded'), false);
+
+;;; The gap, over the wire.  The deferred question comes back ahead of
+;;; anything new, and is flagged, so a client can say so rather than
+;;; showing it as a fresh question.
+;;;
+;;; The three intervening answers are named rather than taken from
+;;; langpop/next, because next is entitled to choose the deferred item
+;;; itself -- it has the lowest belief of anything ready -- and an answer
+;;; to it settles the debt rather than deferring it.
+vars dq, di;
+for di in ['hi_i' 'hi_u'] do
+    result('langpop/answer', jsonrpc_obj([% 'session_id', dsid, 'item', di,
+                                            'answer', allbutfirst(3, di) %])).erase;
+endfor;
+result('langpop/next', jsonrpc_obj([% 'session_id', dsid %])) -> dq;
+check('two answers in, nothing is owed yet', dq('requeued'), false);
+result('langpop/answer', jsonrpc_obj([% 'session_id', dsid, 'item', 'hi_e',
+                                        'answer', 'e' %])).erase;
+result('langpop/next', jsonrpc_obj([% 'session_id', dsid %])) -> dq;
+check('the third brings it back', dq('requeued'), true);
+check('and it is the one that was put off', dq('item'), 'hi_a');
+
+;;; oops takes back the last answer and requeues it.  It must restore
+;;; every belief that answer moved, and it must NOT re-ask straight away:
+;;; the previous reply carried `expected`, so the client has already
+;;; shown the answer.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'oopser',
+                                          'language', 'ja' %])).erase;
+vars osid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'oopser' %]))('session_id');
+vars ow = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', osid, 'item', 'hi_ka',
+                                'answer', 'ke' %]));
+check('a wrong answer is recorded', ow('recorded'), true);
+check_true('and it told the client the answer', ow('expected') /== json_null);
+
+vars oo = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', osid, 'action', 'oops' %]));
+check('oops is accepted', oo('accepted'), true);
+check('and names the item to ask again', oo('item'), 'hi_ka');
+check('it is requeued, not re-asked', oo('requeued'), true);
+check('nothing is recorded for it', oo('recorded'), false);
+check('and the belief is back where it was', oo('belief'), 0.0);
+
+;;; One answer deep.  A second oops has nothing to take back, which is
+;;; said rather than raised.
+vars oo2 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', osid, 'action', 'oops' %]));
+check('a second oops is refused', oo2('accepted'), false);
+check('with no item', oo2('item'), json_null);
+
+;;; A correct answer credits what the item contains, so undoing it has
+;;; to undo those too -- the same requirement the TUI has.
+if lp_ilang("k_65e5") then
+    result('langpop/answer',
+           jsonrpc_obj([% 'session_id', osid, 'item', 'w_tanjoubi',
+                          'answer', 'tanjoubi' %])).erase;
+    check_true('reading the word credited the kanji in it',
+               lp_bel("k_65e5", "read") > 0.0);
+    result('langpop/answer',
+           jsonrpc_obj([% 'session_id', osid, 'action', 'oops' %])).erase;
+    check('and oops took the inference back too',
+          lp_bel("k_65e5", "read"), 0.0);
+else
+    printf(';;; imported content not built -- inferred undo not checked\n');
+endif;
+
+;;; The switches.  Names rather than booleans, because an absent JSON
+;;; field and a field set to false arrive here identically.
+vars ai = result('langpop/aids', jsonrpc_obj([% 'session_id', osid %]));
+check('slip is on', ai('aids')('slip'), true);
+check('oops is on', ai('aids')('oops'), true);
+check('later is on', ai('aids')('later'), true);
+check('nothing changed by reading', length(ai('changed')), 0);
+
+vars ai2 = result('langpop/aids',
+                  jsonrpc_obj([% 'session_id', osid,
+                                 'off', lp_vec(['slip' 'later']) %]));
+check('two switched off', length(ai2('changed')), 2);
+check('slip is off', ai2('aids')('slip'), false);
+check('later is off', ai2('aids')('later'), false);
+check('oops is untouched', ai2('aids')('oops'), true);
+check('and both changes are logged', ai2('changes_logged'), 2);
+
+;;; Switched off, it is refused rather than hidden -- otherwise a client
+;;; could offer the button and the student would never know which
+;;; standard they were being held to.
+vars lo = call('langpop/answer',
+               jsonrpc_obj([% 'session_id', osid, 'item', 'hi_a',
+                              'action', 'later' %]));
+check_true('later off means the call is refused', lo('error') /== false);
+
+;;; And with slip off, a near miss is an ordinary wrong answer, recorded
+;;; the first time.
+vars so = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', osid, 'item', 'w_neko',
+                                'answer', 'nek' %]));
+check('with slip off a near miss is recorded at once', so('recorded'), true);
+check('and called wrong', so('outcome'), 'wrong');
+
+result('langpop/aids', jsonrpc_obj([% 'session_id', osid,
+                                      'on', lp_vec(['slip' 'later']) %])).erase;
+
+check_true('an unknown aid is an error',
+           call('langpop/aids',
+                jsonrpc_obj([% 'session_id', osid,
+                               'off', lp_vec(['cheat']) %]))('error') /== false);
+
+;;; An action nobody implements is an error, not a silently recorded
+;;; wrong answer.
+check_true('an unknown action is refused',
+           call('langpop/answer',
+                jsonrpc_obj([% 'session_id', osid, 'item', 'hi_a',
+                               'answer', 'a', 'action', 'pass' %]))('error')
+           /== false);
+
+;;; The queue dies with the session: "it comes back in the same session"
+;;; cannot mean the session before last.  A session of its own, so the
+;;; count is of these two deferrals and not of everything oopser has
+;;; taken back above.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'closer',
+                                          'language', 'ja' %])).erase;
+vars csid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'closer' %]))('session_id');
+result('langpop/answer', jsonrpc_obj([% 'session_id', csid, 'item', 'hi_i',
+                                        'action', 'later' %])).erase;
+result('langpop/answer', jsonrpc_obj([% 'session_id', csid, 'item', 'hi_u',
+                                        'action', 'later' %])).erase;
+vars cl = result('langpop/session.close', jsonrpc_obj([% 'session_id', csid %]));
+check('the close says what was still owed', cl('put_off_unanswered'), 2);
+vars csid2 = result('langpop/session.open',
+                    jsonrpc_obj([% 'student_id', 'closer' %]))('session_id');
+vars nq = result('langpop/next', jsonrpc_obj([% 'session_id', csid2 %]));
+check('a new session owes nothing', nq('requeued'), false);
+
 
 ;;; ------------------------------------------------------- placement
 ;;; Deliberately not a stateful test.  There is no placement session and

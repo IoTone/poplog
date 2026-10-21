@@ -339,6 +339,96 @@ else
     printf(';;; imported content not built -- undo not checked\n');
 endif;
 
+
+;;; ------------------------------------------------- putting it off
+;;; A question put off, or taken back, has to come BACK -- and not
+;;; immediately.  :oops is used after the tutor has already said what the
+;;; answer was, so re-asking at once would be a free correct answer for
+;;; anything got wrong.
+lp_queue_reset();
+check('the queue starts empty', length(lp_pending), 0);
+check_false('and nothing is due', lp_due());
+
+lp_requeue("hi_a");
+check('one waiting', length(lp_pending), 1);
+check_false('but not yet -- the gap has not elapsed', lp_due());
+
+;;; The gap is counted in questions ANSWERED, not prompts printed.
+lp_answered("hi_i"); lp_answered("hi_u");
+check_false('two is not enough', lp_due());
+lp_answered("hi_e");
+check('three questions later it comes round', lp_due(), "hi_a");
+
+;;; Still due until it is actually answered: reading the queue does not
+;;; empty it, or a dropped connection would lose what was owed.
+check('and stays due until it is answered', lp_due(), "hi_a");
+lp_answered("hi_a");
+check_false('answered, so no longer waiting', lp_due());
+check('and gone from the queue', length(lp_pending), 0);
+
+;;; Requeued twice is still one item, at the later gap.
+lp_queue_reset();
+lp_requeue("hi_a"); lp_answered("hi_i"); lp_requeue("hi_a");
+check('requeuing twice leaves one copy', length(lp_pending), 1);
+lp_answered("hi_u"); lp_answered("hi_e");
+check_false('and the second gap is the one that counts', lp_due());
+lp_answered("hi_o");
+check('now', lp_due(), "hi_a");
+
+;;; Twice, and then it has to be answered.  Without a limit "later" is a
+;;; way never to be wrong about anything.
+lp_queue_reset();
+check_true('a question can be put off', lp_can_later("hi_a"));
+lp_later("hi_a");
+check_true('and again', lp_can_later("hi_a"));
+lp_later("hi_a");
+check_false('but not a third time', lp_can_later("hi_a"));
+check('two deferrals counted', lp_later_n, 2);
+check_true('a different item is unaffected', lp_can_later("hi_i"));
+
+;;; Placement does not offer it at all: a freeze is the signal the
+;;; descent runs on, so a student who could defer every hard question
+;;; would never be placed.
+lp_queue_reset();
+false -> lp_allow_later;
+check_false('not during a placement', lp_can_later("hi_a"));
+true -> lp_allow_later;
+check_true('offered again afterwards', lp_can_later("hi_a"));
+
+;;; ------------------------------------------------------- the aids
+;;; Each can be switched off, which is for the student rather than the
+;;; tutor: an aid that cannot be refused is indistinguishable from a
+;;; lower standard.
+lp_aids_reset();
+check('three of them', length(lp_aid_names()), 3);
+check_true('all on to begin with',
+           lp_aid("slip") and lp_aid("oops") and lp_aid("later"));
+check('nothing logged yet', length(lp_aid_log), 0);
+
+check_true('later goes off', lp_aid_set("later", false));
+check_false('and is off', lp_aid("later"));
+check('the change is logged', length(lp_aid_log), 1);
+check('with the aid it was', hd(lp_aid_log)(1), "later");
+check_false('and what it was set to', hd(lp_aid_log)(2));
+check_true('and when', hd(lp_aid_log)(3) > 0);
+
+;;; Setting it to what it already is is not a change, so the log stays a
+;;; log of decisions rather than of keystrokes.
+lp_aid_set("later", false).erase;
+check('setting it twice logs once', length(lp_aid_log), 1);
+lp_aid_set("later", true).erase;
+check('and switching back logs again', length(lp_aid_log), 2);
+
+check_false('there is no such aid as cheat', lp_aid_set("cheat", true));
+check('and nothing was logged for it', length(lp_aid_log), 2);
+
+;;; Switched off, the aid is not merely hidden -- lp_can_later says no,
+;;; which is what the drill loop and the server both read.
+lp_aid_set("later", false).erase;
+lp_queue_reset();
+check_false('off means off, not hidden', lp_can_later("hi_a"));
+lp_aids_reset();
+
 ;;; ------------------------------------------------------- placement
 ;;; "Go ahead and introduce yourself."  A beginner freezes; one who
 ;;; answers gets another question, harder, until they stop.  The point
@@ -628,6 +718,42 @@ check('every integrity check fires on a broken graph',
 ;;; "No assignment 1." the following day.
 lvars tmpdir = '/tmp/langpop-test-' sys_>< sys_real_time() sys_>< '/';
 tmpdir -> lp_home_dir;
+
+;;; The switches survive the profile, and so does the log.  A setting a
+;;; student had to remember to set again every session would be the one
+;;; they stopped bothering with.
+"switcher" -> lp_user;
+[] -> lp_journal;
+lp_aid_set("slip", false).erase;
+lp_aid_set("oops", false).erase;
+lp_save();
+lp_aids_reset();
+check_true('reset turns them back on', lp_aid("slip"));
+check_true('loading the profile finds them', lp_load_profile("switcher"));
+check_false('slip is still off', lp_aid("slip"));
+check_false('and oops', lp_aid("oops"));
+check_true('later was never touched', lp_aid("later"));
+check('both changes came back', length(lp_aid_log), 2);
+
+;;; A profile written before any of this existed has no aids_off field,
+;;; and an absent field must not read as "all off" -- which is why the
+;;; names are stored rather than a map of booleans.
+lvars prof = lp_read_file(lp_profile_path("switcher"));
+lp_write_file(lp_profile_path("switcher"),
+    '{"user":"switcher","display":"Switcher","lang":"ja","level":"preschool"}');
+check_true('an old profile loads', lp_load_profile("switcher"));
+check_true('with every aid on', lp_aid("slip") and lp_aid("oops"));
+check('and no change log', length(lp_aid_log), 0);
+lp_write_file(lp_profile_path("switcher"), prof);
+
+;;; Loading a student empties the queue: "it comes back in the same
+;;; session" cannot mean the session before last.
+lp_requeue("hi_a"); lp_later("hi_i");
+lp_load_profile("switcher").erase;
+check('a new student starts with an empty queue', length(lp_pending), 0);
+check('and nothing put off', lp_later_n, 0);
+lp_aids_reset();
+
 
 "saver" -> lp_user;
 'Saver' -> lp_display;

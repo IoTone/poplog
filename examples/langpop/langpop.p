@@ -562,6 +562,84 @@ define lp_infer(item);
 enddefine;
 
 
+;;; ---------------------------------------------------------- the aids
+;;; Three things in here help a student who has not made a mistake of
+;;; knowledge: the slip detector, ":oops", and ":later".  Each can be
+;;; turned off, and that switch is not a convenience for the tutor -- it
+;;; is for the student.  An aid that cannot be refused is
+;;; indistinguishable from a lower standard, and a learner who suspects
+;;; they are leaning on one has no way to find out except to take it
+;;; away.  Spaced-repetition services that offer these (WaniKani's
+;;; "I typed it wrong" and its skip are the pattern) make them optional
+;;; for exactly this reason, and they are right to.
+;;;
+;;; They are RECORDED rather than policed.  Turning one off and on again
+;;; around a hard item would otherwise be invisible.  Instead every
+;;; change is logged with the time; every journal entry already carries a
+;;; time; so what was available at any given answer is reconstructible
+;;; exactly -- at the cost of one record per change, rather than a wider
+;;; field on every answer.
+lconstant AIDS = [slip oops later];
+
+;;; `true` has to be lifted in with ^, because `true` inside a list
+;;; literal is the WORD true, which is not the boolean and is not false
+;;; either -- so an unlifted default would read as on and never go off.
+vars lp_aids = newproperty([[slip ^true] [oops ^true] [later ^true]],
+                           8, false, "perm"),
+     lp_aid_log = [];                   ;;; [{aid on? when_ms} ...]
+
+define lp_aid_names() -> l; lvars l = AIDS; enddefine;
+
+;;; Declared forward: the queue lives next to lp_drill because lp_due
+;;; needs lp_drillable, and lp_load_profile above here has to be able to
+;;; empty it when the student changes.
+vars procedure lp_queue_reset;
+
+define lp_aid(a); lvars a; lp_aids(a) enddefine;
+
+;;; `on` cannot be the parameter name: it is a Pop-11 syntax word, as
+;;; `from`, `to`, `step` and `back` are, and it reads as the `for x on
+;;; list` form inside the header.
+define lp_aid_set(a, val) -> ok;
+    lvars a, val, ok = false;
+    returnunless(member(a, AIDS));
+    true -> ok;
+    returnif(lp_aid(a) == val);         ;;; no change is not a change
+    val -> lp_aids(a);
+    lp_aid_log <> [{% a, val, lp_now_ms() %}] -> lp_aid_log;
+enddefine;
+
+define lp_aids_reset();
+    lvars a;
+    for a in AIDS do true -> lp_aids(a) endfor;
+    [] -> lp_aid_log;
+enddefine;
+
+define lp_aid_why(a) -> s;
+    lvars a, s;
+    if     a == "slip"  then 'one more go when a typed answer looks mistyped'
+    elseif a == "oops"  then ':oops takes back the answer you just gave'
+    else                     'puts a question off until later today -- type it'
+                             <> ' at a question'
+    endif -> s;
+enddefine;
+
+define lp_aids_show();
+    lvars a, n = length(lp_aid_log), nm;
+    printf('\n');
+    for a in AIDS do
+        ;;; Padded by hand.  Poplog's printf has no field width for %p,
+        ;;; and a ragged column of three is still a ragged column.
+        a sys_>< '' -> nm;
+        until length(nm) >= 6 do nm <> ' ' -> nm enduntil;
+        printf('    %p %p %p\n',
+               [% if lp_aid(a) then 'on ' else 'off' endif, nm, lp_aid_why(a) %]);
+    endfor;
+    printf('\n  :aids <name> on|off.  Changes are logged with the time');
+    if n > 0 then printf(' (%p so far)', [^n]) endif;
+    printf(',\n  so what was switched on at any answer stays recoverable.\n');
+enddefine;
+
 ;;; ------------------------------------------------------ typing slips
 ;;; A Japanese learner is typing romaji, or fighting an input method they
 ;;; do not know well, and a slip of the fingers is not a gap in their
@@ -803,6 +881,17 @@ define lp_save();
                       {% a(1), a(2) sys_>< '', a(3) sys_>< '', a(4), a(5) %}
                   endfor |#) -> o('assignments');
     consvector(#| for a in lp_corrections do a endfor |#) -> o('corrections');
+    ;;; The aids that are OFF, by name, rather than a map of booleans.
+    ;;; An absent JSON field and a field set to false are the same thing
+    ;;; on the way back in, so a map could not tell a profile written
+    ;;; before an aid existed from one that switched it off -- and
+    ;;; reading the first as the second would silently take an aid away.
+    consvector(#| for a in lp_aid_names() do
+                      unless lp_aid(a) then a sys_>< '' endunless
+                  endfor |#) -> o('aids_off');
+    consvector(#| for a in lp_aid_log do
+                      {% a(1) sys_>< '', a(2), a(3) %}
+                  endfor |#) -> o('aid_changes');
     lp_ensure_home();
     lp_write_file(lp_profile_path(lp_user), json_generate(o));
 enddefine;
@@ -818,6 +907,7 @@ define lp_load_profile(user) -> found;
     ;;; sitting in the globals.  lp_beliefs is safe either way because
     ;;; lp_bkey puts the student in the key.
     [] -> lp_journal; [] -> lp_assigns; [] -> lp_corrections;
+    lp_aids_reset(); lp_queue_reset();
     returnunless(s);
     json_parse(s) -> o;
     true -> found;
@@ -854,6 +944,21 @@ define lp_load_profile(user) -> found;
     if o('corrections') then
         for i from 1 to length(o('corrections')) do
             conspair(o('corrections')(i), lp_corrections) -> lp_corrections;
+        endfor;
+    endif;
+    if o('aids_off') then
+        for i from 1 to length(o('aids_off')) do
+            false -> lp_aids(consword(o('aids_off')(i) sys_>< ''));
+        endfor;
+    endif;
+    ;;; The log is loaded, not replayed: it is the audit of what the
+    ;;; student chose, which outlives the session the choices were made
+    ;;; in, and the state it ends at is the one above.
+    if o('aid_changes') then
+        for i from 1 to length(o('aid_changes')) do
+            o('aid_changes')(i) -> e;
+            lp_aid_log <> [{% consword(e(1) sys_>< ''), e(2), e(3) %}]
+                -> lp_aid_log;
         endfor;
     endif;
 enddefine;
@@ -1236,6 +1341,113 @@ define lp_mistook(item, typed) -> other;
     endfor;
 enddefine;
 
+;;; ------------------------------------------------------ putting it off
+;;; A question a student does not want to answer now is not a question
+;;; they got wrong, and it should come back.  Two routes lead here:
+;;;
+;;;   later    typed at a question -- they decline it, nothing is recorded
+;;;   :oops    the last answer was an input accident -- it is undone
+;;;
+;;; and both end in the same place: the item goes back in the queue and
+;;; is asked again THIS session, after other questions have intervened.
+;;;
+;;; The gap is the point, and it is what makes :oops honest.  :oops is
+;;; used after the tutor has already said what the answer was, so asking
+;;; again immediately would measure the echo rather than the memory --
+;;; it would hand a free correct answer to anything got wrong.  Three
+;;; questions is not spaced repetition, but it is enough that the answer
+;;; has to be recalled rather than read back off the screen.
+;;;
+;;; Distinct from the empty line, which is NOT this.  Pressing enter is
+;;; "I do not know": a real answer, and the most informative one a
+;;; beginner gives.  It is recorded, it counts in the denominator of
+;;; every criterion, and it is what stops a placement descent.  A
+;;; service with one pass button has to guess which of the two a student
+;;; meant; langpop has four outcomes and can afford to keep them apart.
+lconstant REQUEUE_GAP = 3, LATER_MAX = 2;
+
+vars lp_pending = [],                   ;;; [{item not_before} ...]
+     lp_asked_n = 0,                    ;;; questions actually recorded
+     lp_later_n = 0,                    ;;; questions put off, this session
+     lp_laters = newproperty([], 32, 0, "perm");
+
+;;; Placement does not offer it.  A freeze is the signal the descent runs
+;;; on, so a student who could defer every hard question would never be
+;;; placed -- and "press enter, that is an answer" is the right thing to
+;;; say there anyway.
+vars lp_allow_later = true;
+
+define lp_queue_reset();
+    [] -> lp_pending; 0 -> lp_asked_n; 0 -> lp_later_n;
+    clearproperty(lp_laters);
+enddefine;
+
+define lp_unqueue(item);
+    lvars item, p;
+    [% for p in lp_pending do unless p(1) == item then p endunless endfor %]
+        -> lp_pending;
+enddefine;
+
+define lp_requeue(item);
+    lvars item;
+    lp_unqueue(item);                   ;;; one copy, the later gap wins
+    lp_pending <> [{% item, lp_asked_n + REQUEUE_GAP %}] -> lp_pending;
+enddefine;
+
+;;; Is this one waiting, and not yet due?
+;;;
+;;; lp_choose has to know.  Without this the deferral achieved nothing:
+;;; the item put off had the lowest belief of anything ready, which is
+;;; exactly what lp_choose picks, so it came straight back as the very
+;;; next question -- and so did one taken back with :oops, which is the
+;;; free correct answer the gap exists to prevent.  Found by running it,
+;;; which is the only way that one shows.
+define lp_deferred(item) -> yes;
+    lvars item, p, yes = false;
+    for p in lp_pending do
+        if p(1) == item then p(2) > lp_asked_n -> yes; return endif;
+    endfor;
+enddefine;
+
+;;; The item that has waited longest among those whose gap has elapsed.
+define lp_due() -> item;
+    lvars p, item = false;
+    for p in lp_pending do
+        if p(2) <= lp_asked_n and lp_drillable(p(1)) then
+            p(1) -> item; return
+        endif;
+    endfor;
+enddefine;
+
+;;; Twice, and then it is asked for real.  Without a limit "later" is a
+;;; way never to be wrong about anything, which is precisely the
+;;; self-deception the switch in :aids exists to let a student refuse --
+;;; and a limit is cheaper than asking them to be disciplined.
+define lp_can_later(item) -> yes;
+    lvars item, yes = lp_aid("later") and lp_allow_later
+                      and lp_laters(item) < LATER_MAX;
+enddefine;
+
+;;; One recorded answer.  The item is no longer waiting to be asked, and
+;;; the counter the requeue gap is measured in moves -- it counts
+;;; QUESTIONS ANSWERED rather than prompts printed, so a slip retry and a
+;;; deferral do not shorten the gap for anything else.
+;;;
+;;; A procedure rather than two lines inline, because langpop/answer
+;;; records without going through the drill loop at all.
+define lp_answered(item);
+    lvars item;
+    lp_unqueue(item);
+    lp_asked_n + 1 -> lp_asked_n;
+enddefine;
+
+define lp_later(item);
+    lvars item;
+    lp_laters(item) + 1 -> lp_laters(item);
+    lp_later_n + 1 -> lp_later_n;
+    lp_requeue(item);
+enddefine;
+
 define lp_drill(item) -> done;
     lvars item, shape, prompt, answer, options, o, i = 0, t0, line, typed,
           other, retried = false;
@@ -1256,6 +1468,28 @@ define lp_drill(item) -> done;
         lp_readline() -> line;
         if line == termin then false -> done; lp_undo_stop(); return endif;
         lp_norm(line) -> typed;
+
+        ;;; "later" is not an answer, and nothing about it is recorded.
+        ;;; It is deliberately a word rather than a blank line, because
+        ;;; the blank line already means something quite different and
+        ;;; more useful.
+        if typed = 'later' or typed = ':later' then
+            if not(lp_aid("later")) then
+                printf('  "later" is off -- :aids later on puts it back.\n');
+            elseif not(lp_allow_later) then
+                printf('  Not during a placement.  Press enter if you do not\n');
+                printf('  know it -- that is an answer, and it tells me more.\n');
+            elseif not(lp_can_later(item)) then
+                printf('  That is twice now.  Let us settle this one: press\n');
+                printf('  enter if you do not know it.\n');
+            else
+                lp_later(item);
+                printf('  %p\n', [% lp_line('later') %]);
+                return;
+            endif;
+            nextloop;
+        endif;
+
         lp_mistook(item, typed) -> other;
 
         ;;; A slip gets ONE more go, and the first attempt is not
@@ -1270,7 +1504,8 @@ define lp_drill(item) -> done;
         ;;; typing the other half of a pair the graph records is a
         ;;; knowledge error, not a slip, however few letters apart they
         ;;; are.
-        if not(retried) and not(member(typed, answer)) and not(other)
+        if lp_aid("slip") and not(retried) and not(member(typed, answer))
+        and not(other)
         and typed /= '' and typed /= '?' and lp_slip(typed, answer) then
             true -> retried;
             printf('  %p\n', [% lp_line('slip') %]);
@@ -1280,6 +1515,7 @@ define lp_drill(item) -> done;
     endrepeat;
 
     lp_undo_start(item);
+    lp_answered(item);
     ;;; The clock runs from the FIRST attempt.  Resetting it on a retry
     ;;; would make a deliberate slip a way to buy time, and the speed
     ;;; half of every pre-school criterion is what tells reading from
@@ -1701,6 +1937,7 @@ define lp_place_show();
 enddefine;
 
 define lp_place_run();
+    dlocal lp_allow_later = false;
     lvars ax, lv, its, asked = 0, last = false;
     printf('\n  Let me find out where you are rather than guess.  Say nothing\n');
     printf('  -- just press enter -- for anything you do not know; that is\n');
@@ -1813,6 +2050,18 @@ define lp_status();
         endif;
     endfor;
     printf('    %p items ready to teach now\n', [% length(lp_plan()) %]);
+    ;;; What was helping, if anything was not.  A number read without
+    ;;; this is a number of unknown strictness, which is the whole
+    ;;; argument for letting the aids be switched off at all.
+    lvars off = [% lvars a; for a in lp_aid_names() do
+                       unless lp_aid(a) then a endunless endfor %];
+    if off /== [] then
+        printf('    switched off by choice: %p\n', [^off]);
+    endif;
+    if lp_later_n > 0 or lp_pending /== [] then
+        printf('    %p put off this session, %p still to come round again\n',
+               [% lp_later_n, length(lp_pending) %]);
+    endif;
 enddefine;
 
 define lp_why(item);
@@ -2070,13 +2319,16 @@ define lp_help();
     printf('  :why <item>      the derivation: prerequisites, source, belief\n');
     printf('  :status          the exit criteria of this level, measured\n');
     printf('  :place           find out where you are, instead of guessing\n');
-    printf('  :oops            that last answer was a slip -- ask me again\n');
+    printf('  :oops            that answer was an accident -- ask me again later\n');
+    printf('  :aids            which helps are on (slip, oops, later)\n');
     printf('  :card <item>     draw it, and open it in the system viewer\n');
     printf('  :assign          something to do away from the keyboard\n');
     printf('  :report <n> ok   done it (compliance)\n');
     printf('  :report <n> 17/20  done it, with a result\n');
     printf('  :level <name>    move the goal\n');
     printf('  :quit            save and stop\n');
+    printf('\n  At a question: enter means "I do not know", which is an answer.\n');
+    printf('  Typing "later" puts the question off until later today instead.\n');
 enddefine;
 
 define lp_split2(s) -> (a, b);
@@ -2102,6 +2354,7 @@ define lp_choose(plan) -> best;
     false -> best;
     for item in plan do
         nextunless(lp_drillable(item));
+        nextif(lp_deferred(item));
         lp_bel(item, lp_primary(item)) -> b;
         lp_asked(item) -> a;
         if not(best) or b < bb or (b == bb and a < ba) then
@@ -2111,7 +2364,15 @@ define lp_choose(plan) -> best;
 enddefine;
 
 define lp_next();
-    lvars item, plan = lp_plan();
+    lvars item, due = lp_due(), plan;
+    ;;; Anything put off, or taken back, comes before anything new.  It
+    ;;; is owed: the student was told it would come back.
+    if due then
+        printf('  Back to this one.\n');
+        lp_drill(due).erase;
+        return;
+    endif;
+    lp_plan() -> plan;
     if plan == [] then
         printf('  Nothing is ready at %p -- everything here is either known\n',
                [% lp_level %]);
@@ -2119,6 +2380,12 @@ define lp_next();
         return;
     endif;
     lp_choose(plan) -> item;
+    ;;; Everything ready has been put off and nothing else can be asked
+    ;;; by typing.  The gap gives way: the student asked for later, not
+    ;;; for never, and an empty session is the worse answer.
+    unless item then
+        if lp_pending /== [] then hd(lp_pending)(1) -> item endif;
+    endunless;
     if item then lp_drill(item).erase
     else printf('  Nothing here can be checked by typing.  Try :assign.\n')
     endif;
@@ -2156,12 +2423,30 @@ define lp_session();
             elseif cmd = 'status' then lp_status();
             elseif cmd = 'place' then lp_place_run();
             elseif cmd = 'oops' then
-                lp_undo_last() -> retaken;
-                if retaken then
-                    printf('  Taken back.  Again:\n');
-                    lp_drill(retaken).erase;
+                if not(lp_aid("oops")) then
+                    printf('  :oops is off -- :aids oops on puts it back.\n');
+                elseif lp_undo_last() ->> retaken then
+                    ;;; Requeued, not re-asked.  I have just said what the
+                    ;;; answer was, so asking it again now would be a free
+                    ;;; mark for anything got wrong.
+                    lp_requeue(retaken);
+                    printf('  Taken back, and nothing recorded.  I will ask it\n');
+                    printf('  again shortly -- not now, because you have just\n');
+                    printf('  seen the answer.\n');
                 else
                     printf('  Nothing to take back.\n');
+                endif;
+            elseif cmd = 'aids' then
+                lp_split2(arg) -> (a2, outcome);
+                if a2 = '' then lp_aids_show();
+                elseif not(member(consword(a2), lp_aid_names())) then
+                    printf('  There is no "%p".  They are: %p\n',
+                           [% a2, lp_aid_names() %]);
+                elseif outcome /= 'on' and outcome /= 'off' then
+                    printf('  :aids %p on|off\n', [^a2]);
+                else
+                    lp_aid_set(consword(a2), outcome = 'on').erase;
+                    lp_aids_show();
                 endif;
             elseif cmd = 'card' then
                 if arg = '' then printf('  :card <item id>\n')
@@ -2184,6 +2469,12 @@ define lp_session();
                        [% lp_display, lp_user, lp_lang, lp_level %]);
             else printf('  I do not know ":%p".  Try :help\n', [^cmd]);
             endif;
+        elseif line = 'later' then
+            ;;; Typed at the wrong prompt, which is an easy mistake to
+            ;;; make: it is an answer to a question, and there is no
+            ;;; question open here.
+            printf('  "later" is for when I have asked you something.  Press\n');
+            printf('  enter for a question, and type it then.\n');
         else
             printf('  This is not a conversation yet -- that comes with the\n');
             printf('  dialogue layer.  Try <enter>, or :help.\n');
