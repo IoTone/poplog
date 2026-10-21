@@ -394,6 +394,405 @@ define sheet_day_svg(display, rows, plan) -> svg;
                       <> 'Drawn from your own answers, on this machine.') -> svg;
 enddefine;
 
+
+;;; ===================================================== the zine
+;;; An eight-page booklet from one sheet of A4: a study plan the student
+;;; can fold up and carry.  Printable at any time, because the plan is a
+;;; function of the beliefs and the beliefs are always current.
+;;;
+;;; WHY NOTHING IS VENDORED.  The obvious way to do this is to take one
+;;; of the free zine templates and fill it in.  The one we looked at
+;;; (taylorsmithdesigns.co.uk/free-zine-pdf) says "the template itself
+;;; must not be sold commercially, but feel free to share" under a
+;;; footer reading "All Rights Reserved" -- a permission note rather
+;;; than a licence: no named licence, no version, and two clauses that
+;;; disagree.  That is the same reason NGSL was turned down for the
+;;; English word list, and the answer is the same: do not put it in the
+;;; repo.  It is also 37 MB of somebody else's PSD and PDF, which the
+;;; whole graph/<lang>/generated/ arrangement exists to avoid.
+;;;
+;;; And we do not need it.  What a template gives you is the
+;;; IMPOSITION -- which panel holds which page, and which half of the
+;;; sheet is upside down -- and that is not a creative work.  It is a
+;;; consequence of folding a sheet in half three times and cutting the
+;;; middle: every zine template shows the same arrangement because the
+;;; paper leaves no choice.  So it is derived here, from the fold, and
+;;; the derivation is written down below so the next person can check it
+;;; rather than trust it.
+;;;
+;;; WHY NOT TeX.  It was offered, and it would work, but it would add a
+;;; toolchain this project does not otherwise need.  SVG already draws
+;;; the cards and the sheets, and rotating half the page is one
+;;; transform attribute.  A dependency bought for one rotation is a bad
+;;; trade.
+
+;;; The fold, which decides the layout:
+;;;
+;;;   1. A4 landscape.  Fold in half left-to-right, again, and again:
+;;;      eight panels, four columns by two rows.
+;;;   2. Unfold.  Fold in half top-to-bottom and cut the centre fold
+;;;      across the middle two columns only.
+;;;   3. Open, fold lengthwise, push the ends together so the cut opens,
+;;;      and collapse into a stack.
+;;;
+;;; Follow a panel through that and the arrangement falls out:
+;;;
+;;;        top row, upside down:   5   4   3   2
+;;;        bottom row, upright:    6   7   8   1
+;;;
+;;; with 1 the front cover and 8 the back.  The top row is inverted
+;;; because the lengthwise fold turns it over; nothing else in the
+;;; layout is a choice.
+;;;
+;;; {page, column (0-3), row (0 top / 1 bottom), rotation}
+lconstant ZINE_PANELS = [
+    {5 0 0 180} {4 1 0 180} {3 2 0 180} {2 3 0 180}
+    {6 0 1 0}   {7 1 1 0}   {8 2 1 0}   {1 3 1 0}
+];
+
+;;; A4 LANDSCAPE in twentieths of a millimetre.  Tenths, which the other
+;;; sheets use, would put a panel at 742.5 units wide -- and a layout
+;;; that lands on a half unit is a layout that will be rounded somewhere
+;;; it should not be.  At 1/20 mm every edge of every panel is an
+;;; integer, which is the only reason the unit differs from sheet.p's.
+lconstant
+    ZW = 5940, ZH = 4200,              ;;; 297mm x 210mm
+    PW = 1485, PH = 2100,              ;;; 74.25mm x 105mm, exactly
+    ZPAD = 120;
+
+;;; Type sizes in the SAME unit, which is the trap this unit sets: at
+;;; 1/20 mm a size of 36 is 1.8mm, about five point, and the first draft
+;;; of this page was unreadable because the numbers were carried over
+;;; from sheet.p where 36 means 3.6mm.  Named here, in points, so the
+;;; next person does the arithmetic once.
+;;;
+;;;     1 pt = 0.353 mm = 7.06 units
+lconstant
+    Z_TITLE = 140,                     ;;; 20pt
+    Z_HEAD  = 85,                      ;;; 12pt
+    Z_BODY  = 64,                      ;;; 9pt
+    Z_SMALL = 50,                      ;;; 7pt
+    Z_TINY  = 42,                      ;;; 6pt
+    Z_GLYPH = 130;                     ;;; 18pt, for a kana or a kanji
+
+define zine_panel(n) -> (x, y, rot);
+    lvars n, p;
+    (false, false, 0) -> (x, y, rot);
+    for p in ZINE_PANELS do
+        if p(1) == n then
+            p(2) * PW -> x; p(3) * PH -> y; p(4) -> rot; return;
+        endif;
+    endfor;
+enddefine;
+
+;;; A panel's contents are drawn at the origin, in panel coordinates, and
+;;; then placed.  An upside-down panel is translated to its far corner
+;;; and rotated about it, which is the same thing as drawing it the right
+;;; way up on a sheet somebody turned round.
+define zine_place(n, body) -> out;
+    lvars n, body, x, y, rot, out;
+    zine_panel(n) -> (x, y, rot);
+    if rot == 180 then
+        sprintf('  <g transform="translate(%p,%p) rotate(180)">\n',
+                [% x + PW, y + PH %])
+    else
+        sprintf('  <g transform="translate(%p,%p)">\n', [% x, y %])
+    endif <> body <> '  </g>\n' -> out;
+enddefine;
+
+;;; ------------------------------------------------------ the guides
+;;; Fold lines light, the cut line dashed and only where it is cut --
+;;; across the middle two columns, on the centre fold.  Printing a cut
+;;; line the whole width would be an instruction to cut the booklet in
+;;; half, which is the one mistake that cannot be undone.
+define zine_guides() -> out;
+    lvars i, out = '';
+    for i from 1 to 3 do
+        out <> sprintf('  <line x1="%p" y1="0" x2="%p" y2="%p" '
+                       <> 'stroke="#e8e4db" stroke-width="2"/>\n',
+                       [% i * PW, i * PW, ZH %]) -> out;
+    endfor;
+    out <> sprintf('  <line x1="0" y1="%p" x2="%p" y2="%p" '
+                   <> 'stroke="#e8e4db" stroke-width="2"/>\n',
+                   [% PH, PW, PH %])
+        <> sprintf('  <line x1="%p" y1="%p" x2="%p" y2="%p" '
+                   <> 'stroke="#e8e4db" stroke-width="2"/>\n',
+                   [% 3 * PW, PH, ZW, PH %])
+        ;;; the cut
+        <> sprintf('  <line x1="%p" y1="%p" x2="%p" y2="%p" '
+                   <> 'stroke="#b9b2a4" stroke-width="4" '
+                   <> 'stroke-dasharray="30 22"/>\n',
+                   [% PW, PH, 3 * PW, PH %])
+        <> sheet_text(2 * PW, PH - 30, 46, '#b9b2a4', 'middle',
+                      'cut along here') -> out;
+enddefine;
+
+;;; ------------------------------------------------- panel furniture
+define zine_title(s, sub) -> out;
+    lvars s, sub, out;
+    sheet_text(ZPAD, 250, Z_TITLE, '#1b1a17', 'start', s)
+    <> sprintf('    <line x1="%p" y1="310" x2="%p" y2="310" '
+               <> 'stroke="#d9d5cc" stroke-width="3"/>\n',
+               [% ZPAD, PW - ZPAD %]) -> out;
+    if sub then
+        out <> sheet_text(ZPAD, 400, Z_SMALL, '#8a8275', 'start', sub) -> out;
+    endif;
+enddefine;
+
+define zine_num(n) -> out;
+    lvars n, out;
+    sheet_text(PW div 2, PH - 70, Z_TINY, '#b9b2a4', 'middle',
+               n sys_>< '') -> out;
+enddefine;
+
+;;; Break a line at spaces so it fits a 74mm panel.  Crude on purpose:
+;;; the prose on a zine page is two sentences, and a hyphenating
+;;; paragraph engine would be more machinery than the problem has.
+define zine_words(s) -> ws;
+    lvars s, i, j, n, ws = [];
+    s sys_>< '' -> s; length(s) -> n; 1 -> i;
+    until i > n do
+        while i <= n and s(i) == ` ` do i + 1 -> i endwhile;
+        quitif(i > n);
+        i -> j;
+        while j <= n and s(j) /== ` ` do j + 1 -> j endwhile;
+        ws <> [% substring(i, j - i, s) %] -> ws;
+        j -> i;
+    enduntil;
+enddefine;
+
+define zine_wrap(s, cols) -> lines;
+    lvars s, cols, w, line = '', lines = [];
+    for w in zine_words(s) do
+        if length(line) + length(w) + 1 > cols and line /= '' then
+            lines <> [^line] -> lines; '' -> line;
+        endif;
+        if line = '' then w else line <> ' ' <> w endif -> line;
+    endfor;
+    if line /= '' then lines <> [^line] -> lines endif;
+enddefine;
+
+define zine_para(y, size, ink, s, cols) -> out;
+    lvars y, size, ink, s, cols, l, out = '';
+    for l in zine_wrap(s, cols) do
+        out <> sheet_text(ZPAD, y, size, ink, 'start', l) -> out;
+        y + (size * 130) div 100 -> y;
+    endfor;
+enddefine;
+
+;;; ---------------------------------------------------- the pages
+define zine_cover(display) -> out;
+    lvars display, out;
+    sprintf('    <rect x="%p" y="%p" width="%p" height="%p" fill="none" '
+            <> 'stroke="#d9d5cc" stroke-width="3"/>\n',
+            [% 70, 70, PW - 140, PH - 140 %])
+    <> sheet_text(PW div 2, 640, 165, '#1b1a17', 'middle', 'Study plan')
+    <> sheet_text(PW div 2, 760, Z_HEAD, '#8a8275', 'middle',
+                  display or (lp_user sys_>< ''))
+    ;;; Sized to the PANEL, not to taste: five kana at 290 units each
+    ;;; overran 1485 and broke out of the cover frame.
+    <> sheet_text(PW div 2, 1250, 215, '#1b1a17', 'middle',
+                  if lp_lang == "ja" then 'がんばって' else 'one page' endif)
+    <> sheet_text(PW div 2, 1760, Z_BODY, '#8a8275', 'middle',
+                  (lp_lang sys_>< '') <> '  ·  ' <> (lp_level sys_>< ''))
+    <> sheet_text(PW div 2, 1860, Z_SMALL, '#b9b2a4', 'middle',
+                  substring(1, 10, dt_iso(sys_real_time()))) -> out;
+enddefine;
+
+;;; The summary page: where the student stands, by the tutor's own
+;;; reckoning.  The placement report when there is one, because it says
+;;; something a count cannot -- that katakana is below the ladder while
+;;; kanji is at n5 is the fact a single level would hide.
+define zine_where() -> out;
+    lvars out, r, y = 560, n = 0, placed;
+    zine_title('Where you are', 'working at ' <> (lp_level sys_>< ''))
+        -> out;
+    for r in lp_place_report() do
+        n + 1 -> n; quitif(n > 10);
+        r(2) -> placed;
+        ;;; lp_place_says, not the raw `why`: the report's word is
+        ;;; `askable`, which means "I asked and you did not pass" and
+        ;;; reads to a student as nothing at all.
+        out <> sheet_text(ZPAD, y, Z_BODY, '#1b1a17', 'start',
+                          r(1) sys_>< '') -> out;
+        if placed then
+            out <> sheet_text(PW - ZPAD, y, Z_BODY, '#2f4a7a', 'end',
+                              placed sys_>< '') -> out;
+            y + 140 -> y;
+        else
+            out <> zine_para(y + 70, Z_SMALL, '#8a8275',
+                             lp_place_says(r), 30) -> out;
+            y + 70 + 65 * length(zine_wrap(lp_place_says(r), 30)) + 30 -> y;
+        endif;
+    endfor;
+    if n == 0 then
+        out <> zine_para(y, Z_BODY, '#6b6457',
+                         'Nothing placed yet. Run :place and this page '
+                         <> 'will say where each part of the language '
+                         <> 'stands on its own.', 26) -> out;
+    endif;
+    out <> zine_num(2) -> out;
+enddefine;
+
+define zine_doing() -> out;
+    lvars out, r, y = 500, n = 0, off, wrapped;
+    zine_title('How it is going', false) -> out;
+    for r in lp_status_rows() do
+        ;;; Stop when the page is full rather than when a count says so:
+        ;;; a criterion's text wraps to one line or to three, and a fixed
+        ;;; row limit would either overflow or waste half the panel.
+        quitif(y > PH - 420);
+        n + 1 -> n;
+        out <> sheet_text(ZPAD, y, Z_BODY, '#1b1a17', 'start', r(1)) -> out;
+        y + 80 -> y;
+        zine_wrap(r(2), 32) -> wrapped;
+        out <> zine_para(y, Z_SMALL, '#6b6457', r(2), 32) -> out;
+        y + 65 * length(wrapped) + 40 -> y;
+    endfor;
+    out <> sheet_text(ZPAD, PH - 280, Z_BODY, '#8a8275', 'start',
+                      (length(lp_plan()) sys_>< '') <> ' ready to learn now')
+        -> out;
+    ;;; A number read without this is a number of unknown strictness.
+    [% lvars a; for a in lp_aid_names() do
+           unless lp_aid(a) then a endunless endfor %] -> off;
+    if off /== [] then
+        out <> sheet_text(ZPAD, PH - 190, Z_SMALL, '#8a8275', 'start',
+                          'switched off: ' <> (off sys_>< '')) -> out;
+    endif;
+    out <> zine_num(3) -> out;
+enddefine;
+
+;;; The plan itself, over three pages.  Weakest belief first, which is
+;;; the order the tutor would ask them in, so the booklet and the
+;;; session agree about what comes next.
+define zine_plan_page(items, skip, page, title) -> out;
+    lvars items, skip, page, title, i, out, y = 520, n = 0, g, rd;
+    zine_title(title, false) -> out;
+    for i in items do
+        n + 1 -> n;
+        nextif(n <= skip);
+        quitif(n > skip + 9);
+        lp_any_form(i) -> g;
+        lp_form_of(i, "romaji") -> rd;
+        unless rd then lp_gloss_of(i, "en") -> rd endunless;
+        out <> sheet_text(ZPAD, y, Z_GLYPH, '#1b1a17', 'start', g sys_>< '')
+            -> out;
+        if rd then
+            out <> sheet_text(PW - ZPAD, y, Z_SMALL, '#6b6457', 'end',
+                              rd sys_>< '') -> out;
+        endif;
+        y + 165 -> y;
+    endfor;
+    if n <= skip then
+        out <> zine_para(y, Z_BODY, '#6b6457',
+                         'Nothing more is ready yet. These unlock as the '
+                         <> 'ones before them are learned.', 26) -> out;
+    endif;
+    out <> zine_num(page) -> out;
+enddefine;
+
+define zine_again(rows) -> out;
+    lvars rows, r, out, y = 520, n = 0, g, rd;
+    zine_title('Worth another look', false) -> out;
+    for r in rows do
+        nextif(r(2) == "right");
+        n + 1 -> n; quitif(n > 9);
+        lp_any_form(r(1)) -> g;
+        lp_form_of(r(1), "romaji") -> rd;
+        out <> sheet_text(ZPAD, y, Z_BODY, '#8a8275', 'start',
+                          sheet_mark(r(2)))
+            <> sheet_text(ZPAD + 110, y, Z_GLYPH, '#2f4a7a', 'start',
+                          g sys_>< '') -> out;
+        if rd then
+            out <> sheet_text(PW - ZPAD, y, Z_SMALL, '#8a8275', 'end',
+                              rd sys_>< '') -> out;
+        endif;
+        y + 165 -> y;
+    endfor;
+    if n == 0 then
+        out <> zine_para(y, Z_BODY, '#6b6457',
+                         'Nothing missed lately. That is either very good '
+                         <> 'or a sign the questions are too easy.',
+                         26) -> out;
+    endif;
+    out <> zine_num(7) -> out;
+enddefine;
+
+;;; The ladder, with a mark where the student is.  This page exists
+;;; because the plan is often shorter than three pages -- five items are
+;;; ready at pre-school -- and three pages of "nothing more is ready" is
+;;; a booklet that wasted a third of itself.  It is also the thing a
+;;; mini guide should carry: not only what is next, but what next is
+;;; part of.
+define zine_ladder() -> out;
+    lvars out, l, y = 540, here = false;
+    zine_title('The ladder', (lp_lang sys_>< '') <> ', all of it') -> out;
+    for l in lp_levels(lp_lang) do
+        (l == lp_level) -> here;
+        out <> sheet_text(ZPAD, y, Z_BODY, if here then '#1b1a17'
+                                           else '#8a8275' endif,
+                          'start', l sys_>< '') -> out;
+        if here then
+            out <> sheet_text(PW - ZPAD, y, Z_SMALL, '#2f4a7a', 'end',
+                              'you are here') -> out;
+        endif;
+        y + 150 -> y;
+    endfor;
+    out <> zine_para(y + 60, Z_SMALL, '#8a8275',
+        'A rung opens when the one below it is met, not when a date '
+        <> 'passes.', 32)
+        <> zine_num(6) -> out;
+enddefine;
+
+define zine_back() -> out;
+    lvars out, y;
+    zine_title('Fold it', false) -> out;
+    460 -> y;
+    out <> zine_para(y, Z_SMALL, '#6b6457',
+        'Print one sided. Fold in half the short way, three times, then '
+        <> 'open it out. Fold in half the long way and cut the dashed '
+        <> 'line. Open, fold the long way again, push the ends together '
+        <> 'until the cut opens, and flatten it into a booklet.', 32)
+        -> out;
+    1240 -> y;
+    ;;; Separated by a dot and not by spaces: SVG collapses runs of
+    ;;; whitespace, so the columns I lined up in the source arrived on
+    ;;; paper as "? did not know x wrong".
+    out <> sheet_text(ZPAD, y, Z_BODY, '#1b1a17', 'start', 'On page 7')
+        <> sheet_text(ZPAD, y + 95, Z_SMALL, '#6b6457', 'start',
+                      '+ right · ~ near miss')
+        <> sheet_text(ZPAD, y + 165, Z_SMALL, '#6b6457', 'start',
+                      '? did not know · x wrong')
+        -> out;
+    out <> zine_para(1620, Z_TINY, '#8a8275',
+        'Drawn from your own answers, on this machine. Nothing here was '
+        <> 'downloaded and nothing was sent anywhere.', 38)
+        <> sheet_text(ZPAD, PH - 150, Z_TINY, '#b9b2a4', 'start', 'langpop')
+        <> zine_num(8) -> out;
+enddefine;
+
+;;; ------------------------------------------------------- the sheet
+define zine_svg(display) -> svg;
+    lvars display, svg, plan = lp_plan(), rows = sheet_today(0);
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    <> sprintf('<svg xmlns="http://www.w3.org/2000/svg" '
+               <> 'width="297mm" height="210mm" viewBox="0 0 %p %p" '
+               <> 'role="img" aria-label="study plan">\n', [% ZW, ZH %])
+    <> '  <title>langpop study plan</title>\n'
+    <> '  <rect width="100%" height="100%" fill="#ffffff"/>\n'
+    <> zine_guides()
+    <> sprintf('  <g font-family="%p">\n', [% SHEET_FONT %])
+    <> zine_place(1, zine_cover(display))
+    <> zine_place(2, zine_where())
+    <> zine_place(3, zine_doing())
+    <> zine_place(4, zine_plan_page(plan, 0, 4, 'Next'))
+    <> zine_place(5, zine_plan_page(plan, 9, 5, 'Then'))
+    <> zine_place(6, zine_ladder())
+    <> zine_place(7, zine_again(rows))
+    <> zine_place(8, zine_back())
+    <> '  </g>\n</svg>\n' -> svg;
+enddefine;
+
 ;;; ---------------------------------------------------------- the method
 define sheet_dir() -> d;
     lvars d = lp_home() <> 'sheets/';
@@ -407,13 +806,18 @@ define lp_sheet_render(style, user) -> (path, why);
         else                         sheet_chart(style)
         endif -> svg;
         style sys_>< '' -> name;
-    elseif style == "today" then
+    elseif style == "today" or style == "zine" then
         unless user and lp_user == user then
             'no_such_student' -> why; return;
         endunless;
-        sheet_today(lp_now_ms() - DAY_MS) -> rows;
-        sheet_day_svg(lp_display, rows, lp_plan()) -> svg;
-        'today-' <> (user sys_>< '') -> name;
+        if style == "zine" then
+            zine_svg(lp_display) -> svg;
+            'zine-' <> (user sys_>< '') -> name;
+        else
+            sheet_today(lp_now_ms() - DAY_MS) -> rows;
+            sheet_day_svg(lp_display, rows, lp_plan()) -> svg;
+            'today-' <> (user sys_>< '') -> name;
+        endif;
     else
         'no_such_style' -> why; return;
     endif;

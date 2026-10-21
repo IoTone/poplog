@@ -892,12 +892,15 @@ define lp_m_sheet_render(msg) -> res;
     lvars msg, res, style = lp_param(msg, 'style'), s, path, why, who = false;
     unless style then
         lp_err(LP_E_PARAMS,
-               'sheet.render: style needed (hiragana, katakana, youon, today)')
+               'sheet.render: style needed '
+               <> '(hiragana, katakana, youon, today, zine)')
             -> res;
         return;
     endunless;
     consword(style sys_>< '') -> style;
-    if style == "today" then
+    ;;; The two that are a picture of one STUDENT rather than of the
+    ;;; graph.  A chart needs no session; these do.
+    if style == "today" or style == "zine" then
         lp_need_session(msg) -> s;
         returnif(lp_is_err(s))(s -> res);
         lp_user -> who;
@@ -913,9 +916,17 @@ define lp_m_sheet_render(msg) -> res;
                        'path', path,
                        'format', 'svg',
                        'page', 'A4',
+                       ;;; the zine is the one landscape sheet, and a
+                       ;;; client that printed it portrait would get a
+                       ;;; booklet nobody can fold
+                       'orientation', if style == "zine" then 'landscape'
+                                      else 'portrait' endif,
+                       'pages', if style == "zine" then 8 else 1 endif,
                        ;;; printable is the whole point, so say so in the
                        ;;; units a print dialog uses
-                       'width_mm', 210, 'height_mm', 297 %]) -> res
+                       'width_mm', if style == "zine" then 297 else 210 endif,
+                       'height_mm', if style == "zine" then 210 else 297 endif
+                       %]) -> res
     endif;
 enddefine;
 

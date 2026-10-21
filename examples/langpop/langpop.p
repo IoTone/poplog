@@ -1912,18 +1912,24 @@ enddefine;
 ;;; position has had plenty of is being tested.
 lconstant PLACE_MAX = 40;
 
+;;; What to tell the student about one axis.  Here rather than inside
+;;; lp_place_show because the zine prints the same standing on paper,
+;;; and two wordings of one verdict is one too many -- `askable` is what
+;;; the report says and "below the ladder" is what it means.
+define lp_place_says(r) -> s;
+    lvars r, s;
+    if     r(2)             then r(2) sys_>< ''
+    elseif r(3) == "none"   then 'nothing here I can ask about'
+    elseif r(3) == "unasked" then 'not asked about yet'
+    else                         'below the ladder'
+    endif -> s;
+enddefine;
+
 define lp_place_show();
     lvars r, rows = lp_place_report(), lv;
     printf('\n  Here is where I think you are.\n');
     for r in rows do
-        printf('    %p: %p\n',
-               [% r(1),
-                  if r(2) then r(2) sys_>< ''
-                  elseif r(3) == "none" then
-                      'nothing here I can ask about'
-                  elseif r(3) == "unasked" then
-                      'not asked about yet'
-                  else 'below the ladder' endif %]);
+        printf('    %p: %p\n', [% r(1), lp_place_says(r) %]);
     endfor;
     lp_place_level() -> lv;
     if lv then
@@ -2011,10 +2017,14 @@ define lp_count_items(kind) -> n;
     endfor;
 enddefine;
 
-define lp_status();
-    lvars e, c, th, ms, items, acc, fast, n, want, ch;
-    printf('\n  %p, %p -- level %p\n',
-           [% lp_display or (lp_user sys_>< ''), lp_lang, lp_level %]);
+;;; One criterion, measured, as {criterion-text, what-it-says}.
+;;;
+;;; Pulled out of lp_status because the zine prints the same thing on
+;;; paper, and two renderings of a number is one too many: the sheet
+;;; would quietly drift from the screen and nobody would notice which
+;;; was right.  lp_status prints these; so does the booklet.
+define lp_status_rows() -> rows;
+    lvars e, c, th, ms, items, acc, fast, n, want, ch, rows = [], txt;
     for e in lp_exits do
         nextunless(hd(e) == lp_lang and hd(tl(e)) == lp_level);
         hd(tl(tl(e))) -> c; hd(tl(tl(tl(e)))) -> th; hd(tl(tl(tl(tl(e))))) -> ms;
@@ -2022,32 +2032,41 @@ define lp_status();
             prolog_full_deref(prolog_arg(1, c)) -> want;
             prolog_deref(prolog_arg(2, c)) -> ch;
             if lp_verifiable(ch) then
-                printf('    %p: %p of %p words mastered (%p in the graph)\n',
-                       [% lp_term_str(c), lp_count_mastered("word", ch), want,
-                          lp_count_items("word") %]);
+                sprintf('%p of %p words mastered (%p in the graph)',
+                        [% lp_count_mastered("word", ch), want,
+                           lp_count_items("word") %])
             else
                 ;;; Said rather than scored.  Reporting 0 of 800 would
                 ;;; read as a student who has learned nothing, when what
                 ;;; is true is that nothing here can measure it.
-                printf('    %p: cannot be checked here -- needs audio (%p in the graph)\n',
-                       [% lp_term_str(c), lp_count_items("word") %]);
-            endif;
+                sprintf('cannot be checked here -- needs audio (%p in the graph)',
+                        [% lp_count_items("word") %])
+            endif -> txt;
         elseif prolog_complexterm(c) and prolog_functor(c) == "kanji" then
             prolog_full_deref(prolog_arg(1, c)) -> want;
             prolog_deref(prolog_arg(2, c)) -> ch;
-            printf('    %p: %p of %p kanji mastered (%p in the graph)\n',
-                   [% lp_term_str(c), lp_count_mastered_kanji(ch), want,
-                      lp_count_items("kanji") %]);
+            sprintf('%p of %p kanji mastered (%p in the graph)',
+                    [% lp_count_mastered_kanji(ch), want,
+                       lp_count_items("kanji") %]) -> txt;
         elseif prolog_complexterm(c) and prolog_functor(c) == "coverage" then
-            printf('    %p: needs the content build (not measured yet)\n',
-                   [% lp_term_str(c) %]);
+            'needs the content build (not measured yet)' -> txt;
         else
             lp_ask(c, "criterion_items", 1) -> items;
             lp_measure(items, ms) -> (acc, fast, n);
-            printf('    %p: %p%% right, %p%% within %pms, over %p answers (need %p)\n',
-                   [% lp_term_str(c), round(acc * 100), round(fast * 100),
-                      ms, n, round(th * 100) %]);
+            sprintf('%p%% right, %p%% within %pms, over %p answers (need %p)',
+                    [% round(acc * 100), round(fast * 100),
+                       ms, n, round(th * 100) %]) -> txt;
         endif;
+        rows <> [{% lp_term_str(c), txt %}] -> rows;
+    endfor;
+enddefine;
+
+define lp_status();
+    lvars r;
+    printf('\n  %p, %p -- level %p\n',
+           [% lp_display or (lp_user sys_>< ''), lp_lang, lp_level %]);
+    for r in lp_status_rows() do
+        printf('    %p: %p\n', [% r(1), r(2) %]);
     endfor;
     printf('    %p items ready to teach now\n', [% length(lp_plan()) %]);
     ;;; What was helping, if anything was not.  A number read without
@@ -2501,6 +2520,7 @@ define lp_help();
     printf('  :aids            which helps are on (slip, oops, later)\n');
     printf('  :card <item>     draw it, and open it in the system viewer\n');
     printf('  :sheet           today\'s work, as a page to print\n');
+    printf('  :zine            the study plan, as a booklet to fold\n');
     printf('  :chart <script>  hiragana, katakana or youon, on one page\n');
     printf('  :assign          something to do away from the keyboard\n');
     printf('  :report <n> ok   done it (compliance)\n');
@@ -2629,6 +2649,7 @@ define lp_session();
                     lp_aids_show();
                 endif;
             elseif cmd = 'sheet' then lp_show_sheet("today");
+            elseif cmd = 'zine' then lp_show_sheet("zine");
             elseif cmd = 'chart' then
                 if arg = '' then
                     printf('  :chart hiragana|katakana|youon\n')
@@ -2737,6 +2758,7 @@ define lp_main();
         elseif a = '--chart' then
             consword(hd(tl(args))) -> sheetonly; tl(tl(args)) -> args;
         elseif a = '--sheet' then "today" -> sheetonly; tl(args) -> args;
+        elseif a = '--zine' then "zine" -> sheetonly; tl(args) -> args;
         else conspair(a, rest) -> rest; tl(args) -> args;
         endif;
     enduntil;

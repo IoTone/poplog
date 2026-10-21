@@ -196,6 +196,150 @@ check_true('an empty day is said, not drawn',
            issubstring('Nothing recorded yet', sheet_day_svg('Tester', [], []))
            /== false);
 
+
+;;; --------------------------------------------------------- the zine
+;;; Eight pages from one sheet.  The imposition is not a creative work
+;;; and is not copied from anywhere: it is what folding a sheet in half
+;;; three times and cutting the middle leaves you with, which is why
+;;; every zine template shows the same arrangement.  These checks are
+;;; the derivation, written down so it can be verified rather than
+;;; trusted.
+
+;;; Eight panels, each page exactly once.  Asked through zine_panel
+;;; rather than off the table: the table is an lconstant and so is local
+;;; to sheet.p, which is the right scope for it -- what a test is
+;;; entitled to is the procedure, not the data behind it.
+check_true('every page from 1 to 8 has a panel',
+           [% lvars n; for n from 1 to 8 do
+                  lvars (x, y, r) = zine_panel(n);
+                  unless isinteger(x) then n endunless;
+              endfor %] == []);
+lvars (nx, ny, nr) = zine_panel(9);
+check_false('and a ninth page does not', nx);
+
+;;; Four columns by two rows, and no two pages share a panel.
+check_true('no two pages share a panel',
+           [% lvars n, m; for n from 1 to 8 do
+                  for m from n + 1 to 8 do
+                      lvars (xn, yn, rn) = zine_panel(n);
+                      lvars (xm, ym, rm) = zine_panel(m);
+                      if xn == xm and yn == ym then n endif;
+                  endfor;
+              endfor %] == []);
+
+;;; The cover is bottom right and upright, because the lengthwise fold
+;;; puts that panel on the outside the right way up.  If this moves, the
+;;; booklet opens at the back.
+lvars (cx, cy, cr) = zine_panel(1);
+check('the cover is in the last column', cx, 3 * 1485);
+check('on the bottom row', cy, 2100);
+check('the right way up', cr, 0);
+
+;;; The back cover sits beside it, so the two covers are adjacent on the
+;;; sheet and wrap round each other once folded.
+;;; `by` cannot be a variable name: it is a Pop-11 syntax word, as
+;;; `fill`, `on`, `from`, `to`, `step` and `back` have each turned out
+;;; to be.  Seven now.
+lvars (bx, brow, br) = zine_panel(8);
+check('the back cover is next to the front', bx, 2 * 1485);
+check('on the same row', brow, cy);
+
+;;; The top row is inverted and the bottom row is not.  This is the one
+;;; thing a reader cannot check by looking at the source of a template,
+;;; and the one thing that makes the difference between a booklet and
+;;; eight panels of upside-down text.
+check_true('pages 2 to 5 are on the top row, upside down',
+           [% lvars n; for n from 2 to 5 do
+                  lvars (x, y, r) = zine_panel(n);
+                  unless y == 0 and r == 180 then n endunless;
+              endfor %] == []);
+check_true('pages 6, 7, 8 and 1 are on the bottom row, upright',
+           [% lvars n; for n in [6 7 8 1] do
+                  lvars (x, y, r) = zine_panel(n);
+                  unless y == 2100 and r == 0 then n endunless;
+              endfor %] == []);
+
+;;; Reading order along each row: the top row runs 5 4 3 2 left to
+;;; right BECAUSE it is upside down -- turn the sheet and it reads
+;;; 2 3 4 5.
+check_true('the top row descends left to right',
+           [% lvars n; for n from 2 to 4 do
+                  lvars (xa, ya, ra) = zine_panel(n);
+                  lvars (xb, yb, rb) = zine_panel(n + 1);
+                  unless xb < xa then n endunless;
+              endfor %] == []);
+
+;;; ------------------------------------------------------ the layout
+lvars zs = zine_svg('Tester');
+check_true('it is a landscape A4 svg',
+           issubstring('width="297mm" height="210mm"', zs) /== false);
+check_true('with a viewBox in the same units',
+           issubstring('viewBox="0 0 5940 4200"', zs) /== false);
+
+;;; Everything stays on the sheet.  The first draft of the cover put
+;;; がんばって at 290 units a glyph, which is 1450 across a 1485 panel,
+;;; and it broke out of the frame.
+check_true('nothing is drawn off the sheet', sheet_maxy(zs) <= 4200);
+
+;;; Four panels wide, so three fold lines -- and ONE cut line, spanning
+;;; the middle two columns only.  A dashed line the full width would be
+;;; an instruction to cut the booklet in half, which is the one mistake
+;;; that cannot be undone.
+lvars guides = zine_guides();
+check_true('the cut line is dashed', issubstring('stroke-dasharray', guides) /== false);
+check('and there is exactly one of them',
+      length([% lvars i = 1, j;
+                 repeat
+                     issubstring_lim('stroke-dasharray', i, false, false, guides) -> j;
+                     quitunless(j); j; j + 1 -> i;
+                 endrepeat %]), 1);
+check_true('it starts at the first fold',
+           issubstring('x1="1485" y1="2100" x2="4455"', guides) /== false);
+check_true('and it is labelled, because an unlabelled dashed line is a guess',
+           issubstring('cut along here', guides) /== false);
+
+;;; ----------------------------------------------------- the content
+check_true('the cover carries the name', issubstring('Tester', zs) /== false);
+check_true('and the level', issubstring('preschool', zs) /== false);
+check_true('page 2 is where they stand',
+           issubstring('Where you are', zs) /== false);
+check_true('page 3 is the criteria, measured',
+           issubstring('How it is going', zs) /== false);
+check_true('page 6 is the ladder, which always has something on it',
+           issubstring('The ladder', zs) /== false);
+check_true('and says where they are on it',
+           issubstring('you are here', zs) /== false);
+check_true('page 8 says how to fold it',
+           issubstring('Fold it', zs) /== false);
+check_true('and what the marks on page 7 mean',
+           issubstring('did not know', zs) /== false);
+
+;;; The status page and :status read the same numbers.  Two renderings
+;;; of one measurement is one too many -- the paper would drift from the
+;;; screen and nobody would notice which was right.
+lvars srows = lp_status_rows();
+check_true('there are criteria to print', srows /== []);
+check_true('and the first one is on the page',
+           issubstring(sheet_esc(hd(srows)(1)), zs) /== false);
+
+;;; A zine is one student's standing, so it needs a student -- unlike a
+;;; kana chart, which is a picture of the graph.
+lvars (zp, zw) = lp_sheet_render("zine", false);
+check('a zine without a student is refused', zw, 'no_such_student');
+lvars (zp2, zw2) = lp_sheet_render("zine", "sheeter");
+check_false('with one it draws', zw2);
+check_true('and lands on disk', sys_file_exists(zp2));
+
+;;; ---------------------------------------------------------- wrapping
+;;; Crude on purpose: the prose on a zine page is two sentences.
+check('a short line is one line', length(zine_wrap('one two', 20)), 1);
+check('a long one breaks at a space', length(zine_wrap('aaaa bbbb cccc dddd', 10)), 2);
+check('and never mid-word',
+      hd(zine_wrap('aaaa bbbb cccc', 6)), 'aaaa');
+check('an empty string is no lines', length(zine_wrap('', 20)), 0);
+check('a word longer than the column still comes out',
+      length(zine_wrap('supercalifragilistic', 5)), 1);
+
 ;;; --------------------------------------------------------- escaping
 ;;; A gloss is human-written text; nothing stops one holding a quote or
 ;;; an angle bracket, and an SVG that swallowed one would be malformed.

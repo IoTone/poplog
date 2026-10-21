@@ -25,6 +25,7 @@ privileges a phone app would not have.
 ./poplog basepop11 examples/langpop/langpop.p --check            # integrity-check the graph
 ./poplog basepop11 examples/langpop/langpop.p --audit            # which rungs can be climbed
 ./poplog basepop11 examples/langpop/langpop.p --chart hiragana   # a page to print
+./poplog basepop11 examples/langpop/langpop.p --zine --user bob  # a booklet to fold
 
 # B: the same session, over a protocol
 ./poplog basepop11 examples/langpop/server.p --port 7801 &
@@ -925,6 +926,104 @@ logged in would be a privilege check protecting a table anybody can buy
 on a poster.
 
 
+## The study plan, as a booklet
+
+```
+./poplog basepop11 examples/langpop/langpop.p --zine --user bob
+```
+
+and `:zine` in a session. Eight pages from one sheet of A4 — cover, where
+you stand, how it is going, what is next, the ladder, what to look at
+again, and how to fold it. Printable at any time, because the plan is a
+function of the beliefs and the beliefs are always current.
+
+| page | |
+| --- | --- |
+| 1 | cover: name, language, level, date |
+| 2 | **where you are** — the placement report, axis by axis |
+| 3 | **how it is going** — this level's exit criteria, measured |
+| 4–5 | what is next, weakest belief first |
+| 6 | the ladder, with a mark where you are |
+| 7 | worth another look |
+| 8 | how to fold it, and what the marks mean |
+
+### Nothing is vendored, and that is the whole of the licence answer
+
+The obvious way to build this is to take a free zine template and fill it
+in. The one we looked at
+([taylorsmithdesigns.co.uk/free-zine-pdf](https://www.taylorsmithdesigns.co.uk/free-zine-pdf))
+says *"the template itself must not be sold commercially, but feel free
+to share"* under a footer reading *"© 2025 … All Rights Reserved"*.
+
+That is a **permission note, not a licence**: no named licence, no
+version, and two clauses that disagree with each other. It is the same
+shape as the NGSL word list, which this project turned down for the same
+reason. It is also 37 MB of somebody else's PSD and PDF, and keeping
+other people's content out of the repo is what the whole
+`graph/<lang>/generated/` arrangement exists for.
+
+**And we do not need it.** What a template gives you is the
+**imposition** — which panel holds which page, and which half of the
+sheet is upside down — and that is not a creative work. It is a
+consequence of folding a sheet in half three times and cutting the
+middle:
+
+```
+  1. A4 landscape.  Fold in half left-to-right, again, and again:
+     eight panels, four columns by two rows.
+  2. Unfold.  Fold in half top-to-bottom and cut the centre fold
+     across the middle two columns only.
+  3. Open, fold lengthwise, push the ends together so the cut opens,
+     and collapse into a stack.
+```
+
+Follow a panel through that and the arrangement falls out:
+
+```
+     top row, upside down:   5   4   3   2
+     bottom row, upright:    6   7   8   1
+```
+
+Every zine template in the world shows this same arrangement, because the
+paper leaves no choice. So `sheet.p` derives it, the derivation is
+written down beside the table, and `test_langpop_sheet.p` checks it —
+each page in exactly one panel, the cover bottom-right and upright, the
+top row inverted, and the cut line spanning the middle two columns
+**only**. A dashed line the full width would be an instruction to cut the
+booklet in half, which is the one mistake that cannot be undone.
+
+### Not TeX, and why
+
+TeX would do this, and it was the obvious fallback for a page with
+rotation on it. But SVG already draws the cards and the sheets, and
+turning half the page over is one `transform` attribute:
+
+```xml
+<g transform="translate(2970,4200) rotate(180)">
+```
+
+A whole toolchain bought for one rotation is a bad trade, and the
+graphics requirement for this project has been *"a system call to run an
+external program is probably good enough"* from the start.
+
+### One measurement, one rendering
+
+Page 3 prints `lp_status_rows/0` and so does `:status`; page 2 prints
+`lp_place_says/1` and so does `:place`. Both were extracted from the
+procedures that used to print them directly, because **two renderings of
+one number is one too many** — the paper would drift from the screen and
+nobody would notice which was right.
+
+### The unit, which is the trap
+
+The page is in **twentieths of a millimetre**, not the tenths the other
+sheets use, so that a quarter of A4's width is an integer: 74.25 mm is
+1485 units exactly. The cost is that type sizes carried over from
+`sheet.p` mean half what they say, and the first draft of this page was
+unreadable at about five point because of it. The sizes are now named
+constants with the point size in the comment.
+
+
 ## Seeing the graph
 
 The tutor reads the graph one item at a time, chosen for one student. That
@@ -1234,6 +1333,7 @@ asserts the doubled form would **not** have survived.
 | `:aids` | which helps are on; `:aids later off` takes one away |
 | `:sheet` | today's work, as a page to print |
 | `:chart <script>` | hiragana, katakana or youon, on one page |
+| `:zine` | the study plan, as a booklet to fold |
 | `:assign` | something to do away from the keyboard |
 | `:report <n> ok` | done it (tier 3) |
 | `:report <n> 17/20` | done it, with a result (tier 2) |
@@ -1320,7 +1420,7 @@ speak to it with no shim. `--port N` for TCP, nothing for stdio.
 | `langpop/aids` | which helps are on, and switching them |
 | `langpop/audit` | which rungs of the ladder are hollow |
 | `langpop/card.render` | the item as a picture |
-| `langpop/sheet.render` | a page to print: a chart, or today |
+| `langpop/sheet.render` | a page to print: a chart, today, or the zine |
 | `langpop/assign` / `report` | work to do elsewhere, and what came of it |
 
 Three things are deliberately on the server's side of the line, and each

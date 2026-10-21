@@ -391,6 +391,46 @@ check_true('and only that language',
                   then 1 endunless endfor %] == []);
 
 
+;;; ------------------------------------------------------- the sheets
+;;; A chart is a picture of the GRAPH and needs no session; a zine is a
+;;; picture of one student's standing and needs one.  This is the only
+;;; method that requires a session conditionally, and refusing a kana
+;;; chart to someone not logged in would protect a table anybody can buy
+;;; on a poster.
+vars ch = result('langpop/sheet.render',
+                 jsonrpc_obj([% 'style', 'hiragana' %]));
+check('a chart needs no session', ch('style'), 'hiragana');
+check('it is A4', ch('page'), 'A4');
+check('portrait', ch('orientation'), 'portrait');
+check('one page', ch('pages'), 1);
+check('210mm across', ch('width_mm'), 210);
+
+check_true('an unknown sheet is an error',
+           call('langpop/sheet.render',
+                jsonrpc_obj([% 'style', 'klingon' %]))('error') /== false);
+check_true('and a missing style is a different error',
+           call('langpop/sheet.render', false)('error') /== false);
+
+;;; The zine is landscape, eight pages, and refused without a session --
+;;; it is somebody's own standing on it.
+check_true('a zine without a session is refused',
+           call('langpop/sheet.render',
+                jsonrpc_obj([% 'style', 'zine' %]))('error') /== false);
+
+result('langpop/register', jsonrpc_obj([% 'student_id', 'folder',
+                                          'language', 'ja' %])).erase;
+vars fsid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'folder' %]))('session_id');
+vars zn = result('langpop/sheet.render',
+                 jsonrpc_obj([% 'session_id', fsid, 'style', 'zine' %]));
+check('with one it draws', zn('style'), 'zine');
+check('landscape, so it folds', zn('orientation'), 'landscape');
+check('eight pages on one sheet', zn('pages'), 8);
+check('297mm across', zn('width_mm'), 297);
+check('and 210 down', zn('height_mm'), 210);
+check_true('the path is on the server, not the bytes',
+           issubstring('.svg', zn('path')) /== false);
+
 ;;; ------------------------------------------------ later, oops, aids
 ;;; The two halves of one admission: `later` before answering, `oops`
 ;;; after.  Neither is a wrong answer, so neither moves a belief -- and
