@@ -42,7 +42,9 @@ define lp_new_session(student) -> sid;
     lvars student, sid;
     lp_session_seq + 1 -> lp_session_seq;
     'sess-' <> (lp_session_seq sys_>< '') -> sid;
-    {% student, lp_now_ms(), false, 0 %} -> lp_sessions(consword(sid));
+    ;;; student, opened, item asked, when it was asked, and the item a
+    ;;; typing slip has already been offered a retry on
+    {% student, lp_now_ms(), false, 0, false %} -> lp_sessions(consword(sid));
 enddefine;
 
 define lp_session(sid) -> s;
@@ -367,6 +369,31 @@ define lp_m_answer(msg) -> res;
     ;;; its own outcome rather than being filed as wrong.
     lvars outcome;
     unless correct then lp_mistook(item, typed) -> other endunless;
+
+    ;;; A TYPING SLIP IS NOT AN ANSWER.  A learner typing romaji, or
+    ;;; fighting an input method they do not know well, makes mistakes
+    ;;; that are not gaps in their knowledge -- and recorded as wrong
+    ;;; they cost a belief and teach the tutor something false.  So the
+    ;;; first one on an item is not recorded at all: the reply says so
+    ;;; and the client asks again.  The clock keeps running (s(3) and
+    ;;; s(4) are left alone) so that a deliberate slip cannot buy time.
+    ;;;
+    ;;; Once per item, which is what s(5) remembers -- a client that
+    ;;; sends the same near-miss twice gets it recorded the second time.
+    if not(correct) and not(other) and typed /= '' and typed /= '?'
+    and lp_slip(typed, answer) and s(5) /== item then
+        item -> s(5);
+        jsonrpc_obj([% 'item', lp_jkey(item),
+                       'correct', false,
+                       'outcome', 'slip',
+                       'recorded', false,
+                       'reply', lp_line('slip'),
+                       'expected', json_null,
+                       'belief', lp_bel(item, lp_primary(item)) %]) -> res;
+        return;
+    endif;
+    false -> s(5);
+
     if     correct              then "right" -> outcome
     elseif typed = '' or typed = '?' then "skip" -> outcome; false -> other
     elseif other                then "near"  -> outcome
@@ -380,6 +407,7 @@ define lp_m_answer(msg) -> res;
                    ;;; only wants to know whether to move on; outcome is
                    ;;; what the belief was actually moved by.
                    'outcome', lp_jkey(outcome),
+                   'recorded', true,
                    'reply', if correct then lp_line('praise')
                             elseif outcome == "skip" then lp_line('skip')
                             elseif other then lp_line('almost')

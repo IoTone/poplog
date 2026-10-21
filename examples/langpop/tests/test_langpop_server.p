@@ -301,6 +301,48 @@ else
 endif;
 
 
+
+;;; ------------------------------------------------------ typing slips
+;;; The first near miss on an item is not recorded at all: the reply
+;;; says so and the client asks again.  Recorded as wrong it would cost
+;;; a belief and teach the tutor something false.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'typist',
+                                          'language', 'ja' %])).erase;
+vars tsid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'typist' %]))('session_id');
+
+;;; w_neko answers to "neko", so "nek" is one deletion away.
+vars sl = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', tsid, 'item', 'w_neko',
+                                'answer', 'nek' %]));
+check('a slip is named as one', sl('outcome'), 'slip');
+check('and is explicitly not recorded', sl('recorded'), false);
+check('nothing is revealed by it', sl('expected'), json_null);
+check('the belief did not move', sl('belief'), 0.0);
+
+;;; Sending the same near miss again records it -- the retry is offered
+;;; once, not forever.
+vars sl2 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', tsid, 'item', 'w_neko',
+                                 'answer', 'nek' %]));
+check('the second time it counts', sl2('recorded'), true);
+check('as a plain wrong answer', sl2('outcome'), 'wrong');
+
+;;; A short answer is never treated as a slip, so nothing hints that it
+;;; was close.
+vars sl3 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', tsid, 'item', 'hi_ka',
+                                 'answer', 'ke' %]));
+check('ke for ka is a mistake, not a slip', sl3('outcome'), 'wrong');
+check('and it is recorded', sl3('recorded'), true);
+
+;;; An ordinary correct answer still says it was recorded.
+vars sl4 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', tsid, 'item', 'hi_a',
+                                 'answer', 'a' %]));
+check('a right answer is recorded', sl4('recorded'), true);
+check('and named right', sl4('outcome'), 'right');
+
 ;;; ------------------------------------------------------- placement
 ;;; Deliberately not a stateful test.  There is no placement session and
 ;;; nothing to resume, because lp_place_next is a pure function of the

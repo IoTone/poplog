@@ -561,6 +561,70 @@ define lp_infer(item);
     endfor;
 enddefine;
 
+
+;;; ------------------------------------------------------ typing slips
+;;; A Japanese learner is typing romaji, or fighting an input method they
+;;; do not know well, and a slip of the fingers is not a gap in their
+;;; knowledge.  Recorded as "wrong" it costs them 0.70 of a belief and
+;;; teaches the tutor something false -- the probe ends up measuring
+;;; typing rather than reading, which is the same validity problem as
+;;; asking about grammar in vocabulary the student does not have.
+
+;;; How far off a typed answer may be and still be a slip.
+;;;
+;;; PROPORTIONAL, and with no floor, which is the opposite of
+;;; lp_edit_tol: a name may always be one letter out, an answer may not.
+;;; For a two-character answer any edit is a DIFFERENT answer -- ke is
+;;; not a slip for ka, it is the wrong kana -- so short answers get no
+;;; tolerance at all, and with it no hint that they were close.
+define lp_typo_tol(n) -> t;
+    lvars n, t = n div 4;
+enddefine;
+
+;;; Does this look like a slip rather than a mistake?
+define lp_slip(typed, answers) -> yes;
+    lvars typed, answers, a, t, yes = false;
+    returnif(typed = '' or not(typed)) (false -> yes);
+    for a in answers do
+        a sys_>< '' -> a;
+        lp_typo_tol(max(length(typed), length(a))) -> t;
+        nextif(t == 0);
+        if lp_edit(typed, lp_lower(a)) <= t then true -> yes; return endif;
+    endfor;
+enddefine;
+
+;;; ------------------------------------------------------------- undo
+;;; One answer deep, and only within the session.  ":oops" is for what
+;;; the slip detector cannot catch -- an input method that ate the line,
+;;; or enter hit a word early -- and it restores every belief the answer
+;;; moved, which is more than one: a correct check also credits whatever
+;;; it contained, so undoing it has to undo those too.
+vars lp_undo = false,                   ;;; [[key before] ...] or false
+    lp_undo_item = false,
+    lp_undo_journal = false,
+    lp_undo_watch = false;
+
+define lp_undo_start(item);
+    lvars item;
+    [] -> lp_undo;
+    item -> lp_undo_item;
+    lp_journal -> lp_undo_journal;
+    true -> lp_undo_watch;
+enddefine;
+
+define lp_undo_stop();
+    false -> lp_undo_watch;
+enddefine;
+
+define lp_undo_last() -> ok;
+    lvars ok = false, p;
+    returnunless(lp_undo and lp_undo_item);
+    for p in lp_undo do hd(tl(p)) -> lp_beliefs(hd(p)) endfor;
+    lp_undo_journal -> lp_journal;
+    lp_undo_item -> ok;
+    false -> lp_undo; false -> lp_undo_item;
+enddefine;
+
 define lp_record(item, ch, tier, outcome, latency_ms);
     lvars item, ch, tier, outcome, latency_ms, b = lp_bel(item, ch), nb;
     ;;; A caller still passing a boolean is reading an older profile or an
@@ -589,6 +653,10 @@ define lp_record(item, ch, tier, outcome, latency_ms);
     else
         min(b + 0.05, TIER3_CAP)
     endif -> nb;
+    if lp_undo_watch then
+        ;;; every belief this answer moves, so the undo is complete
+        lp_undo <> [[% lp_bkey(lp_user, item, ch), b %]] -> lp_undo;
+    endif;
     nb -> lp_beliefs(lp_bkey(lp_user, item, ch));
     ;;; A WORD in memory and a string on disk, converted in lp_save and
     ;;; back in lp_load_profile.  Converting at one end only is how the
@@ -1169,22 +1237,53 @@ define lp_mistook(item, typed) -> other;
 enddefine;
 
 define lp_drill(item) -> done;
-    lvars item, shape, prompt, answer, options, o, i = 0, t0, line, typed;
+    lvars item, shape, prompt, answer, options, o, i = 0, t0, line, typed,
+          other, retried = false;
     true -> done;
     lp_question(item) -> (shape, prompt, answer, options);
     returnif(shape == "none")(false -> done);
-    if shape == "type" then
-        printf('\n  %p    -> ', [^prompt]);
-    else
-        printf('\n  %p\n', [^prompt]);
-        for o in options do i + 1 -> i; printf('    %p) %p\n', [% i, o %]) endfor;
-        printf('  -> ');
-    endif;
-    sysflush(popdevout);
     lp_now_ms() -> t0;
-    lp_readline() -> line;
-    if line == termin then false -> done; return endif;
-    lp_norm(line) -> typed;
+    repeat
+        0 -> i;
+        if shape == "type" then
+            printf('\n  %p    -> ', [^prompt]);
+        else
+            printf('\n  %p\n', [^prompt]);
+            for o in options do i + 1 -> i; printf('    %p) %p\n', [% i, o %]) endfor;
+            printf('  -> ');
+        endif;
+        sysflush(popdevout);
+        lp_readline() -> line;
+        if line == termin then false -> done; lp_undo_stop(); return endif;
+        lp_norm(line) -> typed;
+        lp_mistook(item, typed) -> other;
+
+        ;;; A slip gets ONE more go, and the first attempt is not
+        ;;; recorded.  Offered rather than forgiven: "I will take that as
+        ;;; やま" would credit an answer they did not actually produce,
+        ;;; and the point is to let them fix it, not to score it for
+        ;;; them.  Nothing is revealed -- short answers get no tolerance,
+        ;;; so ke for ka never reaches here and never hints that it was
+        ;;; close.
+        ;;;
+        ;;; An exact match wins first, and so does a confusable partner:
+        ;;; typing the other half of a pair the graph records is a
+        ;;; knowledge error, not a slip, however few letters apart they
+        ;;; are.
+        if not(retried) and not(member(typed, answer)) and not(other)
+        and typed /= '' and typed /= '?' and lp_slip(typed, answer) then
+            true -> retried;
+            printf('  %p\n', [% lp_line('slip') %]);
+            nextloop;
+        endif;
+        quitloop;
+    endrepeat;
+
+    lp_undo_start(item);
+    ;;; The clock runs from the FIRST attempt.  Resetting it on a retry
+    ;;; would make a deliberate slip a way to buy time, and the speed
+    ;;; half of every pre-school criterion is what tells reading from
+    ;;; working it out.
     if member(typed, answer) then
         lp_record(item, lp_primary(item), 1, "right", lp_now_ms() - t0);
         printf('  %p\n', [% lp_line('praise') %]);
@@ -1196,7 +1295,6 @@ define lp_drill(item) -> done;
         lp_record(item, lp_primary(item), 1, "skip", lp_now_ms() - t0);
         printf('  %p  It is %p.\n', [% lp_line('skip'), hd(answer) %]);
     else
-        lvars other = lp_mistook(item, typed);
         lp_record(item, lp_primary(item), 1,
                   if other then "near" else "wrong" endif, lp_now_ms() - t0);
         if other then
@@ -1206,6 +1304,7 @@ define lp_drill(item) -> done;
             printf('  %p  It is %p.\n', [% lp_line('wrong'), hd(answer) %]);
         endif;
     endif;
+    lp_undo_stop();
 enddefine;
 
 ;;; ----------------------------------------------------------- assignments
@@ -1971,6 +2070,7 @@ define lp_help();
     printf('  :why <item>      the derivation: prerequisites, source, belief\n');
     printf('  :status          the exit criteria of this level, measured\n');
     printf('  :place           find out where you are, instead of guessing\n');
+    printf('  :oops            that last answer was a slip -- ask me again\n');
     printf('  :card <item>     draw it, and open it in the system viewer\n');
     printf('  :assign          something to do away from the keyboard\n');
     printf('  :report <n> ok   done it (compliance)\n');
@@ -2025,7 +2125,8 @@ define lp_next();
 enddefine;
 
 define lp_session();
-    lvars line, cmd, arg, a2, id, outcome;
+    ;;; `back` is a Pop-11 syntax word, as `from`, `to` and `step` are
+    lvars line, cmd, arg, a2, id, outcome, retaken;
     lp_help();
     repeat
         printf('\n%p> ', [% lp_teacher_name() %]);
@@ -2054,6 +2155,14 @@ define lp_session();
                 else lp_why(consword(arg)) endif;
             elseif cmd = 'status' then lp_status();
             elseif cmd = 'place' then lp_place_run();
+            elseif cmd = 'oops' then
+                lp_undo_last() -> retaken;
+                if retaken then
+                    printf('  Taken back.  Again:\n');
+                    lp_drill(retaken).erase;
+                else
+                    printf('  Nothing to take back.\n');
+                endif;
             elseif cmd = 'card' then
                 if arg = '' then printf('  :card <item id>\n')
                 else lp_show_card(consword(arg)) endif;

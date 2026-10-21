@@ -289,6 +289,56 @@ check_true('and Hepburn remains the canonical spelling',
            hd(lp_romaji_variants('でんしゃ')) = 'densha');
 
 
+
+;;; ------------------------------------------------------ typing slips
+;;; A Japanese learner is typing romaji, or fighting an input method
+;;; they do not know well.  A slip of the fingers recorded as "wrong"
+;;; costs them 0.70 of a belief and teaches the tutor something false --
+;;; the probe ends up measuring typing rather than reading.
+
+;;; Proportional, and with NO FLOOR, which is the opposite of the
+;;; tolerance used for names.  For a two-character answer any edit is a
+;;; different answer.
+check('a two-letter answer gets no tolerance at all', lp_typo_tol(2), 0);
+check('nor does a three-letter one', lp_typo_tol(3), 0);
+check('four letters allow one slip', lp_typo_tol(4), 1);
+check('and eleven allow two', lp_typo_tol(11), 2);
+
+check_true('a dropped letter is a slip', lp_slip('yma', ['yama']));
+check_true('a doubled one is too', lp_slip('yamma', ['yama']));
+check_true('and a transposition', lp_slip('ginkuo', ['ginkou']));
+check_false('but a different short answer is a mistake, not a slip',
+            lp_slip('ke', ['ka']));
+check_false('which is what keeps ke from being told it was close',
+            lp_slip('ko', ['ka']));
+check_false('and nonsense is a mistake', lp_slip('zzz', ['yama']));
+check_false('an empty answer is a skip, not a slip', lp_slip('', ['yama']));
+
+;;; ---------------------------------------------------------- undo
+;;; One answer deep and only within the session, for what the slip
+;;; detector cannot catch: an input method that ate the line, or enter
+;;; hit a word early.  It has to restore every belief the answer moved,
+;;; which is more than one -- a correct check also credits whatever it
+;;; contained.
+if lp_ilang("k_65e5") then
+    "undoer" -> lp_user; [] -> lp_journal;
+    lp_undo_start("w_tanjoubi");
+    lp_record("w_tanjoubi", "read", 1, "right", 900);
+    lp_undo_stop();
+    check_true('the answer moved the word', lp_bel("w_tanjoubi", "read") > 0.0);
+    check_true('and what it contains', lp_bel("k_65e5", "read") > 0.0);
+    check('three journal entries, one answer and two inferences',
+          length(lp_journal), 3);
+
+    check('undo names the item to ask again', lp_undo_last(), "w_tanjoubi");
+    check('the belief is back', lp_bel("w_tanjoubi", "read"), 0.0);
+    check('including the inferred one', lp_bel("k_65e5", "read"), 0.0);
+    check('and so is the journal', length(lp_journal), 0);
+    check('a second undo is refused', lp_undo_last(), false);
+else
+    printf(';;; imported content not built -- undo not checked\n');
+endif;
+
 ;;; ------------------------------------------------------- placement
 ;;; "Go ahead and introduce yourself."  A beginner freezes; one who
 ;;; answers gets another question, harder, until they stop.  The point

@@ -24,6 +24,10 @@
     "Fair enough -- saying so beats guessing.",
     "That is the honest answer, and it helps me more."
   ],
+  "slip": [
+    "That looks like a typing slip.  Try it again:",
+    "Fingers, not English, I suspect.  Once more:"
+  ],
   "wrong": [
     "Not yet. We will return to it.",
     "No -- and that is a common one, so do not worry."

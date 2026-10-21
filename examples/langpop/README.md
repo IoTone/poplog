@@ -459,6 +459,68 @@ import brought in characters. `:why k_4e00` headed itself ひと rather than
 一, and the card for 山 came out as a card reading やま with no reading
 line at all. A flashcard for 山 is 山 on the front and やま underneath.
 
+## A typing slip is not a wrong answer
+
+A Japanese learner is typing romaji, or fighting an input method they do
+not know well, and a slip of the fingers is not a gap in their
+knowledge. Recorded as *wrong* it costs them 0.70 of a belief and
+teaches the tutor something false — the probe ends up measuring typing
+rather than reading, which is the same validity problem as asking about
+grammar in vocabulary the student does not have.
+
+**Offered, not forgiven.** The first near miss on an item is not
+recorded at all; the student gets one more go.
+
+```
+一    ->   hto
+Typing, I think, not reading.  Once more:
+一    ->   hito
+そうです。
+```
+
+Taking `hto` *as* やま would credit an answer they never produced. The
+point is to let them fix it, not to score it for them — so what gets
+recorded is something they actually typed.
+
+**And nothing is revealed, because the tolerance is proportional with no
+floor:**
+
+| answer | length | slips allowed |
+| --- | --- | --- |
+| `ka` | 2 | **0** |
+| `yama` | 4 | 1 |
+| `yuubinkyoku` | 11 | 2 |
+
+That zero is the important one. For a two-character answer any edit is a
+*different answer* — `ke` is not a slip for `ka`, it is the wrong kana —
+so short answers get no tolerance, and with it no hint that they were
+close. This is deliberately the opposite of the tolerance used for
+recognising a name, where one letter out is always forgiven.
+
+An exact match wins first, and so does a confusable partner: typing the
+other half of a pair the graph records is a knowledge error however few
+letters apart the two are. The clock runs from the **first** attempt, so
+a deliberate slip cannot buy thinking time.
+
+**`:oops`** is for what the detector cannot catch — an input method that
+ate the line, enter hit a word early. It takes back the last answer and
+asks again, and it restores *every* belief that answer moved, which is
+more than one: a correct check also credits whatever it contained, so
+undoing it has to undo those too.
+
+```
+before:        誕生日=0.0   生=0.0   日=0.0   journal=0
+after answer:  誕生日=0.45  生=0.45  日=0.45  journal=3
+after :oops    誕生日=0.0   生=0.0   日=0.0   journal=0
+```
+
+One answer deep, and only within the session.
+
+On the wire the same thing is a reply rather than a reprompt:
+`langpop/answer` returns `"outcome": "slip"` with `"recorded": false`
+and an `expected` of `null`, and the client asks again. Sending the same
+near miss twice records it — the retry is offered once, not forever.
+
 ## Placement: find out where they are, rather than ask
 
 > *"A teacher will jump right into 'go ahead and introduce yourself.' A
