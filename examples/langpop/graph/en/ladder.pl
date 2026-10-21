@@ -71,11 +71,34 @@ exit(en, a1, vocabulary(500, read),        0.80, 4500).
 exit(en, a1, vocabulary(500, hear),        0.80, 4500).
 exit(en, a2, vocabulary(1000, read),       0.80, 4000).
 exit(en, a2, vocabulary(1000, hear),       0.80, 4000).
+
+% B1 declared ONE criterion, coverage(reading, 0.95), and nothing
+% measures coverage -- so B1 was a room with the same missing door A1
+% had, differently disguised.  --audit reported the criterion as
+% `unmeasured` and said nothing about the rung, because a rung is not a
+% row in that table; lp_audit_rungs exists because of this.
+%
+% And the counts jumped 1000 to 5000 with nothing between, which is two
+% CEFR bands of silence.  2500 reading and 2000 listening are the usual
+% reckoning for B1 and are estimates like every other number on this
+% ladder.
+exit(en, b1, vocabulary(2500, read),       0.80, 3800).
+exit(en, b1, vocabulary(2000, hear),       0.80, 3800).
+exit(en, b1, coverage(reading, 0.95),      0.80, 4000).
+
 exit(en, b2, vocabulary(5000, read),       0.80, 3500).
 exit(en, b2, vocabulary(3000, hear),       0.80, 3500).
-exit(en, b1, coverage(reading, 0.95),      0.80, 4000).
 exit(en, b2, coverage(reading, 0.98),      0.80, 3500).
 exit(en, b2, coverage(listening, 0.95),    0.80, 3500).
+
+% C1 declared NOTHING.  The top rung needs an exit criterion as much as
+% any other -- "what does it mean to have finished?" is the question a
+% ladder exists to answer, and ja/n1 answers it.  This one did not, and
+% check(graph) now refuses a rung without one so that the next level
+% added cannot repeat it.
+exit(en, c1, vocabulary(8000, read),       0.80, 3000).
+exit(en, c1, vocabulary(6000, hear),       0.80, 3000).
+exit(en, c1, coverage(listening, 0.98),    0.80, 3000).
 
 provenance(band(en, _, _, _), cefr_toeic_correspondence).
 provenance(floor(en, b2, _, _), ets(cefr_mapping)).

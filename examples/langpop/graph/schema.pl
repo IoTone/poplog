@@ -145,6 +145,14 @@ violation(item_without_form(I)) :-
     item(I, Kind, _, _, _), Kind \== skill, \+ form(I, _, _).
 
 violation(item_without_source(I)) :- item(I, _, _, _, _), \+ provenance_ok(I).
+
+% A rung with no exit criterion is a room with no door: a student who
+% reaches it can never leave, and :status has nothing to measure.  It
+% has happened twice -- en/a1 and en/c1 -- and both times it was found
+% by hand, because a rung that declares nothing produces no rows in
+% --audit's table and so is invisible there.
+violation(level_without_exit(Lang, Level)) :-
+    ladder(Lang, _, Level), \+ exit(Lang, Level, _, _, _).
 provenance_ok(I) :- item(I, _, _, _, S), nonvar(S), S \== unknown.
 
 % Reachability that terminates on a graph which is NOT yet known to be a

@@ -741,6 +741,72 @@ graph holds 103 kanji, reports the tool's emptiness as the student's
 failure. That is the same mistake `"verifiable": false` exists to prevent
 on `langpop/status`.
 
+### Rung by rung, because a criterion at a time is not enough
+
+`--audit` walks `lp_exits`, so **a rung that declares no criterion
+produces no rows** and is invisible in that table. That is how `en/a1`
+came to be a room with no door and had to be found by hand — and how
+`en/c1` still was, two sections later, in the same file.
+
+```
+  lang  level      criteria  can it be left?
+  ja    preschool  7         not yet -- needs_audio
+  ja    n5         3         not yet -- short
+  en    preschool  3         not yet -- needs_audio
+  en    b1         3         not yet -- unmeasured
+  en    c1         0         NO -- it declares no exit criterion
+
+  0 of 12 rungs can be left as the graph stands.
+```
+
+A rung is left by meeting **every** criterion on it, so it is exitable
+only if every one is reachable. One criterion nothing can measure closes
+the rung as surely as having none. The verdict names the **worst**
+blocker, in the order of whose problem it is: no exit is a bug in the
+ladder, `unmeasured` is a hole in the design, `short` is curation, and
+`needs audio` is a limit of this build that is written down elsewhere.
+
+**Zero of twelve** is the honest number, and it is worth sitting with.
+The Japanese pre-school rung passes everything that can be typed and is
+held open by one listening criterion; that is the documented state of
+this build rather than a defect. The rest are short of content.
+
+`check(graph)` now refuses a rung with no exit criterion outright, so
+the next level anyone adds cannot repeat it:
+
+```prolog
+violation(level_without_exit(Lang, Level)) :-
+    ladder(Lang, _, Level), \+ exit(Lang, Level, _, _, _).
+```
+
+### Two holes it found in the English ladder
+
+**B1 declared one criterion**, `coverage(reading, 0.95)` — and nothing
+measures coverage, so B1 was the same missing door A1 had, differently
+disguised. The counts also jumped **1000 to 5000** with nothing between,
+which is two CEFR bands of silence. B1 now carries 2500 reading and 2000
+listening, estimates like every other number on that ladder.
+
+**C1 declared nothing at all.** The top rung needs an exit criterion as
+much as any other — *what does it mean to have finished?* is the
+question a ladder exists to answer, and `ja/n1` answers it. C1 now
+carries 8000 reading, 6000 listening and a listening coverage floor.
+
+### What is left, and why
+
+Four `coverage` criteria remain `unmeasured`, and that is now the single
+thing holding three English rungs closed. Coverage in Nation's sense —
+*you know 95% of the running words in ordinary text* — needs a
+**frequency-ranked corpus list**, and the graph has ranks only for kanji
+(`rank/3`, from KANJIDIC2). The English words have none, because the
+list this project would have used was NGSL and its licence could not be
+pinned down.
+
+So coverage is blocked on the same kind of question the zine template
+was, and it is named here rather than faked. A measure invented to fill
+the gap would be a number that looks like the others and is not.
+
+
 ### What the first run found
 
 **A skill was measured over itself.** `criterion_item(skill(S), S)`

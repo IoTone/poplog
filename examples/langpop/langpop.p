@@ -2629,6 +2629,59 @@ define lp_audit() -> rows;
     endfor;
 enddefine;
 
+;;; ------------------------------------------------------- the rungs
+;;; A criterion at a time is not enough.  --audit walks lp_exits, so a
+;;; rung that declares NO criterion produces no rows and is invisible in
+;;; the report -- which is how en/a1 came to be a room with no door and
+;;; had to be found by hand, and how en/c1 still is.
+;;;
+;;; A rung is left by meeting EVERY criterion on it, so it is exitable
+;;; only if every one of them is reachable.  One criterion that nothing
+;;; can measure closes the rung as surely as having none.
+;;;
+;;; The verdict names the WORST blocker, in the order of whose problem
+;;; it is: a rung with no exit is a bug in the ladder, an unmeasured
+;;; criterion is a hole in the design, short is curation, and needs
+;;; audio is a limit of this build that is written down elsewhere.
+define lp_audit_rungs() -> rows;
+    lvars l, r, rows = [], lang, level, n, verdict, seen;
+    for l in lp_ladders do
+        hd(l) -> lang; hd(tl(tl(l))) -> level;
+        [] -> seen; 0 -> n;
+        for r in lp_audit() do
+            nextunless(r(1) == lang and r(2) == level);
+            n + 1 -> n;
+            unless member(r(4), seen) then seen <> [% r(4) %] -> seen endunless;
+        endfor;
+        if     n == 0                        then "no_exit"
+        elseif member("no_probe", seen)      then "no_probe"
+        elseif member("unmeasured", seen)    then "unmeasured"
+        elseif member("short", seen)         then "short"
+        elseif member("needs_audio", seen)   then "needs_audio"
+        elseif member("thin", seen)          then "thin"
+        else                                      "ok"
+        endif -> verdict;
+        rows <> [{% lang, level, n, verdict %}] -> rows;
+    endfor;
+enddefine;
+
+define lp_audit_rungs_show();
+    lvars r, rows = lp_audit_rungs(), bad = 0;
+    printf('\n  %p%p%p%p\n',
+           [% lp_pad('lang', 6), lp_pad('level', 11),
+              lp_pad('criteria', 10), 'can it be left?' %]);
+    for r in rows do
+        unless r(4) == "ok" then bad + 1 -> bad endunless;
+        printf('  %p%p%p%p\n',
+               [% lp_pad(r(1), 6), lp_pad(r(2), 11), lp_pad(r(3), 10),
+                  if r(4) == "ok" then 'yes'
+                  elseif r(4) == "no_exit" then 'NO -- it declares no exit criterion'
+                  else 'not yet -- ' <> (r(4) sys_>< '') endif %]);
+    endfor;
+    printf('\n  %p of %p rungs can be left as the graph stands.\n',
+           [% length(rows) - bad, length(rows) %]);
+enddefine;
+
 define lp_audit_show();
     lvars r, rows = lp_audit(), v, tot = newproperty([], 8, 0, "perm"), k;
     printf('\n  %p exit criteria over %p ladder levels.\n',
@@ -2653,6 +2706,7 @@ define lp_audit_show();
     endfor;
     ;;; Said plainly, because the three are not the same problem and a
     ;;; single "N failing" would hide which of them anyone can fix.
+    lp_audit_rungs_show();
     printf('\n  thin        = passes on fewer than %p askable items\n', [^AUDIT_THIN]);
     printf('  short       = curation: the criterion works, the content is thin\n');
     printf('  no probe    = a criterion nothing can ask about -- a bug, or an unbuilt import\n');

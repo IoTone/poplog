@@ -1201,6 +1201,44 @@ check_false('no verdict is outside the set',
                    then e(4) endunless
                endfor %] /== []);
 
+;;; --------------------------------------------------- rung by rung
+;;; A criterion at a time is not enough.  --audit walks lp_exits, so a
+;;; rung that declares NO criterion produces no rows and is invisible --
+;;; which is how en/a1 came to be a room with no door and had to be
+;;; found by hand, and how en/c1 still was.
+lvars rungs = lp_audit_rungs();
+check('one row per rung of every ladder', length(rungs), length(lp_ladders));
+check_true('and every rung declares at least one exit criterion',
+           [% lvars r; for r in rungs do
+                  if r(3) == 0 then r(2) endif endfor %] == []);
+check_true('which check(graph) now refuses to let slide',
+           [% lvars v; for v in lp_check() do
+                  if issubstring('level_without_exit', lp_term_str(v)) /== false
+                  then v endif endfor %] == []);
+
+;;; A rung is left by meeting EVERY criterion on it, so one criterion
+;;; nothing can measure closes it as surely as having none.
+define rung(lang, level) -> r;
+    lvars lang, level, e;
+    false -> r;
+    for e in rungs do
+        if e(1) == lang and e(2) == level then e -> r; return endif;
+    endfor;
+enddefine;
+
+;;; Japanese pre-school is reachable on everything that can be typed and
+;;; is held open by one listening criterion -- which is the documented
+;;; state of this build, not a defect in the ladder.
+check('ja preschool is blocked only by audio',
+      rung("ja", "preschool")(4), "needs_audio");
+
+;;; B1 declared one criterion, coverage(reading, 0.95), and nothing
+;;; measures coverage -- the same missing door A1 had, differently
+;;; disguised.  It has counts now, between A2's 1000 and B2's 5000.
+check_true('b1 has more than its coverage criterion',
+           rung("en", "b1")(3) > 1);
+check('and c1 has an exit at all', rung("en", "c1")(3) > 0, true);
+
 ;;; The audit must not disturb the globals it borrows: it walks every
 ;;; language and level, and a student is bound to one.
 "ja" -> lp_lang; "preschool" -> lp_level;
