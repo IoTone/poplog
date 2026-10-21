@@ -18,6 +18,15 @@ uses json;
 vars langpop_lib = true, langpop_dump_lib = true;
 load 'examples/langpop/dump.p';
 
+;;; This suite holds FOUR whole exports in memory at once, which the
+;;; exporter itself never does -- dump_dev writes a character at a time
+;;; to a file, and dump_capture is the only thing that keeps them.  The
+;;; default 1,500,000 was enough at 521 items and not at 567, and the
+;;; failure (popmemlim, in conspair under dump_html) says nothing about
+;;; the exporter: `dump.p --html` on the same graph writes 187 KB and
+;;; does not come close.  A test harness limit, raised as one.
+8000000 -> popmemlim;
+
 find_dir() -> langpop_dir;
 lp_load();
 lp_index();
@@ -80,7 +89,14 @@ lvars js = dump_capture(dump_json), d = json_parse(js);
 check('JSON scope is everything', d('scope'), 'all');
 check('every item is exported', length(d('items')), length(lp_items));
 check('every edge is exported', length(d('requires')), length(es));
-check('confusables are exported once each', length(d('confusable')), 18);
+;;; Counted from the graph, not written here.  A literal 18 became wrong
+;;; the moment the voiced kana added 46 pairs by rule, and a test that
+;;; fails when the graph grows is a test of nothing.
+lvars nconf = 0;
+appproperty(lp_confs,
+    procedure(k, v); nconf + length(v) -> nconf endprocedure);
+check('confusables are exported once each', length(d('confusable')),
+      nconf div 2);
 check('the catalogue is exported', length(d('resources')), length(lp_rsrc));
 check('both languages', length(d('languages')), 2);
 

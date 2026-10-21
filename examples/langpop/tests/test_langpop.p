@@ -49,6 +49,92 @@ check_true('confusable backwards',
 check('diagnoses the usual mistake', lp_mistook("hi_a", 'o'), "hi_o");
 check_false('does not invent a mistake', lp_mistook("hi_a", 'zzz'));
 
+
+;;; --------------------------------------------------- the voiced kana
+;;; These exist because --audit found that skill(dakuten) could not be
+;;; met: it required one item, hi_ka, and the table held base kana only,
+;;; so passing it demonstrated reading か -- which says nothing whatever
+;;; about か/が.  The criterion named a contrast the graph did not hold.
+
+;;; Generated from the base codepoint, so a glyph cannot be subtly wrong:
+;;; dakuten is +1 and handakuten is +2.
+check('dakuten is the base plus one',
+      lp_form_of("hi_ga", "hiragana") sys_>< '', 'が');
+check('handakuten is the base plus two',
+      lp_form_of("hi_pa", "hiragana") sys_>< '', 'ぱ');
+check('and katakana is still plus 0x60',
+      lp_form_of("ka_ga", "katakana") sys_>< '', 'ガ');
+check('ふ voices to ぶ, not to ふ゛',
+      lp_form_of("hi_bu", "hiragana") sys_>< '', 'ぶ');
+check('one character, three bytes',
+      utf8_length(lp_form_of("hi_pe", "hiragana") sys_>< ''), 1);
+
+;;; 23 per script: the 20 dakuten less ぢ and づ, plus 5 handakuten, so
+;;; 46 base hiragana become 69.  Counted off the glyphs rather than the
+;;; ids, because the ids are what the generator could get wrong.
+check('69 hiragana, one glyph each',
+      length([% lvars i; for i in lp_items do
+                  ;;; by the id, because a kanji has a hiragana READING
+                  ;;; and 28 of the imported ones are a single character
+                  ;;; -- 日 is ひ, which is not a kana item
+                  if issubstring('hi_', i sys_>< '') == 1
+                  and utf8_length(lp_form_of(i, "hiragana") sys_>< '') == 1
+                  then i endif endfor %]), 69);
+check_true('every one of the 23 voiced hiragana is there',
+           [% lvars r; for r in [ga gi gu ge go za ji zu ze zo da de do
+                                 ba bi bu be bo pa pi pu pe po] do
+                  unless lp_kind(consword('hi_' <> (r sys_>< '')))
+                  then r endunless endfor %] == []);
+
+;;; ぢ and づ are deliberately absent: they are not a third and fourth
+;;; sound but alternative spellings of じ and ず, and Hepburn spells each
+;;; pair identically BECAUSE they are the same sound.  Had they been
+;;; included, the katakana-after-hiragana rule -- which joins on the
+;;; romaji -- would have made ジ require ぢ.
+check_false('there is no separate di', lp_kind("hi_di"));
+check_false('nor du', lp_kind("hi_du"));
+check('so the romaji ji belongs to exactly one kana',
+      length([% lvars i; for i in lp_items do
+                  if lp_form_of(i, "hiragana")
+                  and lp_form_of(i, "romaji") == "ji" then i endif
+              endfor %]), 1);
+
+;;; が after か, and nothing else new.  One mark is one thing to notice.
+check_true('a voiced kana requires its base',
+           member("hi_ka", lp_edges_of("hi_ga")));
+check_true('and ぱ requires は', member("hi_ha", lp_edges_of("hi_pa")));
+check_true('katakana still requires its hiragana',
+           member("hi_ga", lp_edges_of("ka_ga")));
+check_true('and its own base, in its own script',
+           member("ka_ka", lp_edges_of("ka_ga")));
+
+;;; The pair is confusable, because one mark apart is exactly how a
+;;; beginner misreads it: か for が is the mark going unseen, not a guess.
+;;; So it is diagnosed as `near` rather than `wrong`.
+check('typing ka for が is the declared confusion',
+      lp_mistook("hi_ga", 'ka'), "hi_ka");
+check('and the other way round', lp_mistook("hi_ka", 'ga'), "hi_ga");
+check('は is confused with ぱ as well as ば',
+      lp_mistook("hi_pa", 'ha'), "hi_ha");
+check_true('the mark is named in the reason',
+           [% lvars p; for p in lp_confs("hi_ga") do
+                  if hd(p) == "hi_ka" then lp_term_str(hd(tl(p))) endif
+              endfor %] = ['mark(dakuten)']);
+
+;;; And it can be asked, which is the whole point.
+lvars (vsh, vpr, vans, vopt) = lp_question("hi_ga");
+check('が can be asked by typing', vsh, "type");
+check('the prompt is the glyph', vpr sys_>< '', 'が');
+check_true('and ga is accepted', member('ga', vans));
+
+;;; The aggregates fan out by rule, so the voiced kana joined them with
+;;; no edit.  Which matters: がっこう needs が, and until now the starter
+;;; words required a hiragana_all that did not contain it.
+check_true('hiragana_all now covers が',
+           member("hi_ga", lp_edges_of("hiragana_all")));
+check_true('and katakana_all covers ガ',
+           member("ka_ga", lp_edges_of("katakana_all")));
+
 ;;; --------------------------------------------------- prerequisite order
 ;;; Nothing is ready except the five vowels, because every other hiragana
 ;;; requires all five and every katakana requires its hiragana.
@@ -711,11 +797,14 @@ define arow(lang, level, name) -> r;
     endfor;
 enddefine;
 
-;;; The 46 hiragana are all askable, so the criterion over them is real.
+;;; Every hiragana is askable, so the criterion over them is real.  The
+;;; count is taken from the graph rather than written here: it was 46
+;;; until the voiced kana arrived, and a literal would have made that a
+;;; test failure rather than a fact.
 lvars ah = arow("ja", "preschool", 'recognise(hiragana)');
 check_true('hiragana is a criterion that exists', ah);
-check('all 46 are in the set', ah(5), 46);
-check('and all 46 can be asked', ah(6), 46);
+check('every hiragana in the set can be asked', ah(6), ah(5));
+check_true('which is more than the 46 base kana', ah(5) > 46);
 check('so it is reachable', ah(4), "ok");
 
 ;;; A skill is measured over WHAT IT ROLLS UP OVER, not over itself.
@@ -736,9 +825,15 @@ check_false('nothing anywhere is a criterion with no probe',
                    if e(4) == "no_probe" then lp_term_str(e(3)) endif
                endfor %] /== []);
 
-;;; Thin is not a bug and not an ok: it is a percentage over so few
-;;; items that passing says very little.  Stated rather than hidden.
-check('one askable item is thin, not ok', ad(4), "thin");
+;;; The dakuten skill is now measured over every voiced kana rather than
+;;; over か, which could not demonstrate the contrast it is named for.
+check('dakuten is reachable', ad(4), "ok");
+check_true('over every voiced pair, both scripts', ad(6) >= 46);
+
+;;; Thin is not a bug and not an ok: it is a percentage over so few items
+;;; that passing says very little.  Stated rather than hidden.
+lvars amc = arow("ja", "preschool", 'skill(mora_count)');
+check('one askable item is thin, not ok', amc(4), "thin");
 
 ;;; A count criterion reports the shortfall rather than a percentage of
 ;;; a student who has never been shown the content.

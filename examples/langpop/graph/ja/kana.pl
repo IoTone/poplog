@@ -1,9 +1,10 @@
 % examples/langpop/graph/ja/kana.pl -- the two syllabaries, below everything else.
 %
 % Generated from Unicode codepoints rather than typed, so a glyph cannot
-% be wrong: see tools/mkkana.py.  Base kana only -- dakuten, handakuten
-% and youon are their own items and come after these, because a student
-% who cannot read か cannot be taught が.
+% be wrong: see tools/mkkana.py.  The 92 base kana first, then the 46
+% voiced ones -- dakuten is the base + 1 and handakuten the base + 2 --
+% each requiring its base, because a student who cannot read か cannot be
+% taught が.  Youon is still a skill rather than glyphs of its own.
 %
 % kana(Id, Script, Glyph, Romaji, Row).
 
@@ -101,8 +102,143 @@ kana(ka_wa, katakana, 'ワ', wa, w).
 kana(ka_wo, katakana, 'ヲ', wo, w).
 kana(ka_n, katakana, 'ン', n, moraic).
 
+
+% --- The voiced kana ------------------------------------------------------
+% Dakuten is the base codepoint + 1 and handakuten the base + 2, which is
+% the second systematic thing about the syllabaries and the reason these
+% are generated rather than typed: see tools/mkkana.py.
+%
+% These exist because skill(dakuten) could not be met.  It required one
+% item, hi_ka, and the table held base kana only -- so passing it
+% demonstrated reading か, which says nothing whatever about か/が.  The
+% criterion named a contrast the graph did not contain.  --audit found it.
+%
+% ぢ and づ are deliberately absent, and it is the only judgement in the
+% table.  They are not a third and fourth sound: they are alternative
+% spellings of じ and ず, used where a base kana is reduplicated or
+% compounded (つづく, ちぢむ), and Hepburn spells each pair identically
+% BECAUSE they are the same sound.  So they are not instances of "one
+% mark changes the sound", which is what the skill names; and the
+% katakana-after-hiragana rule below joins on the ROMAJI, so two kana
+% spelled "ji" would make ヂ require both じ and ぢ, and ジ require ぢ --
+% gating a common kana behind a vanishingly rare one.  import.p refuses
+% to guess at an ambiguous JMdict key for the same reason.
+%
+% 23 per script, 46 in all.
+
+kana(hi_ga, hiragana, 'が', ga, g).
+kana(hi_gi, hiragana, 'ぎ', gi, g).
+kana(hi_gu, hiragana, 'ぐ', gu, g).
+kana(hi_ge, hiragana, 'げ', ge, g).
+kana(hi_go, hiragana, 'ご', go, g).
+
+kana(hi_za, hiragana, 'ざ', za, z).
+kana(hi_ji, hiragana, 'じ', ji, z).
+kana(hi_zu, hiragana, 'ず', zu, z).
+kana(hi_ze, hiragana, 'ぜ', ze, z).
+kana(hi_zo, hiragana, 'ぞ', zo, z).
+
+kana(hi_da, hiragana, 'だ', da, d).
+kana(hi_de, hiragana, 'で', de, d).
+kana(hi_do, hiragana, 'ど', do, d).
+
+kana(hi_ba, hiragana, 'ば', ba, b).
+kana(hi_bi, hiragana, 'び', bi, b).
+kana(hi_bu, hiragana, 'ぶ', bu, b).
+kana(hi_be, hiragana, 'べ', be, b).
+kana(hi_bo, hiragana, 'ぼ', bo, b).
+
+kana(hi_pa, hiragana, 'ぱ', pa, p).
+kana(hi_pi, hiragana, 'ぴ', pi, p).
+kana(hi_pu, hiragana, 'ぷ', pu, p).
+kana(hi_pe, hiragana, 'ぺ', pe, p).
+kana(hi_po, hiragana, 'ぽ', po, p).
+
+kana(ka_ga, katakana, 'ガ', ga, g).
+kana(ka_gi, katakana, 'ギ', gi, g).
+kana(ka_gu, katakana, 'グ', gu, g).
+kana(ka_ge, katakana, 'ゲ', ge, g).
+kana(ka_go, katakana, 'ゴ', go, g).
+
+kana(ka_za, katakana, 'ザ', za, z).
+kana(ka_ji, katakana, 'ジ', ji, z).
+kana(ka_zu, katakana, 'ズ', zu, z).
+kana(ka_ze, katakana, 'ゼ', ze, z).
+kana(ka_zo, katakana, 'ゾ', zo, z).
+
+kana(ka_da, katakana, 'ダ', da, d).
+kana(ka_de, katakana, 'デ', de, d).
+kana(ka_do, katakana, 'ド', do, d).
+
+kana(ka_ba, katakana, 'バ', ba, b).
+kana(ka_bi, katakana, 'ビ', bi, b).
+kana(ka_bu, katakana, 'ブ', bu, b).
+kana(ka_be, katakana, 'ベ', be, b).
+kana(ka_bo, katakana, 'ボ', bo, b).
+
+kana(ka_pa, katakana, 'パ', pa, p).
+kana(ka_pi, katakana, 'ピ', pi, p).
+kana(ka_pu, katakana, 'プ', pu, p).
+kana(ka_pe, katakana, 'ペ', pe, p).
+kana(ka_po, katakana, 'ポ', po, p).
+
+% The pairing, stated once.  Both the prerequisite (が after か) and the
+% confusable pair (one mark apart, which is exactly how a beginner
+% misreads them) are DERIVED from this rather than listed again -- the
+% same discipline as kana/5 itself.
+%
+% voiced(VoicedId, BaseId, Mark).
+
+voiced(hi_ga, hi_ka, dakuten).
+voiced(hi_gi, hi_ki, dakuten).
+voiced(hi_gu, hi_ku, dakuten).
+voiced(hi_ge, hi_ke, dakuten).
+voiced(hi_go, hi_ko, dakuten).
+voiced(hi_za, hi_sa, dakuten).
+voiced(hi_ji, hi_shi, dakuten).
+voiced(hi_zu, hi_su, dakuten).
+voiced(hi_ze, hi_se, dakuten).
+voiced(hi_zo, hi_so, dakuten).
+voiced(hi_da, hi_ta, dakuten).
+voiced(hi_de, hi_te, dakuten).
+voiced(hi_do, hi_to, dakuten).
+voiced(hi_ba, hi_ha, dakuten).
+voiced(hi_bi, hi_hi, dakuten).
+voiced(hi_bu, hi_fu, dakuten).
+voiced(hi_be, hi_he, dakuten).
+voiced(hi_bo, hi_ho, dakuten).
+voiced(hi_pa, hi_ha, handakuten).
+voiced(hi_pi, hi_hi, handakuten).
+voiced(hi_pu, hi_fu, handakuten).
+voiced(hi_pe, hi_he, handakuten).
+voiced(hi_po, hi_ho, handakuten).
+
+voiced(ka_ga, ka_ka, dakuten).
+voiced(ka_gi, ka_ki, dakuten).
+voiced(ka_gu, ka_ku, dakuten).
+voiced(ka_ge, ka_ke, dakuten).
+voiced(ka_go, ka_ko, dakuten).
+voiced(ka_za, ka_sa, dakuten).
+voiced(ka_ji, ka_shi, dakuten).
+voiced(ka_zu, ka_su, dakuten).
+voiced(ka_ze, ka_se, dakuten).
+voiced(ka_zo, ka_so, dakuten).
+voiced(ka_da, ka_ta, dakuten).
+voiced(ka_de, ka_te, dakuten).
+voiced(ka_do, ka_to, dakuten).
+voiced(ka_ba, ka_ha, dakuten).
+voiced(ka_bi, ka_hi, dakuten).
+voiced(ka_bu, ka_fu, dakuten).
+voiced(ka_be, ka_he, dakuten).
+voiced(ka_bo, ka_ho, dakuten).
+voiced(ka_pa, ka_ha, handakuten).
+voiced(ka_pi, ka_hi, handakuten).
+voiced(ka_pu, ka_fu, handakuten).
+voiced(ka_pe, ka_he, handakuten).
+voiced(ka_po, ka_ho, handakuten).
+
 % --- Items and forms, derived ---------------------------------------------
-% 92 facts above produce 92 items and 184 forms.  Nothing is enumerated
+% 138 facts above produce 138 items and 276 forms.  Nothing is enumerated
 % twice, so a glyph can only be wrong in one place.
 
 item(Id, grapheme, ja, preschool, own(kana)) :- kana(Id, _, _, _, _).
@@ -115,6 +251,17 @@ gloss(Id, en, Romaji) :- kana(Id, _, _, Romaji, _).
 requires(KId, HId) :-
     kana(KId, katakana, _, Romaji, _),
     kana(HId, hiragana, _, Romaji, _).
+
+% が after か, and ぱ after は.  One mark is one new thing to notice, and
+% it is the whole of what the voiced kana add -- so the base kana is the
+% prerequisite and nothing else is.
+requires(V, B) :- voiced(V, B, _).
+
+% And the pair is confusable, because one mark apart is exactly how a
+% beginner misreads it: か for が is not a wild guess, it is the mark
+% going unseen.  confused_with/3 reads this both ways, so the tutor can
+% diagnose it and offer the partner as a distractor.
+confusable(B, V, mark(Mark)) :- voiced(V, B, Mark).
 
 % The vowel row before the rest of hiragana.  Every other row IS a
 % consonant plus one of these five, which is the one fact about the
@@ -172,7 +319,10 @@ requires(mora_long_vowel, mora_count).
 requires(mora_sokuon,     mora_count).
 requires(mora_moraic_n,   hi_n).
 requires(youon,           hi_ya).
-requires(dakuten,         hi_ka).
+% Over every voiced kana, not over か.  It used to require hi_ka alone,
+% which made the criterion answerable by reading an unvoiced kana -- the
+% one thing that cannot demonstrate the contrast the skill is named for.
+requires(dakuten, V) :- voiced(V, _, _).
 
 % --- Two aggregates, so words do not each list 46 prerequisites ----------
 % "You may start on words once you can read the script" is one teaching
@@ -180,8 +330,8 @@ requires(dakuten,         hi_ka).
 
 item(hiragana_all, skill, ja, preschool, own(kana)).
 item(katakana_all, skill, ja, preschool, own(kana)).
-gloss(hiragana_all, en, 'reads every base hiragana at speed').
-gloss(katakana_all, en, 'reads every base katakana at speed').
+gloss(hiragana_all, en, 'reads every hiragana at speed, voiced included').
+gloss(katakana_all, en, 'reads every katakana at speed, voiced included').
 
 requires(hiragana_all, Id) :- kana(Id, hiragana, _, _, _).
 requires(katakana_all, Id) :- kana(Id, katakana, _, _, _).
