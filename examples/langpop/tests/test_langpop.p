@@ -73,34 +73,98 @@ check_false('katakana ka waits for hiragana ka', member("ka_ka", plan2));
 ;;; ------------------------------------------------------- evidence tiers
 "drill" -> lp_user;                      ;;; a clean overlay for the arithmetic
 
-lp_record("hi_ka", "read", 1, true, 500);
-lp_record("hi_ka", "read", 1, true, 500);
+lp_record("hi_ka", "read", 1, "right", 500);
+lp_record("hi_ka", "read", 1, "right", 500);
 check_false('two verified answers are not enough', lp_mastered("hi_ka"));
-lp_record("hi_ka", "read", 1, true, 500);
+lp_record("hi_ka", "read", 1, "right", 500);
 check_true('three verified answers master an item', lp_mastered("hi_ka"));
 
 check_true('a wrong answer costs more than a right one gains',
            lp_bel("hi_ka", "read") > 0.8
-           and (lp_record("hi_ka", "read", 1, false, 500),
+           and (lp_record("hi_ka", "read", 1, "wrong", 500),
                 lp_bel("hi_ka", "read") < 0.4));
 
 ;;; Tier 3 is compliance: "I did it".  Twenty of them must not add up to
 ;;; knowing something, and this is the test that says so.
 "tier3" -> lp_user;
 lvars n;
-for n from 1 to 20 do lp_record("s_r_l", "hear", 3, true, 0) endfor;
+for n from 1 to 20 do lp_record("s_r_l", "hear", 3, "right", 0) endfor;
 check_true('compliance stays below its cap', lp_bel("s_r_l", "hear") <= 0.50);
 check_false('compliance never reaches mastery', lp_mastered("s_r_l"));
 
 ;;; Tier 2 is a reported result.  It may carry an item to just below
 ;;; mastery, so one verified check is always what settles it.
 "tier2" -> lp_user;
-for n from 1 to 20 do lp_record("s_r_l", "hear", 2, true, 0) endfor;
+for n from 1 to 20 do lp_record("s_r_l", "hear", 2, "right", 0) endfor;
 check_true('a reported result gets close', lp_bel("s_r_l", "hear") > 0.70);
 check_false('but not to mastery on its own', lp_mastered("s_r_l"));
 check_true('one verified answer then settles it',
-           (lp_record("s_r_l", "hear", 1, true, 500),
+           (lp_record("s_r_l", "hear", 1, "right", 500),
             lp_mastered("s_r_l")));
+
+;;; ----------------------------------------------------------- outcomes
+;;; A boolean threw away the most useful thing a wrong answer carries.
+;;; Freezing is not the same as guessing wrong, and guessing the partner
+;;; of a declared confusable pair is not the same as either.
+"outcomes" -> lp_user;
+
+lp_record("hi_ya", "read", 1, "right", 400);
+lvars b_right = lp_bel("hi_ya", "read");
+lp_record("hi_yu", "read", 1, "near", 400);
+lvars b_near = lp_bel("hi_yu", "read");
+lp_record("hi_yo", "read", 1, "wrong", 400);
+lvars b_wrong = lp_bel("hi_yo", "read");
+lp_record("hi_ra", "read", 1, "skip", 400);
+lvars b_skip = lp_bel("hi_ra", "read");
+
+check_true('right raises the belief', b_right > 0.0);
+check('a near miss on an unknown item cannot raise it either', b_near, 0.0);
+
+;;; From a belief that is already up, the four separate properly.
+lvars x;
+for x in [hi_re hi_ro hi_wa] do
+    lp_record(x, "read", 1, "right", 400);
+    lp_record(x, "read", 1, "right", 400);
+    lp_record(x, "read", 1, "right", 400);
+endfor;
+lvars before = lp_bel("hi_re", "read");
+lp_record("hi_re", "read", 1, "near", 400);
+lp_record("hi_ro", "read", 1, "wrong", 400);
+lp_record("hi_wa", "read", 1, "skip", 400);
+check_true('a near miss costs least of the three',
+           lp_bel("hi_re", "read") > lp_bel("hi_ro", "read"));
+check_true('and a freeze costs most',
+           lp_bel("hi_ro", "read") > lp_bel("hi_wa", "read"));
+check_true('all three cost something', lp_bel("hi_re", "read") < before);
+
+;;; Only "right" counts toward a criterion, and a skip still counts in
+;;; the denominator -- otherwise a student could raise their accuracy by
+;;; answering only what they knew.
+;;; lp_journal is global, not per student, so a block that measures has
+;;; to start from an empty one or it counts whatever ran before it.
+"measure2" -> lp_user;
+[] -> lp_journal;
+lp_record("hi_a", "read", 1, "right", 1000);
+lp_record("hi_i", "read", 1, "skip", 1000);
+lvars (acc2, fast2, cnt2) = lp_measure([hi_a hi_i], 2000);
+check('a skip is measured', cnt2, 2);
+check('and is not right', acc2, 0.5);
+
+;;; A boolean still works, because older call sites and older profiles
+;;; hold one.
+"legacy" -> lp_user;
+lp_record("hi_ka", "read", 1, true, 500);
+check('true still means right', lp_journal(1)(4), "right");
+lp_record("hi_ki", "read", 1, false, 500);
+check('and false still means wrong', lp_journal(1)(4), "wrong");
+
+;;; The partner of a confusable pair, typed in any of its forms.  Romaji
+;;; was enough while the answer space was romaji; a student who types お
+;;; for あ has made exactly the confusion the pair records.
+check('the partner typed as romaji', lp_mistook("hi_a", 'o'), "hi_o");
+check('the partner typed as the glyph itself', lp_mistook("hi_a", 'お'), "hi_o");
+check('and something unrelated is not a confusion',
+      lp_mistook("hi_a", 'zzz'), false);
 
 ;;; ----------------------------------------------------------- channels
 ;;; A word you can only READ is the vocabulary-book pathology, and it used
@@ -115,10 +179,10 @@ check('a pattern is produced', lp_channels("p_kore_wa_desu"), [produce]);
 check('the gate is the head of the list', lp_primary("w_neko"), "read");
 
 ;;; The split that matters: reading a word is not hearing it.
-lp_record("w_neko", "read", 1, true, 500);
-lp_record("w_neko", "read", 1, true, 500);
-lp_record("w_neko", "read", 1, true, 500);
-lp_record("w_neko", "read", 1, true, 500);
+lp_record("w_neko", "read", 1, "right", 500);
+lp_record("w_neko", "read", 1, "right", 500);
+lp_record("w_neko", "read", 1, "right", 500);
+lp_record("w_neko", "read", 1, "right", 500);
 check_true('four verified reads master it on read', lp_mastered_on("w_neko", "read"));
 check_false('and not on hear', lp_mastered_on("w_neko", "hear"));
 check_true('the gate opens, because reading unlocks reading',
@@ -137,11 +201,11 @@ check_false('hear cannot -- there is no audio', lp_verifiable("hear"));
 ;;; A self-report cannot buy a listening score either: tier 2 is capped
 ;;; below MASTERY by arithmetic, so an unverifiable channel stays
 ;;; unverified however much the student claims.
-lp_record("w_mizu", "hear", 2, true, 0);
-lp_record("w_mizu", "hear", 2, true, 0);
-lp_record("w_mizu", "hear", 2, true, 0);
-lp_record("w_mizu", "hear", 2, true, 0);
-lp_record("w_mizu", "hear", 2, true, 0);
+lp_record("w_mizu", "hear", 2, "right", 0);
+lp_record("w_mizu", "hear", 2, "right", 0);
+lp_record("w_mizu", "hear", 2, "right", 0);
+lp_record("w_mizu", "hear", 2, "right", 0);
+lp_record("w_mizu", "hear", 2, "right", 0);
 check_true('a self-report moves the listening belief',
            lp_bel("w_mizu", "hear") > 0.5);
 check_false('but cannot reach mastery on it',
@@ -150,9 +214,10 @@ check_false('but cannot reach mastery on it',
 ;;; Only verified evidence is measured against an exit criterion: a
 ;;; self-report moves a belief but must not move the level's score.
 "measure" -> lp_user;
-lp_record("hi_a", "read", 1, true, 1000);
-lp_record("hi_i", "read", 1, false, 1000);
-lp_record("hi_u", "read", 3, true, 0);
+[] -> lp_journal;
+lp_record("hi_a", "read", 1, "right", 1000);
+lp_record("hi_i", "read", 1, "wrong", 1000);
+lp_record("hi_u", "read", 3, "right", 0);
 lvars (acc, fast, cnt) = lp_measure([hi_a hi_i hi_u], 2000);
 check('accuracy over verified answers only', cnt, 2);
 check('half right', acc, 0.5);
@@ -306,7 +371,7 @@ tmpdir -> lp_home_dir;
 "en" -> lp_lang;
 [] -> lp_journal;
 [{% 1, "s_r_l", "r_minimal_rl", 1700000000000, 'open' %}] -> lp_assigns;
-lp_record("s_r_l", "hear", 3, true, 0);
+lp_record("s_r_l", "hear", 3, "right", 0);
 lp_save();
 
 [] -> lp_assigns;

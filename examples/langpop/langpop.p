@@ -425,18 +425,60 @@ define lp_now_ms() -> ms;
     sys_microtime() div 1000 -> ms;
 enddefine;
 
-define lp_record(item, ch, tier, correct, latency_ms);
-    lvars item, ch, tier, correct, latency_ms, b = lp_bel(item, ch), nb;
+;;; OUTCOMES, and why there are four of them rather than two.
+;;;
+;;; A boolean threw away the most useful thing a wrong answer carries.
+;;; A learner who freezes has told you something quite different from one
+;;; who answers wrongly, and a learner who answers シ for ツ has told you
+;;; something different again -- they knew it was a kana and knew roughly
+;;; which, which is most of the way there.  The graph already states which
+;;; pairs are confused (confusable/3), so the distinction is available
+;;; for free and was simply being discarded.
+;;;
+;;;   "right"   answered correctly
+;;;   "near"    wrong, but confused with a DECLARED confusable partner
+;;;   "wrong"   wrong, with no recognisable confusion behind it
+;;;   "skip"    no answer offered at all
+;;;
+;;; The beliefs differ accordingly: a near miss is nearly knowing, a
+;;; freeze is the absence of a claim, and a wild guess sits between them.
+;;; Only "right" counts toward an exit criterion, and only "skip" stops a
+;;; placement descent -- which is the whole reason the four exist.
+lconstant OUTCOMES = [right near wrong skip];
+
+define lp_outcome_ok(o); lvars o; o == "right" enddefine;
+
+define lp_record(item, ch, tier, outcome, latency_ms);
+    lvars item, ch, tier, outcome, latency_ms, b = lp_bel(item, ch), nb;
+    ;;; A caller still passing a boolean is reading an older profile or an
+    ;;; older call site; map it rather than storing something nothing
+    ;;; downstream can interpret.
+    if outcome == true then "right" -> outcome
+    elseif outcome == false then "wrong" -> outcome
+    endif;
+    unless member(outcome, OUTCOMES) then
+        mishap(outcome, 1, 'lp_record: outcome must be right, near, wrong or skip')
+    endunless;
     if tier == 1 then
-        if correct then b + (1.0 - b) * 0.45 else b * 0.35 endif
+        if     outcome == "right" then b + (1.0 - b) * 0.45
+        elseif outcome == "near"  then b * 0.45
+        elseif outcome == "wrong" then b * 0.30
+        else                           b * 0.20      ;;; skip
+        endif
     elseif tier == 2 then
-        min(b + (1.0 - b) * 0.20 * (if correct then 1.0 else 0.3 endif), TIER2_CAP)
+        min(b + (1.0 - b) * 0.20
+              * (if outcome == "right" then 1.0 else 0.3 endif), TIER2_CAP)
     else
         min(b + 0.05, TIER3_CAP)
     endif -> nb;
     nb -> lp_beliefs(lp_bkey(lp_user, item, ch));
-    conspair({% item, ch, tier, correct, latency_ms, lp_now_ms() %}, lp_journal)
-        -> lp_journal;
+    ;;; A WORD in memory and a string on disk, converted in lp_save and
+    ;;; back in lp_load_profile.  Converting at one end only is how the
+    ;;; first version of this both failed to measure anything (a string
+    ;;; is never == to the word "right") and crashed json_generate on the
+    ;;; next save, which has no idea what a Pop-11 word is.
+    conspair({% item, ch, tier, outcome, latency_ms, lp_now_ms() %},
+             lp_journal) -> lp_journal;
 enddefine;
 
 ;;; Accuracy and speed over the tier-1 evidence for one item set.  Speed
@@ -447,8 +489,11 @@ define lp_measure(items, latency_ms) -> (acc, fast, n);
     lvars items, latency_ms, e, right = 0, quick = 0, n = 0;
     for e in lp_journal do
         nextunless(e(3) == 1 and member(e(1), items));
+        ;;; A skipped question counts in the denominator.  Declining to
+        ;;; answer is evidence, and dropping it would let a student raise
+        ;;; their accuracy by answering only what they knew.
         n + 1 -> n;
-        if e(4) then right + 1 -> right;
+        if lp_outcome_ok(e(4)) then right + 1 -> right;
             if e(5) <= latency_ms then quick + 1 -> quick endif;
         endif;
     endfor;
@@ -561,7 +606,8 @@ define lp_save();
         procedure(k, v); v -> b(k sys_>< '') endprocedure);
     b -> o('beliefs');
     for e in lp_journal do
-        conspair({% e(1) sys_>< '', e(2) sys_>< '', e(3), e(4), e(5), e(6) %}, j) -> j;
+        conspair({% e(1) sys_>< '', e(2) sys_>< '', e(3),
+                    e(4) sys_>< '', e(5), e(6) %}, j) -> j;
     endfor;
     consvector(#| for e in j do e endfor |#) -> o('journal');
     consvector(#| for a in lp_assigns do
@@ -596,8 +642,13 @@ define lp_load_profile(user) -> found;
     if o('journal') then
         for i from 1 to length(o('journal')) do
             o('journal')(i) -> e;
-            conspair({% consword(e(1)), consword(e(2)), e(3), e(4), e(5), e(6) %},
-                     lp_journal) -> lp_journal;
+            ;;; e(4) is an outcome word.  A profile written before there
+            ;;; were four of them holds a boolean there, so map it.
+            conspair({% consword(e(1)), consword(e(2)), e(3),
+                        if e(4) == true then "right"
+                        elseif e(4) == false then "wrong"
+                        else consword(e(4) sys_>< '') endif,
+                        e(5), e(6) %}, lp_journal) -> lp_journal;
         endfor;
     endif;
     ;;; Assignments outlive the session on purpose: the whole point of
@@ -976,12 +1027,24 @@ enddefine;
 
 ;;; The confusable that the student probably meant.  This is why the
 ;;; graph records pairs: a wrong answer is diagnosable, not just wrong.
+;;; Which confusable partner the student reached for, if any.
+;;;
+;;; Any of the partner's forms, not only its romaji.  The answer space is
+;;; romaji at pre-school, so comparing romaji alone was enough there --
+;;; but a student who types お for あ has made exactly the confusion the
+;;; pair records, and got told "Not yet" as though they had typed
+;;; nonsense.  It matters more above pre-school, where a reading may be
+;;; answered in kana.
 define lp_mistook(item, typed) -> other;
-    lvars item, typed, p, r;
+    lvars item, typed, p, sc, f;
     false -> other;
     for p in lp_confs(item) do
-        lp_form_of(hd(p), "romaji") -> r;
-        if r and lp_lower(r sys_>< '') = typed then hd(p) -> other; return endif;
+        for sc in [romaji hiragana katakana kanji latin] do
+            lp_form_of(hd(p), sc) -> f;
+            if f and lp_lower(f sys_>< '') = typed then
+                hd(p) -> other; return
+            endif;
+        endfor;
     endfor;
 enddefine;
 
@@ -1003,11 +1066,19 @@ define lp_drill(item) -> done;
     if line == termin then false -> done; return endif;
     lp_norm(line) -> typed;
     if member(typed, answer) then
-        lp_record(item, lp_primary(item), 1, true, lp_now_ms() - t0);
+        lp_record(item, lp_primary(item), 1, "right", lp_now_ms() - t0);
         printf('  %p\n', [% lp_line('praise') %]);
+    elseif typed = '' or typed = '?' then
+        ;;; An empty line, or a question mark, is "I do not know" -- and
+        ;;; saying so is worth more than a guess, both to the student and
+        ;;; to the belief.  A tutor that forced a guess would be throwing
+        ;;; the most informative answer away.
+        lp_record(item, lp_primary(item), 1, "skip", lp_now_ms() - t0);
+        printf('  %p  It is %p.\n', [% lp_line('skip'), hd(answer) %]);
     else
-        lp_record(item, lp_primary(item), 1, false, lp_now_ms() - t0);
         lvars other = lp_mistook(item, typed);
+        lp_record(item, lp_primary(item), 1,
+                  if other then "near" else "wrong" endif, lp_now_ms() - t0);
         if other then
             printf('  %p  That is %p -- the two are confused constantly.\n',
                    [% lp_line('almost'), lp_any_form(other) %]);
@@ -1075,13 +1146,14 @@ define lp_report(id, outcome) -> ok;
         endunless;
         (got * 1.0) / tot -> frac;
         2 -> tier;
-        lp_record(a(2), lp_primary(a(2)), 2, frac >= 0.7, 0);
+        lp_record(a(2), lp_primary(a(2)), 2,
+                  if frac >= 0.7 then "right" else "wrong" endif, 0);
         printf('  Recorded: %p of %p, as reported evidence (tier 2).\n', [% got, tot %]);
         printf('  A reported score carries an item to just below mastery;\n');
         printf('  the next check here is what settles it.\n');
     else
         3 -> tier;
-        lp_record(a(2), lp_primary(a(2)), 3, true, 0);
+        lp_record(a(2), lp_primary(a(2)), 3, "right", 0);
         printf('  Recorded: done, as compliance (tier 3).\n');
         printf('  Compliance alone cannot reach mastery -- tell me a result\n');
         printf('  next time, or let me check you here.\n');

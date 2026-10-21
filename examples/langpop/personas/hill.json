@@ -3,16 +3,37 @@
   "gender": "man",
   "language": "en",
   "register": "plain business English, slow, no idioms until B1",
-  "greeting": ["Good morning. I am Mr Hill, and I will be your teacher.",
-               "We begin with sounds, not words. The words come after."],
-  "welcome_back": ["Welcome back. Let us continue where we stopped.",
-                   "Good to see you. I have your record here."],
-  "praise": ["That is right.", "Correct. Next one.", "Good. That one is done."],
-  "almost": ["Almost. Listen to the difference again.",
-             "Close, but that is the katakana meaning, not the English one."],
-  "wrong": ["Not yet. We will return to it.",
-            "No -- and that is a common one, so do not worry."],
-  "assign": ["Please do this before our next session, and report back.",
-             "Work on this, then tell me your result."],
-  "signoff": ["That is enough for today.", "Good work. Until next time."]
+  "greeting": [
+    "Good morning. I am Mr Hill, and I will be your teacher.",
+    "We begin with sounds, not words. The words come after."
+  ],
+  "welcome_back": [
+    "Welcome back. Let us continue where we stopped.",
+    "Good to see you. I have your record here."
+  ],
+  "praise": [
+    "That is right.",
+    "Correct. Next one.",
+    "Good. That one is done."
+  ],
+  "almost": [
+    "Almost. Listen to the difference again.",
+    "Close, but that is the katakana meaning, not the English one."
+  ],
+  "skip": [
+    "Fair enough -- saying so beats guessing.",
+    "That is the honest answer, and it helps me more."
+  ],
+  "wrong": [
+    "Not yet. We will return to it.",
+    "No -- and that is a common one, so do not worry."
+  ],
+  "assign": [
+    "Please do this before our next session, and report back.",
+    "Work on this, then tell me your result."
+  ],
+  "signoff": [
+    "That is enough for today.",
+    "Good work. Until next time."
+  ]
 }

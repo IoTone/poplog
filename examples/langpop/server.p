@@ -338,7 +338,9 @@ define lp_m_answer(msg) -> res;
           latency = lp_param(msg, 'latency_ms'),
           shape, prompt, answer, options, typed, correct, other = false;
     returnif(lp_is_err(s))(s -> res);
-    unless item and given then
+    ;;; `given` may be the empty string: that is a client saying "I do
+    ;;; not know", which is an answer and not a missing parameter.
+    unless item and isstring(given) then
         lp_err(LP_E_PARAMS, 'answer: item and answer needed') -> res; return
     endunless;
     consword(item sys_>< '') -> item;
@@ -359,12 +361,27 @@ define lp_m_answer(msg) -> res;
     lp_question(item) -> (shape, prompt, answer, options);
     lp_norm(given sys_>< '') -> typed;
     member(typed, answer) and true -> correct;
-    lp_record(item, lp_primary(item), 1, correct, used);
+    ;;; Which of the four this was.  A client says "I do not know" by
+    ;;; sending an empty answer, which is the same gesture the TUI reads
+    ;;; as an empty line -- and it is worth more than a guess, so it gets
+    ;;; its own outcome rather than being filed as wrong.
+    lvars outcome;
     unless correct then lp_mistook(item, typed) -> other endunless;
+    if     correct              then "right" -> outcome
+    elseif typed = '' or typed = '?' then "skip" -> outcome; false -> other
+    elseif other                then "near"  -> outcome
+    else                             "wrong" -> outcome
+    endif;
+    lp_record(item, lp_primary(item), 1, outcome, used);
     lp_save();
     jsonrpc_obj([% 'item', lp_jkey(item),
                    'correct', correct,
+                   ;;; correct stays a plain boolean for a client that
+                   ;;; only wants to know whether to move on; outcome is
+                   ;;; what the belief was actually moved by.
+                   'outcome', lp_jkey(outcome),
                    'reply', if correct then lp_line('praise')
+                            elseif outcome == "skip" then lp_line('skip')
                             elseif other then lp_line('almost')
                             else lp_line('wrong') endif,
                    ;;; The canonical spelling only.  A client does not
@@ -528,13 +545,14 @@ define lp_m_report(msg) -> res;
         endunless;
         (got * 1.0) / tot -> frac;
         2 -> tier;
-        lp_record(a(2), lp_primary(a(2)), 2, frac >= 0.7, 0);
+        lp_record(a(2), lp_primary(a(2)), 2,
+                  if frac >= 0.7 then "right" else "wrong" endif, 0);
         'a reported result carries an item to just below mastery; '
             <> 'the next check here settles it' -> note;
     elseif member(lp_norm(outcome sys_>< ''),
                   ['ok' 'done' 'yes' 'finished' 'complete']) then
         false -> frac; 3 -> tier;
-        lp_record(a(2), lp_primary(a(2)), 3, true, 0);
+        lp_record(a(2), lp_primary(a(2)), 3, "right", 0);
         'compliance alone cannot reach mastery -- report a result, '
             <> 'or let the tutor check you' -> note;
     else

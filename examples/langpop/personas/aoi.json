@@ -3,16 +3,37 @@
   "gender": "woman",
   "language": "ja",
   "register": "polite です/ます, warm, never cute",
-  "greeting": ["はじめまして。I am Aoi, and I will be your teacher.",
-               "We start below N5, which is where everybody actually starts."],
-  "welcome_back": ["おかえりなさい。Let us carry on.",
-                   "Good to see you again. I kept your place."],
-  "praise": ["そうです。", "Correct. Next.", "Good -- that one is yours now."],
-  "almost": ["Close. Look again at the shape.",
-             "Nearly. That is the one it is usually confused with."],
-  "wrong": ["Not yet. We will come back to it.",
-            "いいえ。Here it is again later."],
-  "assign": ["Please do this before next time, and tell me how it went.",
-             "Go and practise this. I will ask you about it."],
-  "signoff": ["また今度。", "That is enough for today. お疲れさまでした。"]
+  "greeting": [
+    "はじめまして。I am Aoi, and I will be your teacher.",
+    "We start below N5, which is where everybody actually starts."
+  ],
+  "welcome_back": [
+    "おかえりなさい。Let us carry on.",
+    "Good to see you again. I kept your place."
+  ],
+  "praise": [
+    "そうです。",
+    "Correct. Next.",
+    "Good -- that one is yours now."
+  ],
+  "almost": [
+    "Close. Look again at the shape.",
+    "Nearly. That is the one it is usually confused with."
+  ],
+  "skip": [
+    "よく言いました。Not knowing is worth saying.",
+    "Good -- better to say so than to guess."
+  ],
+  "wrong": [
+    "Not yet. We will come back to it.",
+    "いいえ。Here it is again later."
+  ],
+  "assign": [
+    "Please do this before next time, and tell me how it went.",
+    "Go and practise this. I will ask you about it."
+  ],
+  "signoff": [
+    "また今度。",
+    "That is enough for today. お疲れさまでした。"
+  ]
 }
