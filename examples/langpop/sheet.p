@@ -822,6 +822,9 @@ define zine_status_text(r) -> txt;
         sprintf('%p / %p 習得（グラフに %p）', [% r(3), r(4), r(5) %])
     elseif r(2) == "audio" then
         sprintf('ここでは測れません。音声が必要です（グラフに %p）', [% r(5) %])
+    elseif r(2) == "covered" then
+        sprintf('文章の %p%% をカバー・%p 語（%p、必要 %p%%）',
+                [% r(3), r(5), r(6), r(4) %])
     elseif r(2) == "unbuilt" then
         'コンテンツ未生成のため、まだ測っていません'
     else

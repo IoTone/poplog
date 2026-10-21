@@ -794,17 +794,8 @@ carries 8000 reading, 6000 listening and a listening coverage floor.
 
 ### What is left, and why
 
-Four `coverage` criteria remain `unmeasured`, and that is now the single
-thing holding three English rungs closed. Coverage in Nation's sense —
-*you know 95% of the running words in ordinary text* — needs a
-**frequency-ranked corpus list**, and the graph has ranks only for kanji
-(`rank/3`, from KANJIDIC2). The English words have none, because the
-list this project would have used was NGSL and its licence could not be
-pinned down.
-
-So coverage is blocked on the same kind of question the zine template
-was, and it is named here rather than faked. A measure invented to fill
-the gap would be a number that looks like the others and is not.
+Coverage **was** the last `unmeasured`, and it is measured now — see the
+section above. What is left on every rung is content.
 
 
 ### What the first run found
@@ -990,6 +981,82 @@ the graph and needs none, today's sheet is a picture of one student's
 answers and needs one. Refusing a kana chart to someone who has not
 logged in would be a privilege check protecting a table anybody can buy
 on a poster.
+
+
+## Coverage, which was the last `unmeasured`
+
+`coverage(reading, 0.95)` is Nation's measure: *the words you know
+account for 95% of the words on the page*. It held three English rungs
+closed for as long as nothing measured it, and a number invented to fill
+that gap would have looked like the others and not been one.
+
+It is arithmetic once the data exists. **Sum what the mastered words
+account for; divide by what the corpus accounts for.** No model, no
+interpolation, no published table — the definition applied to the data.
+
+```
+en  b1  coverage(reading, 0.95)   100   6    short by 89
+```
+
+100 words carry a frequency; all of them together reach **6%**; the
+criterion wants 95. That is a curation number now, where it used to be a
+hole in the design — and the whole graph reports **zero `unmeasured`**
+for the first time.
+
+### A rank cannot do this job
+
+`rank/3` says *where* a word sits. `freq/3` says *how much of the text it
+is*, and they are not the same thing: `the` and the fifty-thousandth
+word are one rank apart from their neighbours and **four orders of
+magnitude** apart in how much text they cover. So the count comes across
+with the rank, and the corpus total comes across once, and the engine
+divides.
+
+```prolog
+rank(e_people, opensubtitles_en, 118).
+freq(e_people, opensubtitles_en, 885915).
+corpus(opensubtitles_en, 50000, 725119374).
+```
+
+**The denominator is the whole corpus**, not the words we happen to
+teach. Dividing by our own vocabulary would give a figure that only ever
+goes up and would read as progress rather than as coverage.
+
+### The licence, which was the actual blocker
+
+[hermitdave/FrequencyWords](https://github.com/hermitdave/FrequencyWords):
+*"MIT License for code. CC-by-sa-4.0 for content."*
+
+Two **named** licences partitioning the repository, rather than two
+clauses contradicting each other — which is the test NGSL failed, and
+the test the zine template failed. CC BY-SA is also the licence family
+this project already handles: JMdict and KANJIDIC2 are CC BY-SA 4.0, and
+the whole `graph/<lang>/generated/` arrangement exists so share-alike
+stays on upstream's layer. The counts derive from OpenSubtitles
+(opus.nlpl.eu), which asks for attribution.
+
+**A note on fit, which is in the generated file's header.** OpenSubtitles
+is **dialogue**. Its frequency profile is a good basis for
+`coverage(listening, _)` and a *proxy* for `coverage(reading, _)`, whose
+published thresholds come from written corpora. The scale is named in
+every fact — `opensubtitles_en`, not `frequency` — so the difference is
+visible rather than averaged away, and `:status` prints it:
+
+```
+coverage(reading, 0.95): 6% of running text, over 100 words
+                         (opensubtitles_en, need 95%)
+```
+
+### What 6% says about the A1 list
+
+The top 100 words of English cover **59%** of running text. Our hundred
+A1 words cover **6%**. The difference is that the A1 list is nouns and
+verbs — *people, family, water, mother* — and **coverage lives in
+function words**: `the`, `to`, `a`, `of`, `and`.
+
+That is not a defect in the list, which was curated to be teachable on
+day one. It is a fact about what coverage measures, and it is the kind
+of thing a curator can only learn from a number.
 
 
 ## What about English

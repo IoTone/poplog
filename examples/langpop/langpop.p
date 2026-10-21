@@ -359,7 +359,8 @@ lconstant GRAPH_FILES = ['graph/schema.pl' 'graph/resources.pl'
 lconstant GRAPH_GENERATED = ['graph/ja/generated/n5-kanji.pl'
                              'graph/ja/generated/n5-words.pl'
                              'graph/en/generated/a1-sounds.pl'
-                             'graph/en/generated/preschool-sounds.pl'];
+                             'graph/en/generated/preschool-sounds.pl'
+                             'graph/en/generated/a1-frequency.pl'];
 
 define lp_generated_files() -> l; lvars l = GRAPH_GENERATED; enddefine;
 
@@ -2320,6 +2321,90 @@ define lp_place_run();
     lp_place_show();
 enddefine;
 
+;;; ---------------------------------------------------------- coverage
+;;; What fraction of running text a student can read.
+;;;
+;;; Nation's measure, and the thing three English rungs were held closed
+;;; by: coverage(reading, 0.95) means "the words you know account for
+;;; 95% of the words on the page".  It was `unmeasured` for as long as
+;;; the graph had no frequency data, and inventing a number to fill the
+;;; gap would have produced one that looked like the others and was not.
+;;;
+;;; Now it is arithmetic.  Sum what the mastered words account for,
+;;; divide by what the corpus accounts for.  No model, no interpolation,
+;;; no published table -- the definition applied to the data.
+;;;
+;;; The DENOMINATOR is the whole corpus and not the words we happen to
+;;; teach.  Dividing by our own vocabulary would give a figure that only
+;;; ever goes up and would read as progress rather than as coverage.
+vars lp_freqs = newproperty([], 512, 0, "perm"),
+     lp_fscale = newproperty([], 512, false, "perm"),
+     lp_corpora = newproperty([], 8, false, "perm"),
+     lp_freqs_ready = false;
+
+define lp_build_freqs();
+    lvars t;
+    returnif(lp_freqs_ready);
+    true -> lp_freqs_ready;
+    clearproperty(lp_freqs); clearproperty(lp_fscale);
+    clearproperty(lp_corpora);
+    for t in lp_ask("freqs", 0) do
+        lvars id = prolog_deref(prolog_arg(1, t));
+        prolog_deref(prolog_arg(2, t)) -> lp_fscale(id);
+        prolog_full_deref(prolog_arg(3, t)) -> lp_freqs(id);
+    endfor;
+    for t in lp_ask("corpora", 0) do
+        prolog_full_deref(prolog_arg(3, t))
+            -> lp_corpora(prolog_deref(prolog_arg(1, t)));
+    endfor;
+enddefine;
+
+;;; How many words in this language carry a frequency at all.  Separate
+;;; from the coverage sum because a listening criterion filters every
+;;; item out -- nothing is probeable on `hear` -- and reporting `0 words
+;;; in the graph` beside `needs audio` would say the data was missing
+;;; when it is the microphone that is.
+define lp_freq_count() -> n;
+    lvars i, n = 0;
+    lp_build_freqs();
+    for i in lp_items do
+        if lp_ilang(i) == lp_lang and lp_freqs(i) > 0 then n + 1 -> n endif;
+    endfor;
+enddefine;
+
+;;; The axis a coverage criterion names, as a channel.  `reading` is the
+;;; read channel and `listening` the hear one, which is the whole reason
+;;; the ladder carries two of them.
+define lp_cov_channel(axis) -> ch;
+    lvars axis, ch = if axis == "listening" then "hear" else "read" endif;
+enddefine;
+
+;;; `every` is the audit's question -- how far could a student get with
+;;; the content that exists -- and `mastered` is the student's.  One
+;;; procedure, because the difference between the two is one test and
+;;; keeping them apart is how they drift.
+define lp_coverage(ch, every) -> (frac, nwords, scale);
+    lvars ch, every, i, sum = 0, n = 0, tot, scale = false;
+    lp_build_freqs();
+    (0.0, 0, false) -> (frac, nwords, scale);
+    for i in lp_items do
+        nextunless(lp_ilang(i) == lp_lang);
+        nextunless(lp_freqs(i) > 0);
+        lp_fscale(i) -> scale;
+        if every then
+            nextunless(lp_probeable(i, ch))
+        else
+            nextunless(lp_mastered_on(i, ch))
+        endif;
+        sum + lp_freqs(i) -> sum;
+        n + 1 -> n;
+    endfor;
+    returnunless(scale);
+    lp_corpora(scale) -> tot;
+    unless tot and tot > 0 then false -> scale; return endunless;
+    ((sum * 1.0) / tot, n, scale) -> (frac, nwords, scale);
+enddefine;
+
 ;;; ----------------------------------------------------------------- status
 define lp_count_mastered(kind, ch) -> n;
     lvars kind, ch, i, n = 0;
@@ -2410,7 +2495,15 @@ define lp_status_rows() -> rows;
             {% "counted", lp_count_mastered_kanji(ch), want,
                lp_count_items("kanji"), "kanji" %} -> row;
         elseif prolog_complexterm(c) and prolog_functor(c) == "coverage" then
-            {% "unbuilt", 0, 0, 0, false %} -> row;
+            lvars axis = prolog_deref(prolog_arg(1, c)), frac, nw, scale;
+            prolog_full_deref(prolog_arg(2, c)) -> want;
+            lp_coverage(lp_cov_channel(axis), false) -> (frac, nw, scale);
+            if scale then
+                {% "covered", round(frac * 100), round(want * 100),
+                   lp_freq_count(), scale %}
+            else
+                {% "unbuilt", 0, 0, 0, false %}
+            endif -> row;
         else
             lp_ask(c, "criterion_items", 1) -> items;
             lp_measure(items, ms) -> (acc, fast, n);
@@ -2433,6 +2526,9 @@ define lp_status_text(r) -> txt;
     elseif r(2) == "audio" then
         sprintf('cannot be checked here -- needs audio (%p in the graph)',
                 [% r(5) %])
+    elseif r(2) == "covered" then
+        sprintf('%p%% of running text, over %p words (%p, need %p%%)',
+                [% r(3), r(5), r(6), r(4) %])
     elseif r(2) == "unbuilt" then
         'needs the content build (not measured yet)'
     else
@@ -2572,8 +2668,23 @@ define lp_audit_one(crit, level) -> (verdict, have, askable, want);
         else "short"
         endif -> verdict;
     elseif f == "coverage" then
-        (0, 0) -> (have, askable);
-        "unmeasured" -> verdict;
+        ;;; Coverage is measured in PERCENTAGE POINTS, not items: `have`
+        ;;; is how many words carry a frequency and `askable` is how far
+        ;;; a student could get with all of them, so `short by 89` reads
+        ;;; as points of coverage.  A second set of columns for one
+        ;;; criterion family would be worse.
+        lvars axis = prolog_deref(prolog_arg(1, crit)), frac, nw, scale, ch;
+        prolog_full_deref(prolog_arg(2, crit)) -> want;
+        round(want * 100) -> want;
+        lp_cov_channel(axis) -> ch;
+        lp_coverage(ch, true) -> (frac, nw, scale);
+        lp_freq_count() -> have;
+        round(frac * 100) -> askable;
+        if     not(scale)             then "unmeasured"
+        elseif not(lp_verifiable(ch)) then 0 -> askable; "needs_audio"
+        elseif askable >= want        then "ok"
+        else                               "short"
+        endif -> verdict;
     else
         ;;; An item-set criterion: recognise/1, skill/1.  Accuracy is
         ;;; measured over the answers given, so an item nobody can be

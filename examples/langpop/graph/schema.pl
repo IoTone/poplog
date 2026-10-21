@@ -273,5 +273,20 @@ modifier(none, none, none).
 modifiers :- modifier(G, S, W), G \== none, lp_take(m(G, S, W)), fail.
 modifiers.
 
+% How much running text a word accounts for, and the corpus that is a
+% count out of.  rank/3 says WHERE a word sits; freq/3 says how much of
+% the text it is, which is what coverage/2 needs and a rank cannot give:
+% `the` and the fifty-thousandth word are one rank apart from their
+% neighbours and four orders of magnitude apart in how much text they
+% cover.  Both guarded, like rank/3, since neither is committed.
+freq(none, none, 0).
+corpus(none, 0, 0).
+
+freqs :- freq(I, S, N), I \== none, lp_take(f(I, S, N)), fail.
+freqs.
+
+corpora :- corpus(S, E, T), S \== none, lp_take(c(S, E, T)), fail.
+corpora.
+
 probes :- probe(S, F), S \== none, lp_take(p(S, F)), fail.
 probes.

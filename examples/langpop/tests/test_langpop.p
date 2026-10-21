@@ -1076,6 +1076,82 @@ check_false('the sound is still not known', lp_mastered("s_final"));
 
 "ja" -> lp_lang; "preschool" -> lp_level;
 
+
+;;; ------------------------------------------------------- coverage
+;;; Nation's measure, and the thing three English rungs were held closed
+;;; by: coverage(reading, 0.95) means "the words you know account for
+;;; 95% of the words on the page".  It was `unmeasured` for as long as
+;;; the graph had no frequency data, and inventing a number to fill the
+;;; gap would have produced one that looked like the others and was not.
+"en" -> lp_lang; "a1" -> lp_level;
+
+;;; `reading` is the read channel and `listening` the hear one, which is
+;;; the whole reason the ladder carries two of them.
+check('reading is read', lp_cov_channel("reading"), "read");
+check('listening is hear', lp_cov_channel("listening"), "hear");
+
+if lp_freq_count() > 0 then
+    ;;; A rank says WHERE a word sits; a frequency says how much of the
+    ;;; text it is.  `the` and the fifty-thousandth word are one rank
+    ;;; apart from their neighbours and four orders of magnitude apart
+    ;;; in how much text they cover, which is why rank/3 could not do
+    ;;; this job.
+    check_true('a common word carries a big count',
+               lp_freqs("e_water") > 1000);
+    check_true('and a rank as well',
+               lp_rank_of("e_water", "opensubtitles_en") > 0);
+
+    lvars (cf, cn, cs) = lp_coverage("read", true);
+    check('the scale names the corpus, because the corpus is the meaning',
+          cs, "opensubtitles_en");
+    check_true('and some text is covered', cf > 0.0);
+    check_true('but nothing like all of it', cf < 0.5);
+    check_true('over the words that carry a frequency', cn > 0);
+
+    ;;; The DENOMINATOR is the whole corpus and not the words we happen
+    ;;; to teach.  Dividing by our own vocabulary would give a figure
+    ;;; that only ever goes up and would read as progress, not coverage.
+    check_true('coverage of 100 content words is small',
+               round(cf * 100) < 20);
+
+    ;;; A student who has mastered nothing covers nothing, however much
+    ;;; the graph holds.
+    "nobodyatall" -> lp_user;
+    lvars (mf, mn, ms) = lp_coverage("read", false);
+    check('a student who knows nothing covers nothing', round(mf * 100), 0);
+    check('and knows no words', mn, 0);
+    check_true('although the scale is still known', ms /== false);
+
+    ;;; Master them all and the student reaches what the content allows,
+    ;;; which is the number --audit reports as reachable.
+    lvars i;
+    for i in lp_items do
+        if lp_ilang(i) == "en" and lp_freqs(i) > 0 then
+            MASTERY -> lp_beliefs(lp_bkey(lp_user, i, "read"));
+        endif;
+    endfor;
+    lvars (af, an, as) = lp_coverage("read", false);
+    check('mastering everything reaches what the content allows',
+          round(af * 100), round(cf * 100));
+    check_true('over every word that carries a frequency', an == cn);
+
+    ;;; :status says it in words, from the same numbers.
+    "b1" -> lp_level;
+    lvars crow = false, r;
+    for r in lp_status_rows() do
+        if issubstring('coverage', r(1)) == 1 then r -> crow endif;
+    endfor;
+    check_true('a coverage criterion reaches :status', crow);
+    check('and is measured rather than deferred', crow(2), "covered");
+    check_true('the wording carries the corpus',
+               issubstring('opensubtitles_en', lp_status_text(crow)) /== false);
+    check_true('and the target', issubstring('95', lp_status_text(crow)) /== false);
+else
+    printf(';;; frequency not built -- coverage not checked\n');
+endif;
+
+"ja" -> lp_lang; "preschool" -> lp_level;
+
 ;;; ------------------------------------------------------- the audit
 ;;; --check proves the graph is CONSISTENT; it says nothing about
 ;;; whether the ladder can be climbed.  exit(ja, n1, kanji(2230, read))
@@ -1186,12 +1262,23 @@ lvars asc = arow("en", "preschool", 'sound_contrasts');
 check('sound contrasts need audio', asc(4), "needs_audio");
 check('all twelve are in the graph', asc(5), 12);
 
-;;; coverage/2 has no measure at all, and says so rather than reporting a
-;;; student at 0%.
+;;; coverage/2 held three English rungs closed for as long as nothing
+;;; measured it.  With the frequency import it is arithmetic: what the
+;;; mastered words account for, over what the corpus accounts for.
+;;; Without it, `unmeasured` is still the honest answer.
 lvars acov = arow("en", "b1", 'coverage(reading, 0.95)');
-check('coverage is unmeasured', acov(4), "unmeasured");
-check('with no item set', acov(5), 0);
-check_false('and no target to be short of', acov(7));
+"en" -> lp_lang;
+if lp_freq_count() > 0 then
+    check('coverage is measured, and short', acov(4), "short");
+    check_true('over the words that carry a frequency', acov(5) > 0);
+    check('and the target is a percentage', acov(7), 95);
+    check_true('a percentage nobody is near yet', acov(6) < 95);
+else
+    check('coverage is unmeasured without the frequency build',
+          acov(4), "unmeasured");
+    check('with no item set', acov(5), 0);
+endif;
+"ja" -> lp_lang;
 
 ;;; Every verdict is one of the six, so a client can switch on it.
 check_false('no verdict is outside the set',

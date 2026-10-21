@@ -464,6 +464,11 @@ define imp_e_gloss(e);  lvars e; e(5) enddefine;
 define imp_e_reqs(e);   lvars e; e(6) enddefine;
 define imp_e_ranks(e);  lvars e; e(7) enddefine;
 
+;;; Lines printed once, after the generated/5 stamp: a fact about the
+;;; IMPORT rather than about any one item.  The frequency source needs
+;;; one -- a count means nothing without the total it is a count out of.
+vars imp_extra = [];
+
 ;;; An attribute's value, or false.
 define imp_attr(attrs, name) -> v;
     lvars attrs, name, a, v = false;
@@ -933,6 +938,21 @@ lconstant NOTICE = [
     'Development Group (EDRDG) and is used in conformance with the'
     'Group\'s licence: Creative Commons Attribution-ShareAlike 4.0.'
     'See https://www.edrdg.org/edrdg/licence.html .']
+ 'FrequencyWords'
+   ['Frequency counts from hermitdave/FrequencyWords, whose README states'
+    '"MIT License for code.  CC-by-sa-4.0 for content." -- two named'
+    'licences partitioning the repository rather than contradicting each'
+    'other, which is why this source was taken and NGSL was not.  The'
+    'counts derive from the OpenSubtitles corpus (opus.nlpl.eu), which'
+    'asks for attribution.  Share-alike stays on upstream\'s layer by the'
+    'same arrangement as JMdict: this file is a build product and is'
+    'never committed.'
+    ''
+    'NOTE ON FIT: OpenSubtitles is DIALOGUE.  Its frequency profile is'
+    'a good basis for coverage(listening, _) and a proxy for'
+    'coverage(reading, _), whose published thresholds come from written'
+    'corpora.  The scale is named in every fact so the difference is'
+    'visible rather than averaged away.']
 ];
 
 define imp_notice(src) -> l;
@@ -969,8 +989,11 @@ define imp_emit(es, srcname, path);
               ;;; == put kanjidic2 in the header of the words file.
               if     srcname = 'JMdict'   then 'jmdict'
               elseif srcname = 'CMUdict'  then 'cmudict'
+              elseif srcname = 'FrequencyWords' then 'frequency'
               else   'kanjidic2' endif,
               imp_lang, imp_level, length(es), imp_atom(dt_iso(sys_real_time())) %]);
+    for line in imp_extra do imp_pr('%p\n', [^line]) endfor;
+    unless imp_extra == [] then imp_out('\n') endunless;
 
     for e in es do
         ;;; An entry with no kind declares no item.  That is the cmudict
@@ -996,6 +1019,15 @@ define imp_emit(es, srcname, path);
         for r in imp_e_ranks(e) do
             imp_pr('rank(%p, %p, %p).\n',
                    [% imp_e_id(e), hd(r), hd(tl(r)) %]);
+            ;;; A rank entry may carry a third element, the raw count.
+            ;;; Coverage is a share of running text and a rank cannot
+            ;;; give one: `the` and the 50,000th word are one rank apart
+            ;;; from their neighbours and four orders of magnitude apart
+            ;;; in how much text they account for.
+            unless tl(tl(r)) == [] then
+                imp_pr('freq(%p, %p, %p).\n',
+                       [% imp_e_id(e), hd(r), hd(tl(tl(r))) %]);
+            endunless;
         endfor;
         imp_out('\n');
     endfor;
@@ -1104,8 +1136,9 @@ define imp_default_out() -> p;
     lvars p;
     'graph/' <> (imp_lang sys_>< '') <> '/generated/'
         <> (imp_level sys_>< '') <> '-'
-        <> (if     imp_source == "kanjidic" then 'kanji'
-            elseif imp_source == "cmudict"  then 'sounds'
+        <> (if     imp_source == "kanjidic"  then 'kanji'
+            elseif imp_source == "cmudict"   then 'sounds'
+            elseif imp_source == "frequency" then 'frequency'
             else   'words' endif)
         <> '.pl' -> p;
 enddefine;
@@ -1166,6 +1199,15 @@ define imp_main();
     elseif imp_source == "jmdict" then
         'JMdict' -> srcname;
         imp_jmdict(imp_file, picks, imp_load_pick_reqs()) -> (es, unresolved);
+    elseif imp_source == "frequency" then
+        'FrequencyWords' -> srcname;
+        lvars fwant = imp_en_words();
+        if fwant == [] then
+            mishap(imp_level, 1, 'import: no items with a latin form at that '
+                                 <> 'level (frequency enriches items the '
+                                 <> 'graph already has)')
+        endif;
+        imp_frequency(imp_file, fwant) -> (es, unresolved);
     elseif imp_source == "cmudict" then
         'CMUdict' -> srcname;
         lvars want = imp_en_words();
@@ -1176,7 +1218,8 @@ define imp_main();
         imp_cmudict(imp_file, want) -> (es, unresolved);
         imp_unexercised(es);
     else
-        mishap(imp_source, 1, 'import: unknown source (kanjidic, jmdict, cmudict)')
+        mishap(imp_source, 1, 'import: unknown source '
+                              <> '(kanjidic, jmdict, cmudict, frequency)')
     endif;
 
     printf('%p: %p entries from %p\n', [% imp_source, length(es), imp_upstream %]);
@@ -1462,6 +1505,83 @@ define imp_lines(path, proc);
         quitif(c == termin);
     endrepeat;
     sysclose(xml_dev);
+enddefine;
+
+;;; ------------------------------------------------------- frequency
+;;; How much of running text a word accounts for.
+;;;
+;;; This is what coverage/2 needs and rank/3 cannot give: `the` and the
+;;; fifty-thousandth word are one rank apart from their neighbours and
+;;; four orders of magnitude apart in how much text they cover.  So the
+;;; count comes across with the rank, and the corpus total comes across
+;;; once, and the engine divides.
+;;;
+;;; Enrichment, like cmudict: it declares no item, it says something
+;;; about items the graph already holds.  A word not in the list is
+;;; reported unresolved rather than given a zero -- absent from the top
+;;; fifty thousand is a fact about the corpus and not a frequency of
+;;; nought.
+define imp_frequency(path, want) -> (es, unresolved);
+    lvars path, want, es = [], unresolved = [], pair, id, w, word,
+          wanted = newproperty([], 512, false, "perm"),
+          count  = newproperty([], 512, false, "perm"),
+          place  = newproperty([], 512, false, "perm"),
+          nlines = 0, total = 0;
+
+    ;;; Keyed by WORD and not by string: a property compares keys with ==
+    ;;; and two equal strings are two keys, which cost this project four
+    ;;; hours once already.
+    for pair in want do
+        true -> wanted(consword(uppertolower(hd(tl(pair)) sys_>< '')));
+    endfor;
+
+    imp_lines(path, procedure(line);
+        lvars line, k, word, n;
+        imp_trim(line) -> line;
+        returnif(line = '');
+        locchar(`\s`, 1, line) -> k;
+        returnunless(k);
+        strnumber(allbutfirst(k, line)) -> n;
+        returnunless(isinteger(n));
+        nlines fi_+ 1 -> nlines;
+        ;;; EVERY line counts toward the total, not only the wanted ones:
+        ;;; the denominator is the corpus, and a coverage figure computed
+        ;;; against the words we happen to teach would be a number that
+        ;;; only ever goes up.
+        total fi_+ n -> total;
+        substring(1, k fi_- 1, line) -> word;
+        consword(word) -> word;
+        returnunless(wanted(word));
+        returnif(count(word));              ;;; the first, which is the highest
+        n -> count(word);
+        nlines -> place(word);
+    endprocedure);
+
+    for pair in want do
+        hd(pair) -> id; hd(tl(pair)) -> w;
+        consword(uppertolower(w sys_>< '')) -> word;
+        unless count(word) then
+            unresolved <> [[^id not_in_list]] -> unresolved;
+            nextloop;
+        endunless;
+        es <> [% imp_entry_ranked(id, false, false, [], false, [],
+                                  [[% imp_scale(), place(word), count(word) %]])
+               %] -> es;
+    endfor;
+
+    [% 'corpus(' <> (imp_scale() sys_>< '') <> ', '
+       <> (nlines sys_>< '') <> ', ' <> (total sys_>< '') <> ').' %]
+        -> imp_extra;
+    'FrequencyWords (' <> (nlines sys_>< '') <> ' entries, '
+        <> (total sys_>< '') <> ' tokens)' -> imp_upstream;
+enddefine;
+
+;;; The scale's name carries the corpus, because the corpus is the whole
+;;; of what the number means.  Coverage of subtitle dialogue is not
+;;; coverage of a newspaper, and a scale called `frequency` would hide
+;;; that.
+define imp_scale() -> s;
+    lvars s = consword('opensubtitles_' <> (imp_lang sys_>< ''));
 enddefine;
 
 define imp_cmudict(path, want) -> (es, unresolved);

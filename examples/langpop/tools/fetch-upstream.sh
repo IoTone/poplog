@@ -19,6 +19,12 @@
 # different and more permissive arrangement -- its LICENSE is fetched
 # alongside it so that the notice travels with the data.
 #
+# The frequency list is hermitdave/FrequencyWords, whose README states
+# "MIT License for code.  CC-by-sa-4.0 for content." -- two named
+# licences partitioning the repository rather than contradicting each
+# other, which is the test NGSL failed.  The counts derive from the
+# OpenSubtitles corpus (opus.nlpl.eu), which asks for attribution.
+#
 # Please read both before doing anything with the files this script
 # fetches.  The project's own arrangement -- importing them into a
 # build product that is never shipped, so the share-alike stays on
@@ -39,6 +45,7 @@ cd "$DEST"
 
 EDRDG=http://ftp.edrdg.org/pub/Nihongo
 CMU=https://raw.githubusercontent.com/cmusphinx/cmudict/master
+FREQ=https://raw.githubusercontent.com/hermitdave/FrequencyWords/master
 
 for f in JMdict_e.gz kanjidic2.xml.gz; do
     echo "fetching $f"
@@ -54,9 +61,17 @@ echo "fetching cmudict.dict"
 curl -fsSL -o cmudict.dict "$CMU/cmudict.dict"
 curl -fsSL -o cmudict.LICENSE "$CMU/LICENSE"
 
+# Frequency counts, for coverage/2.  The README carries the licence
+# statement, so it is fetched with the data for the same reason
+# cmudict's LICENSE is.
+echo "fetching en_50k.txt"
+curl -fsSL -o en_50k.txt "$FREQ/content/2018/en/en_50k.txt"
+curl -fsSL -o frequencywords.README.md "$FREQ/README.md"
+
 echo
 echo "fetched into $DEST:"
-ls -l JMdict_e kanjidic2.xml cmudict.dict cmudict.LICENSE
+ls -l JMdict_e kanjidic2.xml cmudict.dict cmudict.LICENSE \
+      en_50k.txt frequencywords.README.md
 
 cat <<NOTE
 
@@ -68,6 +83,15 @@ Now import.  The kanji come from a rule, the words from the pick list:
   ./poplog basepop11 examples/langpop/import.p \\
       --source jmdict --file $DEST/JMdict_e \\
       --picks graph/ja/picks/n5.pl
+
+Pronunciations and frequencies enrich English items the graph already
+has, so they are run per level rather than from a pick list:
+
+  ./poplog basepop11 examples/langpop/import.p \\
+      --source cmudict --file $DEST/cmudict.dict --lang en --level a1
+
+  ./poplog basepop11 examples/langpop/import.p \\
+      --source frequency --file $DEST/en_50k.txt --lang en --level a1
 
   ./poplog basepop11 examples/langpop/import.p \\
       --source cmudict --file $DEST/cmudict.dict --lang en --level a1
