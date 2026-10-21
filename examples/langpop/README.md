@@ -954,6 +954,40 @@ Three details that are not decoration:
   not valid CSS; a strict renderer drops the whole list and the kana come
   out as boxes.
 
+### Which face, and whose language
+
+Two choices on every card, and both are per-language rather than fixed.
+
+**The term is the form in the item's own language.** A flat order got
+this wrong twice in a row. Hiragana-first was right while every item was
+a kana or a kana-only starter word, and made the card for 山 come out as
+a card reading やま with no reading line at all. Putting kanji first then
+did the same thing to English: a loanword trap came out as マンション with
+`mansion` — the word the item exists to teach — nowhere on it.
+
+**The gloss is in the learner's own language**, which is the other one:
+a Japanese item is glossed in English, an English item in Japanese. The
+card for `water` used to print *the liquid we drink* while 水 sat in the
+graph, hand-written, and never appeared on anything.
+
+That second change turned up a modelling error it had been hiding. The
+loanword traps filed **English text under `ja`** —
+`gloss(t_mansion, ja, 'apartment building')` — where `schema.pl` defines
+a gloss as what an item means *in a named language*. Nothing read it
+that way until a card asked for the Japanese, and then the card for
+`mansion` proudly displayed the very meaning the item exists to unteach.
+The contrast now lives in the English gloss, where a contrast belongs,
+and the Japanese slot holds Japanese:
+
+```prolog
+trap(t_mansion, 'mansion', 'マンション',
+     'a very large house -- the katakana means an apartment building',
+     '大邸宅').
+```
+
+So the trap is one card: `mansion`, with マンション above it and 大邸宅
+below.
+
 ### Why determinism was the point
 
 `tests/test_langpop_card.p` renders the same item twice and compares the

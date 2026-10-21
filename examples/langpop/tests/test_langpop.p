@@ -173,8 +173,13 @@ check_true('while a word is', lp_drillable("w_neko"));
 lvars (sh2, pr2, ans2, opts2) = lp_question("t_service");
 check('prompt is the English word', pr2, 'service');
 check('two options', length(opts2), 2);
+;;; Against the graph's own gloss, not against a copy of its text: the
+;;; trap glosses were rewritten to carry the contrast, and an assertion
+;;; holding a literal fails for a reason that has nothing to do with what
+;;; it was checking.
 check('the answer points at the English meaning',
-      opts2(strnumber(hd(ans2))) sys_>< '', 'work done for a customer');
+      opts2(strnumber(hd(ans2))) sys_>< '',
+      lp_gloss_of("t_service", "en") sys_>< '');
 
 ;;; ------------------------------------------------ kana into romaji
 ;;; This exists because every imported Japanese item was UNASKABLE.

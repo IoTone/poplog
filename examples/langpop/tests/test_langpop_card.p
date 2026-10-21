@@ -43,8 +43,15 @@ lp_card_term("w_gakkou") -> (term, reading);
 check('a word shows its hiragana', term sys_>< '', 'がっこう');
 check('with its romaji above', reading sys_>< '', 'gakkou');
 
+;;; A loanword trap is an ENGLISH item, so its face is the English word.
+;;; This used to assert マンション as the term, which is how the card came
+;;; out -- and meant `mansion`, the word the item exists to teach,
+;;; appeared nowhere on it.  The katakana is the thing being contrasted
+;;; with, so it belongs on the line above.
 lp_card_term("t_mansion") -> (term, reading);
-check('a loanword trap shows its katakana', term sys_>< '', 'マンション');
+check('a loanword trap shows the English word', term sys_>< '', 'mansion');
+check('with the katakana it is confused with above',
+      reading sys_>< '', 'マンション');
 
 ;;; A sound contrast has an IPA form and nothing else, so the IPA is the
 ;;; term -- and the line above it is the JAPANESE gloss, because the

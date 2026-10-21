@@ -351,17 +351,21 @@ enddefine;
 
 ;;; The face of an item: what to show when one form has to stand for it.
 ;;;
-;;; Kanji FIRST, which it was not.  Preferring hiragana was right while
-;;; every item was a kana or a kana-only starter word, and became wrong
-;;; the moment the import brought in characters and kanji-written words:
-;;; :why k_4e00 headed itself ひと rather than 一, which is the reading
-;;; standing in for the character it is a reading OF.  Nothing that asks
-;;; a question is affected, because no item carries both a kanji form and
-;;; a romaji form -- the starter words have romaji and no kanji, the
-;;; imported ones kanji and no romaji.
+;;; Per language, because the face of an item is the form in the language
+;;; it belongs to.  Two stale orders were fixed here in turn.  A flat
+;;; hiragana-first list was right while every item was a kana or a
+;;; kana-only starter word, and made :why k_4e00 head itself ひと rather
+;;; than 一 once the import brought in characters -- the reading standing
+;;; in for the character it is a reading OF.  Putting kanji first then
+;;; did the same thing to English: a loanword trap headed itself マンション
+;;; while `mansion`, the English word the item exists to teach, appeared
+;;; nowhere on it.
 define lp_any_form(item) -> t;
-    lvars item, script;
-    for script in [kanji hiragana katakana latin ipa romaji] do
+    lvars item, script, order;
+    if lp_ilang(item) == "en" then [latin ipa katakana hiragana kanji romaji]
+    else                           [kanji hiragana katakana latin ipa romaji]
+    endif -> order;
+    for script in order do
         lp_form_of(item, script) -> t;
         returnif(t);
     endfor;

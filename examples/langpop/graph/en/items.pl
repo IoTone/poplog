@@ -39,25 +39,47 @@ requires(s_rhythm, s_stress).
 requires(s_schwa,  s_stress).
 
 % --- Loanword traps ------------------------------------------------------
+% The ja gloss is JAPANESE.  It used to hold "what the katakana means",
+% in English -- 'apartment building' filed under ja -- which made
+% gloss/3 say something it does not mean: schema.pl defines it as what
+% an item means IN A NAMED LANGUAGE.  Nothing read it that way until the
+% card renderer started showing a learner the gloss in their own
+% language, and then the card for `mansion` proudly displayed the very
+% meaning the item exists to unteach.
+%
+% So the contrast now lives in the English gloss, which is where a
+% contrast belongs, and the Japanese slot holds Japanese.
 item(Id, word, en, preschool, own(loanword_trap)) :- trap(Id, _, _, _, _).
 form(Id, latin, English) :- trap(Id, English, _, _, _).
 form(Id, katakana, Kata) :- trap(Id, _, Kata, _, _).
 gloss(Id, en, Means) :- trap(Id, _, _, Means, _).
-gloss(Id, ja, Expected) :- trap(Id, _, _, _, Expected).
+gloss(Id, ja, Ja) :- trap(Id, _, _, _, Ja).
 
-% trap(Id, English, Katakana, WhatItMeansInEnglish, WhatTheKatakanaMeans).
-trap(t_mansion,  'mansion',     'マンション',     'a very large house',           'apartment building').
-trap(t_service,  'service',     'サービス',       'work done for a customer',     'free of charge').
-trap(t_arbeit,   'part-time',   'アルバイト',     '(arbeit is German, not English)', 'a part-time job').
-trap(t_consent,  'outlet',      'コンセント',     '(consent means agreement)',    'a power socket').
-trap(t_tension,  'excited',     'ハイテンション', '(high tension means strain)',  'lively, excited').
-trap(t_smart,    'slim',        'スマート',       'clever',                       'slim').
-trap(t_naive,    'sensitive',   'ナイーブ',       'credulous, unworldly',         'sensitive, delicate').
-trap(t_viking,   'buffet',      'バイキング',     'a Norse seafarer',             'an all-you-can-eat buffet').
-trap(t_claim,    'complaint',   'クレーム',       'an assertion of a right',      'a complaint').
-trap(t_manner,   'manners',     'マナー',         'a way of doing something',     'etiquette').
-trap(t_restruct, 'layoff',      'リストラ',       'reorganising a business',      'being laid off').
-trap(t_soft,     'software',    'ソフト',         'not hard',                     'software').
+% trap(Id, EnglishToUse, Katakana, WhatItMeansAndWhatTheKatakanaDoesNot, Japanese).
+trap(t_mansion,  'mansion',   'マンション',
+     'a very large house -- the katakana means an apartment building', '大邸宅').
+trap(t_service,  'service',   'サービス',
+     'work done for a customer -- the katakana means free of charge',  '客への奉仕').
+trap(t_arbeit,   'part-time', 'アルバイト',
+     'arbeit is German, not English -- the English word is part-time', 'アルバイト').
+trap(t_consent,  'outlet',    'コンセント',
+     'consent means agreement -- a コンセント is an outlet',            'コンセント').
+trap(t_tension,  'excited',   'ハイテンション',
+     'high tension means strain, not high spirits',                    '興奮した').
+trap(t_smart,    'slim',      'スマート',
+     'smart means clever -- スマート means slim',                       '細い').
+trap(t_naive,    'sensitive', 'ナイーブ',
+     'naive means credulous and unworldly, not sensitive',             '繊細な').
+trap(t_viking,   'buffet',    'バイキング',
+     'a viking is a Norse seafarer -- バイキング is a buffet',          'バイキング料理').
+trap(t_claim,    'complaint', 'クレーム',
+     'a claim is an assertion of a right -- クレーム is a complaint',   '苦情').
+trap(t_manner,   'manners',   'マナー',
+     'a manner is a way of doing something -- マナー is etiquette',     '礼儀').
+trap(t_restruct, 'layoff',    'リストラ',
+     'restructuring reorganises a business -- リストラ is being laid off', '解雇').
+trap(t_soft,     'software',  'ソフト',
+     'soft is the opposite of hard -- ソフト is software',              'ソフトウェア').
 
 % The skill of distrusting the katakana reading.  Every trap feeds it,
 % and it is what exit(en, preschool, no_katakana_reading, ...) measures.

@@ -62,6 +62,13 @@ exit(en, preschool, final_consonants,      0.85, 3000).
 % replacing it, because coverage is the better measure and a count is
 % what a learner will actually track -- stating both is how the ladder
 % says that the number is a proxy.
+;;; A1 declared NO exit criterion at all, so a student who reached it
+;;; could never leave: :status had nothing to measure and the level was a
+;;; room with no door.  The ladder went straight from pre-school's three
+;;; criteria to A2's vocabulary.  500 is the usual reckoning for A1 and
+;;; it is an estimate like the rest of them.
+exit(en, a1, vocabulary(500, read),        0.80, 4500).
+exit(en, a1, vocabulary(500, hear),        0.80, 4500).
 exit(en, a2, vocabulary(1000, read),       0.80, 4000).
 exit(en, a2, vocabulary(1000, hear),       0.80, 4000).
 exit(en, b2, vocabulary(5000, read),       0.80, 3500).

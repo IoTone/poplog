@@ -106,26 +106,35 @@ enddefine;
 ;;; the line above it is chosen from which form that turned out to be.
 ;;; A sound contrast has an ipa form and nothing else, which is why the
 ;;; ipa is a term here and not only a pronunciation guide.
-;;; KANJI FIRST, which it was not.  Hiragana-first was right while every
-;;; item was a kana or a kana-only starter word; once the import brought
-;;; in characters and kanji-written words it made the card picture the
-;;; wrong face of the item -- 山 came out as a card reading やま with no
-;;; reading line at all, because the reading fell back to a romaji form
-;;; that an imported item does not have.  A flashcard for 山 is 山 on the
-;;; front and やま underneath.
-lconstant TERM_ORDER = [kanji hiragana katakana latin ipa];
+;;; The term is the form in the item's OWN language, and so the order
+;;; depends on it.  Two stale orders were fixed here in turn: a flat
+;;; hiragana-first list made the card for 山 come out as a card reading
+;;; やま with no reading line at all, and putting kanji first then made a
+;;; loanword trap come out as マンション with the English word nowhere on
+;;; it.  A card for 山 is 山 over やま; a card for `mansion` is `mansion`
+;;; over マンション.
+lconstant TERM_ORDER_JA = [kanji hiragana katakana latin ipa];
+lconstant TERM_ORDER_EN = [latin ipa katakana hiragana kanji];
 
 define lp_card_term(i) -> (term, reading);
     lvars i, term = false, reading = false, sc, found = false;
-    for sc in TERM_ORDER do
+    for sc in (if lp_ilang(i) == "en" then TERM_ORDER_EN
+               else TERM_ORDER_JA endif) do
         lp_form_of(i, sc) -> term;
         if term then sc -> found; quitloop endif;
     endfor;
     returnunless(found);
     if found == "ipa" then
+        ;;; a sound contrast: the line above is the Japanese gloss,
+        ;;; because the point of the card is what their language does not
+        ;;; do
         lp_gloss_of(i, "ja") -> reading;
     elseif found == "latin" then
-        lp_form_of(i, "ipa") -> reading;
+        ;;; The pronunciation where there is one -- and for a loanword
+        ;;; trap, which has none, the katakana the learner would reach
+        ;;; for instead.  That is the whole item on one card: `mansion`
+        ;;; over マンション over 大邸宅.
+        lp_form_of(i, "ipa") or lp_form_of(i, "katakana") -> reading;
     elseif found == "kanji" then
         ;;; The reading of a character or a kanji-written word is its
         ;;; kana, which is the one thing it has and the romaji is not.
@@ -136,18 +145,6 @@ define lp_card_term(i) -> (term, reading);
     endif;
 enddefine;
 
-;;; ------------------------------------------------------- fitting the term
-;;; A card is a fixed size, so the term has to fit it rather than the
-;;; other way round -- マンション at 150pt is a third wider than the card,
-;;; and a glyph that runs off the edge is worse than a smaller one.
-;;;
-;;; This is an ESTIMATE and is meant to be: the real advance width is in
-;;; the font, which is not loaded here and will not be until the gfx path
-;;; renders these.  Two classes is enough to be safe, because the error
-;;; only ever makes the term smaller than it had to be: a CJK or kana
-;;; glyph is one em square by design, and Latin in this face averages a
-;;; little over half that.  Measured against the rendered PNGs, the
-;;; estimate is within about 6% on both scripts.
 lconstant NARROW_EM = 0.58;
 
 define lp_card_em_width(s) -> em;
@@ -171,11 +168,32 @@ define lp_card_fit(s, max_size, avail) -> size;
 enddefine;
 
 ;;; ------------------------------------------------------------ the SVG
+;;; The gloss a LEARNER needs, which is the one in their own language.
+;;;
+;;; This used to be lp_gloss_of(i, "en") flat, which is right for a
+;;; Japanese item read by an English speaker and exactly backwards for an
+;;; English item read by a Japanese one: the card for `water` printed
+;;; "the liquid we drink" while 水 sat in the graph, hand-written, and
+;;; never appeared on anything.
+;;;
+;;; The graph teaches two languages to each other's speakers, so the
+;;; language being studied is lp_ilang(item) and the learner's own is the
+;;; other one.  That is a two-language assumption and it is stated here
+;;; rather than assumed silently; a third language would need the
+;;; student's L1 on the profile instead.
+define lp_card_gloss(i) -> g;
+    lvars i, g, mine = lp_ilang(i), theirs;
+    if mine == "ja" then "en" else "ja" endif -> theirs;
+    ;;; falling back to the item's own language, because an imported
+    ;;; Japanese word carries an English gloss and nothing else
+    lp_gloss_of(i, theirs) or lp_gloss_of(i, mine) -> g;
+enddefine;
+
 define lp_card_svg(i, style) -> svg;
     lvars i, style, svg, term, reading, gloss, foot, mid = CARD_W / 2,
           avail = CARD_W - 2 * CARD_PAD, tsize, rsize;
     lp_card_term(i) -> (term, reading);
-    lp_gloss_of(i, "en") -> gloss;
+    lp_card_gloss(i) -> gloss;
 
     ;;; A kana grapheme's English gloss IS its romaji, so printing both
     ;;; puts "a" twice on one card and says nothing the second time.
