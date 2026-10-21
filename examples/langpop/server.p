@@ -879,6 +879,39 @@ define lp_m_aids(msg) -> res;
                            <> 'available at any answer stays recoverable' %]) -> res;
 enddefine;
 
+;;; -------------------------------------------------------------- audit
+;;; Which rungs of the ladder are hollow.  No session, for the same
+;;; reason card.render needs none: this is a property of the GRAPH, not
+;;; of anybody's progress, and requiring a session would be a privilege
+;;; check protecting nothing.
+;;;
+;;; A client that draws a ladder wants this. Showing a student
+;;; `kanji(2230)` as a goal they are 0.05% of the way to, when the graph
+;;; holds 103 kanji, reports the tool's emptiness as the student's
+;;; failure -- the same mistake `"verifiable": false` exists to prevent
+;;; on langpop/status.
+define lp_m_audit(msg) -> res;
+    lvars msg, res, r, lang = lp_param(msg, 'language'), rows;
+    if lang then consword(lang sys_>< '') -> lang endif;
+    lp_audit() -> rows;
+    jsonrpc_obj([% 'criteria',
+        lp_vec([% for r in rows do
+            nextif(lang and r(1) /== lang);
+            jsonrpc_obj([% 'language', lp_jkey(r(1)),
+                           'level', lp_jkey(r(2)),
+                           'criterion', lp_term_str(r(3)),
+                           'verdict', lp_jkey(r(4)),
+                           'in_graph', r(5),
+                           'askable', r(6),
+                           ;;; null, not 0: a criterion that is not a
+                           ;;; count has no target, and a 0 there would
+                           ;;; read as one that wants nothing.
+                           'wanted', if r(7) then r(7) else json_null endif,
+                           'short_by', if r(4) == "short" then r(7) - r(6)
+                                       else json_null endif %]);
+        endfor %]) %]) -> res;
+enddefine;
+
 lconstant METHODS = [
     ['langpop/recognise'     ^lp_m_recognise]
     ['langpop/register'      ^lp_m_register]
@@ -890,6 +923,7 @@ lconstant METHODS = [
     ['langpop/explain'       ^lp_m_explain]
     ['langpop/status'        ^lp_m_status]
     ['langpop/aids'          ^lp_m_aids]
+    ['langpop/audit'         ^lp_m_audit]
     ['langpop/placement.next'   ^lp_m_place_next]
     ['langpop/placement.report' ^lp_m_place_report]
     ['langpop/assign'        ^lp_m_assign]

@@ -23,6 +23,7 @@ privileges a phone app would not have.
 ./poplog basepop11 examples/langpop/langpop.p                   # Japanese, with Aoi
 ./poplog basepop11 examples/langpop/langpop.p --lang en          # English, with Mr Hill
 ./poplog basepop11 examples/langpop/langpop.p --check            # integrity-check the graph
+./poplog basepop11 examples/langpop/langpop.p --audit            # which rungs can be climbed
 
 # B: the same session, over a protocol
 ./poplog basepop11 examples/langpop/server.p --port 7801 &
@@ -672,6 +673,97 @@ kanji carries its kun reading as a hiragana form. The schema already
 answers this properly through `criterion_item/2`, so the axis asks it
 rather than guessing from the forms.
 
+## Can the ladder actually be climbed?
+
+`--check` proves the graph is **consistent**: no cycle, no dangling
+prerequisite, every item on a rung that exists. A ladder can pass that
+and still be unclimbable, because consistency says nothing about whether
+there is enough to learn. `exit(ja, n1, kanji(2230, read), 0.80, 2000)`
+is perfectly consistent against 103 kanji. It is simply unreachable, and
+nothing said so.
+
+```
+./poplog basepop11 examples/langpop/langpop.p --audit
+```
+
+```
+  34 exit criteria over 12 ladder levels.
+
+  lang  level      criterion                 have  askable  verdict
+  ja    preschool  recognise(hiragana)       46    46       ok
+  ja    preschool  skill(mora_count)         1     1        thin
+  ja    preschool  skill(dakuten)            1     1        thin
+  ja    preschool  vocabulary(50, read)      40    40       short by 10
+  ja    preschool  vocabulary(50, hear)      40    0        needs_audio
+  ja    n5         kanji(103, read)          103   103      ok
+  ja    n1         kanji(2230, read)         103   103      short by 2127
+  en    preschool  sound_contrasts           12    0        needs_audio
+  en    b1         coverage(reading, 0.95)   0     0        unmeasured
+```
+
+Six verdicts, because they mean different things to whoever reads them:
+
+| verdict | meaning | whose problem |
+| --- | --- | --- |
+| `ok` | enough askable content exists to satisfy it | nobody's |
+| `thin` | passes on fewer than 3 askable items | the graph's |
+| `short` | measurable, content is thin | curation |
+| `no probe` | the item set exists and nothing in it can be asked | a bug |
+| `needs audio` | the channel is outside `VERIFIABLE` | this build's |
+| `unmeasured` | nothing measures it at all | the design's |
+
+Only `short` is allowed to be large. The others are each a claim the
+ladder makes and cannot cash.
+
+**`thin` exists because of Goodhart.** A criterion measured over one item
+is not a measurement, it is an anecdote, and it passes. Three is the
+smallest number that can disagree with itself.
+
+**`needs audio` is distinguished from `no probe` deliberately.** The
+first run of this reported `sound_contrasts` as a bug, which is wrong:
+the probe is not missing, the microphone is. An item-set criterion whose
+every item sits on a channel outside `VERIFIABLE` is the audio limit
+([the pronunciation note](../../docs/projects/langpop-pronunciation.md)),
+not a defect.
+
+Counts are **cumulative**, because the criteria are: `kanji(2230)` at N1
+means every kanji through N1, not 2,230 more of them. So the pool is that
+level and below.
+
+`langpop/audit` is the same thing on the wire, with `"short_by"` computed
+so a client need not subtract, and `"wanted": null` on a criterion that
+is not a count. No session is needed — this is a property of the graph,
+not of anybody's progress. A client that draws a ladder wants it: showing
+a student `kanji(2230)` as a goal they are 0.05% of the way to, when the
+graph holds 103 kanji, reports the tool's emptiness as the student's
+failure. That is the same mistake `"verifiable": false` exists to prevent
+on `langpop/status`.
+
+### What the first run found
+
+**A skill was measured over itself.** `criterion_item(skill(S), S)`
+answered with the skill item, which has no written form and so no probe —
+so `skill(dakuten)` was measured over a set of one unaskable thing,
+reported *0% right over 0 answers* for ever, and could never be met.
+**Three of the five Japanese pre-school criteria were in that state.** A
+skill is now measured over what it rolls up over, transitively and
+skipping skills on the way down, because `mora_sokuon` requires
+`mora_count`, which is itself a skill: one level of expansion would have
+swapped one unaskable item for another.
+
+That is the third rung-with-no-door in this project, after `en/a1` having
+no exit criterion at all and the twelve sound contrasts returning
+`shape = "none"`. The first two were found by hand. Found by hand means
+found by luck, which is the argument for the audit existing.
+
+**Three criteria remain `thin`, and one of them measures the wrong
+thing.** `skill(dakuten)` requires only `hi_ka`, and the kana table holds
+base kana only — so passing it demonstrates reading か, which says
+nothing about か/が. `skill(mora_count)` and `skill(mora_sokuon)` both
+reduce to あ, the same single item. These are content gaps the audit can
+only report: it says the criterion is answerable, and that what it
+answers over is too small to mean much.
+
 ## Seeing the graph
 
 The tutor reads the graph one item at a time, chosen for one student. That
@@ -1063,6 +1155,7 @@ speak to it with no shim. `--port N` for TCP, nothing for stdio.
 | `langpop/status` | the level's exit criteria, measured |
 | `langpop/placement.next` / `placement.report` | find out where they are |
 | `langpop/aids` | which helps are on, and switching them |
+| `langpop/audit` | which rungs of the ladder are hollow |
 | `langpop/card.render` | the item as a picture |
 | `langpop/assign` / `report` | work to do elsewhere, and what came of it |
 

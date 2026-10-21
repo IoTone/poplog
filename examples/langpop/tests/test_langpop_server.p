@@ -68,7 +68,7 @@ enddefine;
 ;;; ------------------------------------------------------------- the door
 check('ping', result('ping', false), 'pong');
 check_true('methods are listable',
-           length(result('langpop/methods', false)) == 15);
+           length(result('langpop/methods', false)) == 16);
 check_true('and the list names them, not just counts them',
            member('langpop/card.render',
                   [% explode(result('langpop/methods', false)) %]) /== false);
@@ -342,6 +342,54 @@ vars sl4 = result('langpop/answer',
                                  'answer', 'a' %]));
 check('a right answer is recorded', sl4('recorded'), true);
 check('and named right', sl4('outcome'), 'right');
+
+;;; ------------------------------------------------------------ audit
+;;; Which rungs are hollow.  No session: this is a property of the
+;;; graph and not of anybody's progress, so requiring one would be a
+;;; privilege check protecting nothing.
+vars au = result('langpop/audit', false);
+check('every criterion is reported', length(au('criteria')),
+      length(lp_exits));
+
+define aurow(name) -> r;
+    lvars name, i, c;
+    false -> r;
+    for i from 1 to length(au('criteria')) do
+        au('criteria')(i) -> c;
+        if c('criterion') = name then c -> r; return endif;
+    endfor;
+enddefine;
+
+vars ac = aurow('kanji(2230, read)');
+check('N1 kanji is short', ac('verdict'), 'short');
+check('it says what was wanted', ac('wanted'), 2230);
+check_true('and how short, so a client need not subtract',
+           ac('short_by') > 2000);
+check('on the right rung', ac('level'), 'n1');
+
+vars ah = aurow('vocabulary(50, hear)');
+check('a listening criterion needs audio', ah('verdict'), 'needs_audio');
+check('nothing on it is askable', ah('askable'), 0);
+check('and it is not short of anything', ah('short_by'), json_null);
+
+;;; A criterion that is not a count has no target, and a 0 there would
+;;; read as one that wants nothing.
+vars ar = aurow('recognise(hiragana)');
+check('an item-set criterion wants no number', ar('wanted'), json_null);
+check('and is reachable', ar('verdict'), 'ok');
+
+vars av = aurow('coverage(reading, 0.95)');
+check('coverage is unmeasured', av('verdict'), 'unmeasured');
+
+;;; One language at a time, for a client drawing one ladder.
+vars auja = result('langpop/audit', jsonrpc_obj([% 'language', 'ja' %]));
+check_true('filtering by language returns fewer',
+           length(auja('criteria')) < length(au('criteria')));
+check_true('and only that language',
+           [% lvars i; for i from 1 to length(auja('criteria')) do
+                  unless auja('criteria')(i)('language') = 'ja'
+                  then 1 endunless endfor %] == []);
+
 
 ;;; ------------------------------------------------ later, oops, aids
 ;;; The two halves of one admission: `later` before answering, `oops`

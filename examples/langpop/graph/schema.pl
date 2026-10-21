@@ -184,8 +184,23 @@ edges.
 % Which items a level's exit criterion is measured over.  A criterion that
 % is a count (vocabulary(N), coverage(Axis, Fraction)) has no item set and
 % is answered by the driver instead.
+%
+% A skill is measured over WHAT IT ROLLS UP OVER, not over itself.  It
+% used to answer with the skill item, which has no written form and so no
+% probe -- so skill(dakuten) was measured over a set of one unaskable
+% thing, reported 0% over 0 answers for ever, and could never be met.
+% Three of the five Japanese pre-school criteria were in that state and
+% nothing said so until --audit asked.
+%
+% Transitively, and skipping skills on the way down, because a skill may
+% require another: mora_sokuon requires mora_count, so one level of
+% expansion would have replaced one unaskable item with another.  The
+% graph is a DAG -- check/1 proves it -- so the recursion terminates.
+skill_leaf(S, I) :- requires(S, I), \+ item(I, skill, _, _, _).
+skill_leaf(S, I) :- requires(S, X), item(X, skill, _, _, _), skill_leaf(X, I).
+
 criterion_item(recognise(Script), I) :- kana(I, Script, _, _, _).
-criterion_item(skill(S), S).
+criterion_item(skill(S), I) :- skill_leaf(S, I).
 criterion_item(Named, I) :- atom(Named), requires(Named, I).
 
 % The ladder rungs that hold nothing, for the --check report.

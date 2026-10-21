@@ -694,6 +694,107 @@ check_true('the catalogue points at a resource', r and hd(r) == "r_minimal_rl");
 check('and records when it was last checked',
       hd(tl(tl(tl(tl(tl(r)))))) sys_>< '', '2026-10-19');
 
+
+;;; ------------------------------------------------------- the audit
+;;; --check proves the graph is CONSISTENT; it says nothing about
+;;; whether the ladder can be climbed.  exit(ja, n1, kanji(2230, read))
+;;; is perfectly consistent against 103 kanji and simply unreachable.
+lvars arows = lp_audit();
+check('one row per exit criterion', length(arows), length(lp_exits));
+
+define arow(lang, level, name) -> r;
+    lvars lang, level, name, e;
+    false -> r;
+    for e in arows do
+        if e(1) == lang and e(2) == level
+        and lp_term_str(e(3)) = name then e -> r; return endif;
+    endfor;
+enddefine;
+
+;;; The 46 hiragana are all askable, so the criterion over them is real.
+lvars ah = arow("ja", "preschool", 'recognise(hiragana)');
+check_true('hiragana is a criterion that exists', ah);
+check('all 46 are in the set', ah(5), 46);
+check('and all 46 can be asked', ah(6), 46);
+check('so it is reachable', ah(4), "ok");
+
+;;; A skill is measured over WHAT IT ROLLS UP OVER, not over itself.
+;;; Answering with the skill item gave a set of one unaskable thing, so
+;;; three of the five Japanese pre-school criteria reported 0% over 0
+;;; answers for ever and could not be met.  No row may say no_probe.
+lvars ad = arow("ja", "preschool", 'skill(dakuten)');
+check_true('the dakuten skill expands to something askable', ad(6) > 0);
+check_false('and is no longer a criterion with no probe', ad(4) == "no_probe");
+
+;;; mora_sokuon requires mora_count, which is itself a skill -- so one
+;;; level of expansion would swap one unaskable item for another.
+lvars asok = arow("ja", "preschool", 'skill(mora_sokuon)');
+check_true('a skill of a skill expands all the way down', asok(6) > 0);
+
+check_false('nothing anywhere is a criterion with no probe',
+            [% lvars e; for e in arows do
+                   if e(4) == "no_probe" then lp_term_str(e(3)) endif
+               endfor %] /== []);
+
+;;; Thin is not a bug and not an ok: it is a percentage over so few
+;;; items that passing says very little.  Stated rather than hidden.
+check('one askable item is thin, not ok', ad(4), "thin");
+
+;;; A count criterion reports the shortfall rather than a percentage of
+;;; a student who has never been shown the content.
+lvars an1 = arow("ja", "n1", 'kanji(2230, read)');
+check('N1 kanji is short, not failed', an1(4), "short");
+check('and says how short', an1(7), 2230);
+check_true('against what the graph actually holds', an1(6) < 2230);
+
+;;; Counts are cumulative: kanji(2230) at N1 means every kanji through
+;;; N1, so the pool is this level and below rather than this level only.
+lvars a50 = arow("ja", "preschool", 'vocabulary(50, read)'),
+      a800 = arow("ja", "n5", 'vocabulary(800, read)');
+check_true('the N5 word pool includes the pre-school words',
+           a800(6) >= a50(6));
+
+;;; A listening criterion is not a failing reading criterion.  lp_question
+;;; asks on the gate channel only, so a word's `hear` belief can never be
+;;; moved by a probe -- which is the limit of the build, not of the
+;;; student.
+lvars ahear = arow("ja", "preschool", 'vocabulary(50, hear)');
+check('a hear criterion needs audio', ahear(4), "needs_audio");
+check('nothing on it can be asked', ahear(6), 0);
+check_true('although the words are there', ahear(5) > 0);
+check_true('probeable agrees', lp_probeable("w_neko", "read"));
+check_false('and refuses the channel nothing can check',
+            lp_probeable("w_neko", "hear"));
+
+;;; The twelve sound contrasts are not a missing probe either -- the
+;;; probe is not missing, the microphone is.  Reported as a bug the first
+;;; time this ran, which was wrong.
+lvars asc = arow("en", "preschool", 'sound_contrasts');
+check('sound contrasts need audio', asc(4), "needs_audio");
+check('all twelve are in the graph', asc(5), 12);
+
+;;; coverage/2 has no measure at all, and says so rather than reporting a
+;;; student at 0%.
+lvars acov = arow("en", "b1", 'coverage(reading, 0.95)');
+check('coverage is unmeasured', acov(4), "unmeasured");
+check('with no item set', acov(5), 0);
+check_false('and no target to be short of', acov(7));
+
+;;; Every verdict is one of the six, so a client can switch on it.
+check_false('no verdict is outside the set',
+            [% lvars e; for e in arows do
+                   unless member(e(4), [ok thin short no_probe needs_audio
+                                        unmeasured])
+                   then e(4) endunless
+               endfor %] /== []);
+
+;;; The audit must not disturb the globals it borrows: it walks every
+;;; language and level, and a student is bound to one.
+"ja" -> lp_lang; "preschool" -> lp_level;
+lp_audit().erase;
+check('the language survives the audit', lp_lang, "ja");
+check('and the level', lp_level, "preschool");
+
 ;;; ---------------------------------------------------------- integrity
 ;;; The real graph first.
 check('the shipped graph has no violations', lp_check(), []);

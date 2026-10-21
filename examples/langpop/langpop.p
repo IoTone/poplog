@@ -2064,6 +2064,184 @@ define lp_status();
     endif;
 enddefine;
 
+
+;;; ------------------------------------------------------------- the audit
+;;; Can this criterion be met at all, with the content the graph actually
+;;; holds?
+;;;
+;;; --check answers a different question: it proves the graph is
+;;; internally consistent -- no cycle, no dangling prerequisite, every
+;;; item on a rung that exists.  A ladder can pass that and still be
+;;; unclimbable, because consistency says nothing about whether there is
+;;; enough to learn.  `exit(ja, n1, kanji(2230, read), ...)` is perfectly
+;;; consistent against 103 kanji; it is simply unreachable, and nothing
+;;; said so.
+;;;
+;;; This is the same move imp_verify makes for the importer: read back
+;;; what is there and compare it against what was claimed, rather than
+;;; trusting that writing it worked.  A rung with no door was found by
+;;; hand once already (en/a1 had no exit criterion at all).  Found by
+;;; hand means found by luck.
+;;;
+;;; Four verdicts, and they mean different things to whoever reads them:
+;;;
+;;;   ok           enough askable content exists to satisfy it
+;;;   thin         measurable, and over so few items that passing it
+;;;                says very little -- the Goodhart case, stated
+;;;   short        measurable, but there is not enough content yet
+;;;                -- a curation number, not a bug
+;;;   no probe     the item set exists and nothing in it can be asked
+;;;                -- a bug, or an unbuilt import
+;;;   needs audio  the channel is outside VERIFIABLE
+;;;                -- a limit of this build, recorded in
+;;;                docs/projects/langpop-pronunciation.md
+;;;   unmeasured   nothing measures this criterion at all
+;;;                -- the honest verdict for coverage/2
+;;;
+;;; Only `short` is allowed to be large.  The others are each a claim the
+;;; ladder makes and cannot cash.
+
+;;; Fewer askable items than this and a percentage over them is not a
+;;; measurement, it is an anecdote.  Three is the smallest number that
+;;; can disagree with itself.
+lconstant AUDIT_THIN = 3;
+
+define lp_pad(x, n) -> s;
+    lvars x, n, s = x sys_>< '';
+    until length(s) >= n do s <> ' ' -> s enduntil;
+enddefine;
+
+;;; Is there a probe for this item on this channel?
+;;;
+;;; lp_question/1 takes no channel: it asks about the item on its GATE
+;;; channel and lp_drill records there, so a word's `hear` belief can
+;;; only ever be moved by an assignment.  That is why the channel has to
+;;; match lp_primary and not merely be one of lp_channels -- the first
+;;; version of this reported vocabulary(50, hear) as askable, which is
+;;; exactly the comfortable answer channels were introduced to stop.
+define lp_probeable(item, ch) -> yes;
+    lvars item, ch, yes = false;
+    returnunless(lp_verifiable(ch));
+    returnunless(lp_primary(item) == ch);
+    lp_drillable(item) -> yes;
+enddefine;
+
+;;; Items of a countable kind at this level or below, in this language.
+;;; Cumulative, because the criteria are: kanji(2230) at N1 means every
+;;; kanji through N1 and not 2230 more of them.
+define lp_audit_pool(kind, level) -> items;
+    lvars kind, level, i, top = lp_level_index(level), items = [];
+    for i in lp_items do
+        nextunless(lp_ilang(i) == lp_lang);
+        nextunless(lp_level_index(lp_ilevel(i)) >= 0
+                   and lp_level_index(lp_ilevel(i)) <= top);
+        if (if kind == "kanji" then
+                lp_kind(i) == "grapheme" and lp_form_of(i, "kanji")
+            else lp_kind(i) == kind endif) then
+            conspair(i, items) -> items
+        endif;
+    endfor;
+enddefine;
+
+;;; One criterion: {verdict have askable want}.  `want` is false for a
+;;; criterion that is not a count, where the question is whether the set
+;;; can be asked at all rather than whether there is enough of it.
+define lp_audit_one(crit, level) -> (verdict, have, askable, want);
+    lvars crit, level, f, i, pool, items, ch, n = 0;
+    false -> want;
+    if prolog_complexterm(crit) then prolog_functor(crit) else crit endif -> f;
+    if f == "vocabulary" or f == "kanji" then
+        prolog_full_deref(prolog_arg(1, crit)) -> want;
+        prolog_deref(prolog_arg(2, crit)) -> ch;
+        lp_audit_pool(if f == "kanji" then "kanji" else "word" endif,
+                      level) -> pool;
+        length(pool) -> have;
+        for i in pool do if lp_probeable(i, ch) then n + 1 -> n endif endfor;
+        n -> askable;
+        if not(lp_verifiable(ch)) then "needs_audio"
+        elseif askable >= want then "ok"
+        else "short"
+        endif -> verdict;
+    elseif f == "coverage" then
+        (0, 0) -> (have, askable);
+        "unmeasured" -> verdict;
+    else
+        ;;; An item-set criterion: recognise/1, skill/1.  Accuracy is
+        ;;; measured over the answers given, so an item nobody can be
+        ;;; asked about does not cap the percentage -- it quietly leaves
+        ;;; the measurement, which is worse.  Both numbers are reported
+        ;;; so that a criterion measured over part of its set says so.
+        lp_ask(crit, "criterion_items", 1) -> items;
+        length(items) -> have;
+        lvars audible = 0;
+        for i in items do
+            if lp_probeable(i, lp_primary(i)) then n + 1 -> n
+            elseunless lp_verifiable(lp_primary(i)) then
+                audible + 1 -> audible
+            endif;
+        endfor;
+        n -> askable;
+        ;;; Nothing askable, and every item of the set sits on a channel
+        ;;; this build cannot check: that is the audio limit and not a
+        ;;; missing probe.  sound_contrasts was reported as a bug the
+        ;;; first time this ran, which is wrong -- the probe is not
+        ;;; missing, the microphone is.
+        if     have == 0                     then "unmeasured"
+        elseif askable == 0 and audible == have then "needs_audio"
+        elseif askable == 0                  then "no_probe"
+        elseif askable < AUDIT_THIN          then "thin"
+        else                                      "ok"
+        endif -> verdict;
+    endif;
+enddefine;
+
+;;; Every criterion on every rung of every ladder.  Deliberately not
+;;; restricted to the current language or level: a ladder is hollow in
+;;; places nobody is standing, and those are the places that need
+;;; curating.
+define lp_audit() -> rows;
+    lvars e, rows = [], lang, level, crit, verdict, have, askable, want;
+    dlocal lp_lang, lp_level;
+    for e in lp_exits do
+        hd(e) -> lang; hd(tl(e)) -> level; hd(tl(tl(e))) -> crit;
+        lang -> lp_lang; level -> lp_level;
+        lp_audit_one(crit, level) -> (verdict, have, askable, want);
+        rows <> [{% lang, level, crit, verdict, have, askable, want %}]
+            -> rows;
+    endfor;
+enddefine;
+
+define lp_audit_show();
+    lvars r, rows = lp_audit(), v, tot = newproperty([], 8, 0, "perm"), k;
+    printf('\n  %p exit criteria over %p ladder levels.\n',
+           [% length(rows), length(lp_ladders) %]);
+    printf('\n  %p%p%p%p%p%p\n',
+           [% lp_pad('lang', 6), lp_pad('level', 11),
+              lp_pad('criterion', 26), lp_pad('have', 6),
+              lp_pad('askable', 9), 'verdict' %]);
+    for r in rows do
+        r(4) -> v;
+        tot(v) + 1 -> tot(v);
+        printf('  %p%p%p%p%p%p%p\n',
+               [% lp_pad(r(1), 6), lp_pad(r(2), 11),
+                  lp_pad(lp_term_str(r(3)), 26), lp_pad(r(5), 6),
+                  lp_pad(r(6), 9), v,
+                  if v == "short" then ' by ' <> ((r(7) - r(6)) sys_>< '')
+                  else '' endif %]);
+    endfor;
+    printf('\n');
+    for k in [ok thin short no_probe needs_audio unmeasured] do
+        if tot(k) > 0 then printf('  %p %p\n', [% tot(k), k %]) endif;
+    endfor;
+    ;;; Said plainly, because the three are not the same problem and a
+    ;;; single "N failing" would hide which of them anyone can fix.
+    printf('\n  thin        = passes on fewer than %p askable items\n', [^AUDIT_THIN]);
+    printf('  short       = curation: the criterion works, the content is thin\n');
+    printf('  no probe    = a criterion nothing can ask about -- a bug, or an unbuilt import\n');
+    printf('  needs audio = outside VERIFIABLE; see docs/projects/langpop-pronunciation.md\n');
+    printf('  unmeasured  = nothing measures it at all\n');
+enddefine;
+
 define lp_why(item);
     lvars item, answers, a;
     unless lp_kind(item) then printf('  I have no item called %p.\n', [^item]); return endunless;
@@ -2501,7 +2679,7 @@ enddefine;
 
 define lp_main();
     lvars args = poparglist, a, user = false, display = false,
-          batch = false, checkonly = false, rest = [];
+          batch = false, checkonly = false, auditonly = false, rest = [];
     find_dir() -> langpop_dir;
     until args == [] do
         hd(args) -> a;
@@ -2511,12 +2689,16 @@ define lp_main();
         elseif a = '--batch' then true -> batch; tl(args) -> args;
         elseif a = '--data' then hd(tl(args)) -> lp_home_dir; tl(tl(args)) -> args;
         elseif a = '--check' then true -> checkonly; tl(args) -> args;
+        elseif a = '--audit' then true -> auditonly; tl(args) -> args;
         else conspair(a, rest) -> rest; tl(args) -> args;
         endif;
     enduntil;
     if lp_lang == "en" then "preschool" else "preschool" endif -> lp_level;
     lp_load();
     lp_index();
+    ;;; Before the check, because a hollow rung is a fact about the
+    ;;; graph and wants no student bound to it.
+    if auditonly then lp_audit_show(); return endif;
     if checkonly then
         lvars bad = lp_check(), v;
         if bad == [] then
