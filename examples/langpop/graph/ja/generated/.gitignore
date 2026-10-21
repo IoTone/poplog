@@ -1,0 +1,21 @@
+# Imported content is a BUILD PRODUCT, never committed.
+#
+# examples/langpop/import.p writes the files in this directory out of
+# JMdict and KANJIDIC2, which are CC BY-SA 4.0 (EDRDG).  Share-alike on a
+# dictionary is fine for a dictionary and poison for a tutor, so the
+# imported content stays on upstream's layer: regenerated from upstream on
+# demand, and not part of anything the project ships.
+#
+# What IS committed is the curation -- graph/ja/picks/*.pl, which entries
+# at which level under which identity.  That part is ours.
+#
+# The directory itself is committed, because import.p writes into it and
+# will not create it.
+#
+# Everything, and not *.pl: Poplog's syscreate keeps back versions of a
+# file by suffixing the name with `-` (REF * SYSIO pop_file_versions), so
+# a re-import used to leave an n5-words.pl- here that *.pl did not match.
+# import.p turns that off now, but a build directory should not be able
+# to offer anything for commit in the first place.
+*
+!.gitignore

@@ -93,6 +93,43 @@ and the five Poplog traps it hit along the way — one of which turned out to be
 a real engine bug, [`random(n)` on 64-bit
 builds](../docs/bugs/random-int-64bit.md).
 
+### `langpop/` — a knowledge graph of a language, and a teacher who uses it
+
+A language tutor whose knowledge is a **Prolog graph** and whose student
+record is a **Pop-11 overlay**, built for two languages at once: Japanese for
+a Western learner, English for a Japanese TOEIC candidate. Both start at a
+pre-school level below the bottom of the official ladder, which is where
+learners actually begin.
+
+The idea it rests on is that a Pop-11 procedure can *be* a Prolog predicate
+(`define :prolog`, as in [`robotarmy/chainnet.p`](robotarmy/chainnet.p)): the
+rule that chooses what to teach next consults a belief recorded seconds ago
+without knowing it is not consulting a table. 170 items, an explicit
+prerequisite DAG, provenance on every fact, and three tiers of evidence whose
+ceilings make "I did it" unable to reach mastery by arithmetic.
+
+It comes in two shapes: the whole thing in one process, and the same engine
+behind one JSON-RPC protocol with the TUI demoted to a client that has no
+privileges a phone app would not have — including no access to the answer it
+is asking the student for, and no say in how long they took.
+
+```sh
+./poplog ./target/pop/basepop11 examples/langpop/langpop.p           # Japanese
+./poplog ./target/pop/basepop11 examples/langpop/langpop.p --lang en # English
+./poplog ./target/pop/basepop11 examples/langpop/langpop.p --check    # check the graph
+
+./poplog ./target/pop/basepop11 examples/langpop/server.p --port 7801 &
+./poplog ./target/pop/basepop11 examples/langpop/client.p --port 7801 --user bob
+
+tools/test-libs.sh examples/langpop/tests/test_langpop.p \
+                   examples/langpop/tests/test_langpop_server.p      # 118 checks
+```
+
+See [`langpop/README.md`](langpop/README.md) for the schema, the two
+pre-schools, and the three Poplog Prolog behaviours it found the hard way
+(reconsult semantics across files, no `forall/2`, silent failure of undefined
+predicates).
+
 ## Graphics demos
 
 These use the experimental native graphics backend (`uses popgfx` /

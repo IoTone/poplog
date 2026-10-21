@@ -1,0 +1,21 @@
+# tests/fixtures/cmudict-sample.dict -- a cut of CMUdict for the suite.
+#
+# Each line is here because it decides something: a comment to strip, a
+# variant to skip, a rhotic vowel standing in for an R, a three-consonant
+# cluster, an unstressed AH that is a schwa and a stressed one that is
+# not, and a one-syllable word that must get no stress mark.
+aalborg AO1 L B AO0 R G # place, danish
+world W ER1 L D
+library L AY1 B R EH2 R IY0
+street S T R IY1 T
+think TH IH1 NG K
+mother M AH1 DH ER0
+water W AO1 T ER0
+people P IY1 P AH0 L
+read R EH1 D
+read(2) R IY1 D
+station S T EY1 SH AH0 N
+see S IY1
+half HH AE1 F
+vibe V AY1 B
+family F AE1 M AH0 L IY0
