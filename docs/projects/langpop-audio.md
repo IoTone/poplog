@@ -223,25 +223,48 @@ below it ever gets built.
 student heard it are different claims, and the ladder must keep saying
 *cannot be checked here* until something checks.
 
-### Stage 1 — mora timing, which is the measurement langpop is readiest for
+### Stage 1 — mora timing, and it is smaller than it was
 
-`skill(mora_count)` and `skill(mora_sokuon)` are **`thin` in `--audit`
-today**: both reduce to あ, one item, two criteria. They are thin because
-a *mora is a unit of time* and the engine has no way to observe time —
-you cannot test "きって is three beats" by typing.
+**Revised 2026-10-21, and the revision is the useful part.** This stage
+was written as *`skill(mora_count)` and `skill(mora_sokuon)` are `thin`
+in `--audit`: both reduce to あ, one item, two criteria. They are thin
+because a mora is a unit of time and the engine has no way to observe
+time — you cannot test "きって is three beats" by typing.*
 
-Timing needs **no phoneme model**: beat boundaries, a duration per mora,
-and a comparison against the expected count. Energy and a VAD get a long
-way; alignment gets the rest.
+**That last clause was wrong, and half this stage shipped without a
+microphone.** You can test it by typing: *how many beats is this?* is a
+reading question with a number for an answer, and the number is
+computable from the kana — every kana one beat, a small ゃゅょ joining
+the one before it, っ and ん and ー beats of their own. `probe(Skill,
+morae(Feature))` and `lp_morae/1`, in `f80513f`. The whole Japanese
+pre-school rung is now `ok`.
 
-This is the right first measurement because:
+So the distinction this stage rests on is sharper than when it was
+written:
 
-- it is the cheapest honest verdict in the whole space;
-- it unblocks **four** declared criteria that nothing else can reach;
-- it is a *count*, so the verdict is discrete and needs no threshold
-  calibrated against native speakers;
-- and it is diagnosable in the way the project insists on — *you gave
-  きて two beats where きって has three* is actionable, where *68%* is not.
+| | needs | status |
+| --- | --- | --- |
+| **knowing** how many beats きって has | nothing | **done** |
+| **producing** three beats when you say it | a microphone | this stage |
+
+What is left is production only, and it is still the cheapest honest
+verdict in the audio space:
+
+- it needs **no phoneme model** — beat boundaries, a duration per mora,
+  a comparison against a count the graph already computes;
+- energy and a VAD get a long way; alignment gets the rest;
+- the expected answer is **already known and already right**, because
+  `lp_morae/1` produces it for the typed question. The audio half only
+  has to agree with a number that exists;
+- the verdict is discrete, so it needs no threshold calibrated against
+  native speakers;
+- and it is diagnosable the way this project insists on — *you gave きて
+  two beats where きって has three* is actionable, where *68%* is not.
+
+The general lesson is worth carrying into the rest of this document:
+**ask what the question actually needs before assuming it needs audio.**
+Two of the four criteria this stage claimed to unblock were never an
+audio problem at all.
 
 ### Stage 2 — the English contrast verdict
 
