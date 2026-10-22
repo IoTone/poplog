@@ -156,6 +156,44 @@ check_false('a word does not unlock before the whole syllabary',
             member("w_neko", plan2));
 check_false('katakana ka waits for hiragana ka', member("ka_ka", plan2));
 
+;;; ---------------------------------------------------- tier 5: a machine
+;;; A verdict from a model: the student spoke, something measured it, and
+;;; nobody listened.  Above an inference, because what was observed IS
+;;; the item; below a human check, because a confident model is still a
+;;; model.
+"machine" -> lp_user;
+check_true('MACHINE_CAP sits between INFERRED_CAP and TIER2_CAP',
+           INFERRED_CAP < MACHINE_CAP and MACHINE_CAP < TIER2_CAP);
+check_true('and so below mastery, leaving one check to tip it over',
+           MACHINE_CAP < MASTERY);
+
+lvars k;
+for k from 1 to 12 do
+    lp_record("w_neko", "speak", 5, "right", 900);
+endfor;
+check_true('twelve machine verdicts do not reach mastery',
+           not(lp_mastered_on("w_neko", "speak")));
+check_true('and stop at the cap', lp_bel("w_neko", "speak") <= MACHINE_CAP);
+
+;;; `near` from a scorer is not a near miss on spelling -- it is the
+;;; confidence floor, the verdict that says `I could not tell`, and it
+;;; must move the belief in neither direction.
+lvars held = lp_bel("w_neko", "speak");
+lp_record("w_neko", "speak", 5, "near", 900);
+check('I could not tell moves nothing', lp_bel("w_neko", "speak"), held);
+lp_record("w_neko", "speak", 5, "wrong", 900);
+check_true('a wrong one does', lp_bel("w_neko", "speak") < held);
+
+;;; And one human check on top of a capped belief is what tips it over,
+;;; which is the whole argument for the cap.
+"machine2" -> lp_user;
+for k from 1 to 12 do
+    lp_record("w_neko", "speak", 5, "right", 900);
+endfor;
+lp_record("w_neko", "speak", 1, "right", 900);
+check_true('a teacher\'s ear certifies what the model could not',
+           lp_mastered_on("w_neko", "speak"));
+
 ;;; ------------------------------------------------------- evidence tiers
 "drill" -> lp_user;                      ;;; a clean overlay for the arithmetic
 
@@ -258,11 +296,20 @@ check('and something unrelated is not a confusion',
 ;;; Now an item is judged on a list, and the gate is only its head.
 "channels" -> lp_user;
 
-check('a character is read', lp_channels("hi_a"), [read]);
-check('a word is read AND heard', lp_channels("w_neko"), [read hear]);
-check('a sound contrast is heard, or it is nothing', lp_channels("s_r_l"), [hear]);
-check('a pattern is produced', lp_channels("p_kore_wa_desu"), [produce]);
+check('a character is read, and can be said', lp_channels("hi_a"), [read speak]);
+check('a word is read, heard AND said',
+      lp_channels("w_neko"), [read hear speak]);
+check('a sound contrast is heard and said', lp_channels("s_r_l"), [hear speak]);
+;;; `produce` is composing a sentence, which a keyboard can answer;
+;;; `speak` is making the sound.  Two different things English calls
+;;; production, and a pattern asks for the one this build can check.
+check('a pattern is produced, which is not the same as spoken',
+      lp_channels("p_kore_wa_desu"), [produce]);
 check('the gate is the head of the list', lp_primary("w_neko"), "read");
+;;; Adding a channel must not move a door.  speak is appended for every
+;;; kind, so every gate channel is what it was.
+check('and adding speak did not move it', lp_primary("hi_a"), "read");
+check('nor for a contrast', lp_primary("s_r_l"), "hear");
 
 ;;; The split that matters: reading a word is not hearing it.
 lp_record("w_neko", "read", 1, "right", 500);

@@ -1822,6 +1822,7 @@ asserts the doubled form would **not** have survived.
 | `:zine` | the study plan, as a booklet to fold |
 | `:say <item>` | hear it said, if a voice is installed; `:say <item> slow` |
 | `:rate slow` | listen slower from now on, and it sticks (`slow`/`normal`/`fast`) |
+| `:speak <item>` | say it, and have the held beat timed (needs a microphone) |
 | `again` | *at a listening question:* play it once more, free and unlimited |
 | `:assign` | something to do away from the keyboard |
 | `:report <n> ok` | done it (tier 3) |
@@ -2514,6 +2515,144 @@ measured over the answers given, so an item nobody can be asked about
 leaves the measurement rather than capping it. What was missing was the
 reader being told. Hence `ok -- 4 of 12 cannot be asked`, and with no
 voice installed at all, `needs_audio -- 12 of 12 cannot be asked`.
+
+## The microphone, and what an energy envelope can actually see
+
+`speak` is the one channel in langpop that wants a microphone, and it is
+**not** `produce`: producing is composing a sentence, which a pattern
+item asks for and a keyboard can answer; speaking is making the sound.
+Two different things English calls production, kept apart because one of
+them this build can check by typing.
+
+```
+Aoi> :speak w_kitte
+
+  Say it: きって
+  (enter to record, and hold the small っ)  ->
+  The held beat is there: 200 ms of silence against a 130 ms mora.
+  (machine verdict, confidence 0.399 -- capped at 0.77, because a
+   confident model is still a model)
+```
+
+### The measurement, which is not the one the plan specified
+
+`docs/projects/langpop-audio.md` scoped Stage 1 as *beat boundaries, a
+duration per mora, a comparison against a count the graph already
+computes*. **The first half of that is wrong, and measuring it is how we
+found out.**
+
+An energy envelope finds **voiced runs, not beats**. がっこう comes back
+as two runs — が, then っこう — because こ and う are one continuous
+voiced stretch with nothing between them to detect. No threshold
+produces four.
+
+What the envelope *does* see is silence, and **one Japanese mora is made
+of silence**: the geminate っ is a held closure. So the scorer answers
+the question `mora_sokuon` actually asks — *is the beat there?* — and
+declines the rest.
+
+Measured over 188 words from one TTS voice, with the engine's own
+`lp_morae/1` for ground truth:
+
+| | n | gap ÷ mean mora |
+| --- | --- | --- |
+| geminate stops (っk, っt, っp) | 6 of 6 | **1.33 – 1.55** |
+| geminate fricative (っし) | 1 | 0.00 |
+| no geminate | 181 | 0.00 – **0.90** |
+
+A threshold of `1.1` separates them, with the nearest non-geminate
+(くち, whose /tʃ/ closure runs 130 ms) at 0.90. The ratio is normalised
+by the word's own mean mora length, so it needs no calibration
+utterance — the speaker's rate cancels out.
+
+And scoring the 41 multi-mora words that have **no** geminate as though
+they did — the same signal a learner produces saying きて for きって —
+returns `wrong` **41 times out of 41**. No false positives.
+
+### っ before し is not a silence, and the graph knows it in advance
+
+いっしょ is `[iʃːo]`: the mora is a lengthened `[ʃ]` with energy all the
+way through. The gap is 0 ms and no threshold will find it. That is a
+fact about Japanese, not a defect in the scorer.
+
+The engine knows the following kana, so it **declines to ask** rather
+than asking and abstaining — the difference between a question with no
+answer and a question that was never fair:
+
+```
+Aoi> :speak w_issho
+  いっしょ holds a fricative rather than a silence -- っ
+  before し is a long し, so there is no gap to time.
+```
+
+### Tier 5, and why it is capped
+
+A machine verdict is its own kind of evidence: the student spoke,
+something measured it, and **nobody listened.** So it sits strictly
+between `INFERRED_CAP` and `TIER2_CAP`:
+
+```
+MASTERY = 0.80    a check: watched them do it
+MACHINE_CAP 0.77  a model measured them
+INFERRED_CAP 0.75 watched them do something requiring it
+TIER2_CAP 0.78    a reported result, "18 out of 20"
+TIER3_CAP 0.50    compliance, "I did it"
+```
+
+Above an inference, because what was observed **is** the item. Below a
+human check, because a confident model is still a model — and `0.77`
+leaves room for exactly one teacher's check to tip an item over mastery.
+Twelve machine verdicts do not.
+
+`near` from a scorer is not a near miss on spelling. It is the
+**confidence floor** — *I could not tell* — and tier 5 moves the belief
+in neither direction for it.
+
+### Both ends are commands, and absence is an answer
+
+```json
+"record":  {"cmd": "ffmpeg -f avfoundation -i :0 -t %s -ar 16000 -ac 1 -y %o",
+            "seconds": "3"},
+"verdict": {"cmd": "python3 tools/score-morae.py --request %q --out %v"}
+```
+
+Same terms as the voice, and neither is per-language: a microphone is a
+microphone, and the scorer is told the language in the request. With
+neither configured, `:speak` says so and records nothing.
+
+**The plan said a JSON-RPC side-car, and this is a command.** The
+argument for a persistent process was model load time — and the scorer
+that exists loads no model, so the latency that justified it is not
+there to measure. The contract is identical either way, a request object
+in and a verdict object out, so the day a model makes startup hurt the
+transport changes inside `lp_pronounced` and nothing above it moves.
+
+**A recording of somebody's voice is the most sensitive thing this
+project touches**, so the sample is scratch: written under the data
+directory, scored, and deleted — along with the request and verdict
+files beside it. Nothing keeps it and nothing uploads it. The only
+reason it is a file at all is that the scorer is a separate process.
+
+A scorer is somebody else's program, so its answer is checked before it
+reaches `lp_record`, which mishaps on an outcome it does not know. A
+model saying `magnificent` is a `bad_verdict`, not a crash.
+
+### The false-dropping trap, for the third time
+
+`json_generate` drops a `false`, so `detectable: false` left the key out
+altogether — and the scorer, reading an absent key as its default, duly
+measured a gap in いっしょ and called it **right**. The aids hit this
+(which is why `aids_off` stores *names*) and the exporter hit it before
+that. An absent field and a false field are the same thing once parsed,
+so the fact is now carried positively: `"detectable": "no"`.
+
+### What this deliberately does not do
+
+**`:speak` is not wired into `lp_next`.** No criterion on any rung asks a
+student to produce a sound, so a tutor that started demanding it would be
+grading something the ladder never promised. The capability exists; the
+criteria do not. Whether the ladder should declare them — and at what
+threshold — is a curation question, and an open one.
 
 ## What A deliberately does not have
 

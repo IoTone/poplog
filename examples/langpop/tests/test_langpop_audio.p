@@ -662,5 +662,141 @@ lp_queue_reset();
 ;;; --- the interleave is one rule, shared with the protocol
 check('one question in four is by ear', lp_hear_every(), 4);
 
+;;; ------------------------------------------------------- the microphone
+;;; Stage A: the seam, with no model behind it.  The recorder and the
+;;; scorer are commands named in the config, on exactly the terms the
+;;; voice is on -- so the first thing to check is that their absence is
+;;; an answer and not a crash.
+conf_rates('cp %i %o', 'jf_alpha', 'stub-1', '{"normal": "1.0"}');
+check_true('no recorder and no scorer means no speaking',
+           not(lp_can_speak()));
+lvars spath, swhy;
+lp_audio_capture("w_kitte") -> (spath, swhy);
+check('and recording says so plainly', swhy, 'no_recorder');
+lvars o2, c2, d2, w2;
+lp_pronounced("w_kitte", false, "sokuon", 3) -> (o2, c2, d2, w2);
+check('as does scoring', w2, 'no_scorer');
+
+;;; --- which geminates can be timed at all
+;;; っ before し is a lengthened [ʃ] with energy all the way through, so
+;;; there is no gap and no threshold that finds one.  The graph knows
+;;; the following kana, so the tutor declines to ASK.
+check_true('a geminate stop can be timed', lp_sokuon_detectable("w_kitte"));
+check_true('and so can a geminate p', lp_sokuon_detectable("w_ippai"));
+check_true('a geminate fricative cannot',
+           not(lp_sokuon_detectable("w_issho")));
+check_true('and a word with no geminate has nothing to time',
+           not(lp_sokuon_detectable("w_neko")));
+
+;;; --- a wav this suite makes itself
+;;; Sixteen-bit mono PCM, written byte by byte, so the threshold has a
+;;; regression guard that needs no recording, no voice and no fixture
+;;; checked into the repo.  A Pop-11 string holds bytes, which is the
+;;; only reason this is possible.
+define wav_le(n, bytes) -> s;
+    lvars n, bytes, s = '', i;
+    for i from 1 to bytes do
+        s <> consstring(n mod 256, 1) -> s;
+        n div 256 -> n;
+    endfor;
+enddefine;
+
+;;; segs is [[ms amplitude] ...]: amplitude 0 is silence.
+define wav_write(path, rate, segs);
+    lvars path, rate, segs, seg, data = '', n, i, amp, hi, lo;
+    dlocal pop_file_versions = false;
+    for seg in segs do
+        hd(tl(seg)) -> amp;
+        (rate * hd(seg)) div 1000 -> n;
+        ;;; A square wave at a quarter the sample rate: RMS is the
+        ;;; amplitude, which is all the envelope looks at.
+        for i from 1 to n do
+            ;;; wav_le(0, 2) and NOT '\s\s': \s is a SPACE, 0x20, so a
+            ;;; "silence" written that way came out at amplitude 8224 --
+            ;;; as loud as the tone beside it -- and the scorer correctly
+            ;;; found no gap in a file that had none.
+            if amp == 0 then wav_le(0, 2) -> lo
+            elseif i mod 4 < 2 then wav_le(amp, 2) -> lo
+            else wav_le(65536 - amp, 2) -> lo
+            endif;
+            data <> lo -> data;
+        endfor;
+    endfor;
+    'RIFF' <> wav_le(36 + length(data), 4) <> 'WAVEfmt ' <> wav_le(16, 4)
+      <> wav_le(1, 2) <> wav_le(1, 2) <> wav_le(rate, 4)
+      <> wav_le(rate * 2, 4) <> wav_le(2, 2) <> wav_le(16, 2)
+      <> 'data' <> wav_le(length(data), 4) <> data -> data;
+    lp_write_file(path, data);
+enddefine;
+
+;;; A three-mora word at 130ms a mora, with a 200ms held beat in the
+;;; middle: き っ て, which is the shape きって has.
+lvars held = tmpdir <> 'held.wav', flat = tmpdir <> 'flat.wav';
+wav_write(held, 16000, [[130 8000] [200 0] [130 8000]]);
+;;; The same word with the beat left out, which is what a learner who
+;;; says きて instead of きって produces.
+wav_write(flat, 16000, [[130 8000] [60 0] [130 8000]]);
+check_true('the suite wrote a wav', sysfilesize(held) > 1000);
+
+;;; The real scorer, as a command, exactly as the engine runs it.
+lp_write_file(lp_audio_conf_path(),
+    '{"ja": {"cmd": "cp %i %o", "voice": "v", "model": "m"},'
+    <> ' "record":  {"cmd": "cp ' <> held <> ' %o", "seconds": "3"},'
+    <> ' "verdict": {"cmd": "python3 -I ' <> langpop_dir
+    <> 'tools/score-morae.py --request %q --out %v"}}');
+lp_voices_load();
+check_true('a recorder and a scorer means speaking is possible',
+           lp_can_speak());
+
+lp_audio_capture("w_kitte") -> (spath, swhy);
+check_true('the recorder produced a sample', swhy == false);
+check_true('and it is on disk', sys_file_exists(spath));
+
+lp_pronounced("w_kitte", spath, "sokuon", 3) -> (o2, c2, d2, w2);
+check_true('the scorer answered', w2 == false);
+check('and heard the held beat', o2, "right");
+check_true('with a reason a learner can act on',
+           has('silence', d2) and has('mora', d2));
+check_true('and a confidence', c2 > 0.0);
+
+;;; The same question, a recording with no held beat in it.
+lp_pronounced("w_kitte", flat, "sokuon", 3) -> (o2, c2, d2, w2);
+check('a missing beat is wrong, not unknown', o2, "wrong");
+check_true('and it says what was missing', has('missing', d2));
+
+;;; An item whose geminate is a fricative: the scorer is told, and
+;;; declines rather than inventing a verdict.
+lp_pronounced("w_issho", held, "sokuon", 3) -> (o2, c2, d2, w2);
+check('a fricative geminate cannot be timed', o2, "near");
+check('and says why', c2, 0.0);
+
+;;; A scorer that answers something the engine does not know is refused
+;;; before it reaches lp_record, which mishaps on an unknown outcome.
+lp_write_file(tmpdir <> 'bad.json', '{"outcome": "magnificent"}');
+lp_write_file(lp_audio_conf_path(),
+    '{"ja": {"cmd": "cp %i %o", "voice": "v", "model": "m"},'
+    <> ' "record":  {"cmd": "cp ' <> held <> ' %o", "seconds": "3"},'
+    <> ' "verdict": {"cmd": "cp ' <> tmpdir <> 'bad.json %v"}}');
+lp_voices_load();
+lp_pronounced("w_kitte", held, "sokuon", 3) -> (o2, c2, d2, w2);
+check('an outcome the engine does not know is refused', w2, 'bad_verdict');
+
+;;; And a scorer that writes nothing at all.
+lp_write_file(lp_audio_conf_path(),
+    '{"ja": {"cmd": "cp %i %o", "voice": "v", "model": "m"},'
+    <> ' "record":  {"cmd": "cp ' <> held <> ' %o", "seconds": "3"},'
+    <> ' "verdict": {"cmd": "true"}}');
+lp_voices_load();
+lp_pronounced("w_kitte", held, "sokuon", 3) -> (o2, c2, d2, w2);
+check('a scorer that writes nothing is a failure, not a verdict',
+      w2, 'scorer_failed');
+
+;;; The request and verdict scratch files do not survive the call: a
+;;; recording of somebody's voice is the most sensitive thing here, and
+;;; what the engine writes beside it goes with it.
+check_true('no scratch json is left behind',
+           not(sys_file_exists(spath <> '.req.json'))
+           and not(sys_file_exists(spath <> '.verdict.json')));
+
 sysobey('rm -rf ' <> tmpdir);
 test_summary();

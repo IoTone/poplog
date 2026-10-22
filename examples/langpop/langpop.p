@@ -92,12 +92,27 @@ constant MASTERY = 0.80, TIER2_CAP = 0.78, TIER3_CAP = 0.50,
 ;;; So an inferred item is never TAUGHT as new and always CONFIRMED once
 ;;; on contact, which is exactly the behaviour wanted for a learner who
 ;;; arrives already knowing 500 kanji.
-         INFERRED_CAP = 0.75;
+         INFERRED_CAP = 0.75,
+;;; MACHINE is a verdict from a model: the student spoke, something
+;;; measured it, and nobody listened.  Stronger than an inference,
+;;; because what was observed IS the item -- and capped below a human
+;;; check for the reason the audio plan gives: a confident model is
+;;; still a model.  It sits strictly between INFERRED_CAP and TIER2_CAP,
+;;; and the ordering is the part that matters: above inference because
+;;; something was actually heard, below a self-reported score because a
+;;; student who reports 18 out of 20 was marked by a person.
+;;;
+;;; 0.77 leaves room for exactly one check to tip an item over MASTERY,
+;;; which is the property TIER2_CAP was chosen for, and the same
+;;; argument applies: however good the model gets, a teacher's ear is
+;;; what certifies pronunciation.
+         MACHINE_CAP = 0.77;
 
 ;;; The tier numbers are identifiers, not an ordering -- 4 was added
 ;;; after 1, 2 and 3 existed and sits second in strength:
 ;;;
 ;;;   1  a check: watched them do it                    -> MASTERY
+;;;   5  a machine verdict: a model measured them       -> MACHINE_CAP
 ;;;   4  inferred: watched them do something requiring it -> INFERRED_CAP
 ;;;   2  a reported result: "18 out of 20"              -> TIER2_CAP
 ;;;   3  compliance: "I did it"                         -> TIER3_CAP
@@ -123,12 +138,23 @@ enddefine;
 ;;;   sound     [hear]            a contrast is heard or it is nothing
 ;;;   pattern   [produce]         a pattern is produced
 ;;;   skill     [read]            a roll-up over whatever it requires
+;;; `speak` is SAYING it, and it is not `produce`.  produce is composing
+;;; a sentence, which a pattern item asks for and a keyboard can answer;
+;;; speak is making the sound, which wants a microphone.  Two different
+;;; things that English calls production, kept apart because the ladder
+;;; measures them separately and one of them this build can check by
+;;; typing.
+;;;
+;;; The primary channel is unchanged in every case -- it is hd(chs), and
+;;; speak is appended -- because lp_primary is the GATE and adding a
+;;; channel must not move a door.
 define lp_channels(item) -> chs;
     lvars item, k = lp_kind(item);
-    if     k == "sound"   then [hear]
-    elseif k == "pattern" then [produce]
-    elseif k == "word"    then [read hear]
-    else                       [read]
+    if     k == "sound"    then [hear speak]
+    elseif k == "pattern"  then [produce]
+    elseif k == "word"     then [read hear speak]
+    elseif k == "grapheme" then [read speak]
+    else                        [read]
     endif -> chs;
 enddefine;
 
@@ -589,6 +615,15 @@ enddefine;
 ;;; placement descent -- which is the whole reason the four exist.
 lconstant OUTCOMES = [right near wrong skip];
 
+;;; lconstant is file-local, and audio.p has to check a verdict that came
+;;; from somebody else's program against this list before handing it to
+;;; lp_record -- which mishaps on an outcome it does not know, and a
+;;; tutor crashing because a model said something unexpected is not an
+;;; acceptable way to find out.
+define lp_outcomes() -> l;
+    lvars l = OUTCOMES;
+enddefine;
+
 define lp_outcome_ok(o); lvars o; o == "right" enddefine;
 
 ;;; The prerequisite edges, which index/0 deliberately does not collect
@@ -819,6 +854,18 @@ define lp_record(item, ch, tier, outcome, latency_ms);
     if tier == 1 then
         if     outcome == "right" then b + (1.0 - b) * 0.45
         elseif outcome == "near"  then b * 0.45
+        elseif outcome == "wrong" then b * 0.30
+        else                           b * 0.20      ;;; skip
+        endif
+    elseif tier == 5 then
+        ;;; A machine verdict.  Moves like a check, because what was
+        ;;; observed is the item itself -- and stops short of mastery
+        ;;; because the observer was a model.  `near` is a real outcome
+        ;;; here and not a near-miss on spelling: it is the confidence
+        ;;; floor, the verdict that says `I could not tell`, and it must
+        ;;; move the belief in neither direction.
+        if     outcome == "near"  then b
+        elseif outcome == "right" then min(b + (1.0 - b) * 0.45, MACHINE_CAP)
         elseif outcome == "wrong" then b * 0.30
         else                           b * 0.20      ;;; skip
         endif
@@ -3428,6 +3475,97 @@ define lp_show_card(i);
 enddefine;
 
 ;;; ----------------------------------------------------------------- audio
+;;; The speak channel, which is the one thing in langpop that wants a
+;;; microphone.  Deliberately NOT wired into lp_next: no criterion on any
+;;; rung asks a student to produce a sound, so a tutor that started
+;;; demanding it would be grading something the ladder never promised.
+;;; `:speak <item>` is the capability; whether the ladder should declare
+;;; production criteria is a curation question, and an open one.
+;;;
+;;; A separate drill rather than an arm of lp_drill, because there is no
+;;; typed answer: the student presses enter, the recorder runs, the
+;;; scorer answers, and none of lp_drill's machinery -- the slip
+;;; tolerance, the confusable diagnosis, the answer list -- has anything
+;;; to do.  Bending one into the other would have cost both.
+define lp_speak_drill(item) -> done;
+    lvars item, done = false, text, why, sample, swhy,
+          outcome, confidence, detail, t0, line, expect;
+    lp_load_audio();
+    unless lp_kind(item) then
+        printf('  I have no item called %p.\n', [^item]); return;
+    endunless;
+    unless member("speak", lp_channels(item)) then
+        printf('  %p is not something to say.\n', [^item]); return;
+    endunless;
+    lp_audio_text(item) -> (text, why);
+    if why then
+        printf('  There is nothing to say for %p (%p).\n', [% item, why %]);
+        return;
+    endif;
+    unless lp_can_speak() then
+        printf('  I have no microphone or no scorer.  Both are commands\n');
+        printf('  named in %p -- see the header of\n',
+               [% lp_audio_conf_path() %]);
+        printf('  examples/langpop/audio.p for the shape.\n');
+        return;
+    endunless;
+    ;;; The one question this build can score is the held beat, so it is
+    ;;; the one it asks.  An item with no geminate, or one whose geminate
+    ;;; is a lengthened fricative, is declined HERE rather than recorded
+    ;;; and then abstained on -- a student should not be asked to say
+    ;;; something nobody can mark.
+    unless lp_sokuon_detectable(item) then
+        ;;; Two different refusals, because they are two different facts.
+        ;;; ねこ has no held beat to time; いっしょ has one and it is not a
+        ;;; silence.  One message for both told the student about し when
+        ;;; there was no っ in the word at all.
+        if issubstring('っ', text) or issubstring('ッ', text) then
+            printf('  %p holds a fricative rather than a silence -- っ\n',
+                   [% lp_any_form(item) %]);
+            printf('  before し is a long し, so there is no gap to time.\n');
+        else
+            printf('  %p has no held beat in it.  The only thing I can mark\n',
+                   [% lp_any_form(item) %]);
+            printf('  by ear so far is っ before か, た or ぱ.\n');
+        endif;
+        return;
+    endunless;
+    lp_morae(text) -> expect;
+
+    printf('\n  Say it: %p\n', [^text]);
+    printf('  (enter to record, and hold the small っ)  -> ');
+    sysflush(popdevout);
+    lp_readline() -> line;
+    returnif(line == termin);
+    lp_now_ms() -> t0;
+    lp_audio_capture(item) -> (sample, swhy);
+    if swhy then
+        printf('  The recorder wrote nothing (%p), so there is nothing to\n',
+               [^swhy]);
+        printf('  mark -- and I have recorded nothing.\n');
+        return;
+    endif;
+    lp_pronounced(item, sample, "sokuon", expect)
+        -> (outcome, confidence, detail, why);
+    ;;; The sample goes, whatever happened.  See lp_sample_path.
+    if sys_file_exists(sample) then sysdelete(sample) endif;
+    if why then
+        printf('  I could not get a verdict (%p).  Nothing recorded.\n',
+               [^why]);
+        return;
+    endif;
+    printf('  %p\n', [% detail or (outcome sys_>< '') %]);
+    ;;; `near` is the scorer saying it could not tell, and tier 5 moves
+    ;;; the belief in neither direction for it -- but it is still
+    ;;; recorded, because "I asked and could not tell" is a fact about
+    ;;; the session, and the journal is what the sheet reads.
+    lp_record(item, "speak", 5, outcome, lp_now_ms() - t0);
+    printf('  (machine verdict, confidence %p -- capped at %p, because a\n',
+           [% confidence, MACHINE_CAP %]);
+    printf('   confident model is still a model)\n');
+    true -> done;
+enddefine;
+
 ;;; audio.p on the same terms as card.p: loaded on demand, absent without
 ;;; consequence.  A tutor whose Japanese voice is not installed asks the
 ;;; same questions it asked yesterday.
@@ -3536,6 +3674,7 @@ define lp_help();
     printf('  :card <item>     draw it, and open it in the system viewer\n');
     printf('  :say <item>      hear it said, if a voice is installed\n');
     printf('  :rate slow       listen slower from now on (slow|normal|fast)\n');
+    printf('  :speak <item>    say it, and have the held beat timed\n');
     printf('  :sheet           today\'s work, as a page to print\n');
     printf('  :zine            the study plan, as a booklet to fold\n');
     printf('  :chart <script>  hiragana, katakana or youon, on one page\n');
@@ -3750,6 +3889,9 @@ define lp_session();
             elseif cmd = 'card' then
                 if arg = '' then printf('  :card <item id>\n')
                 else lp_show_card(consword(arg)) endif;
+            elseif cmd = 'speak' then
+                if arg = '' then printf('  :speak <item id>\n')
+                else lp_speak_drill(consword(arg)).erase endif;
             elseif cmd = 'say' then
                 lp_split2(arg) -> (a2, outcome);
                 if a2 = '' then printf('  :say <item id> [slow|normal|fast]\n')

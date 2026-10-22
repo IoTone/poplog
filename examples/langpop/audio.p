@@ -141,6 +141,16 @@ define lp_voices_load();
                lp_rates_of(cfg('rates')) %} -> lp_voices(consword(lang));
         endif;
     endfor;
+    ;;; The microphone and the scorer are not per-language: see the
+    ;;; comment on lp_recorder.  They live in the same table because it
+    ;;; is the same config file and the same "named or absent" rule.
+    for lang in ['record' 'verdict'] do
+        o(lang) -> cfg;
+        if cfg and (isproperty(cfg) or isjson_object(cfg)) and cfg('cmd') then
+            {% cfg('cmd'), (cfg('seconds') or '3') %}
+                -> lp_voices(consword(lang));
+        endif;
+    endfor;
 enddefine;
 
 ;;; The rate the student is listening at.  Persisted with the profile
@@ -421,6 +431,151 @@ define lp_audio_make(item, rate) -> (path, made, why);
     returnif(why);
     lp_audio_make_of(item, text, lp_ilang(item), rate, item)
         -> (path, made, why);
+enddefine;
+
+;;; ------------------------------------------------- the microphone side
+;;; Stage A of docs/projects/langpop-audio.md: the seam, before any
+;;; model.  Two more commands in audio.conf, on exactly the terms the
+;;; voice is on -- named by the config, absent without consequence:
+;;;
+;;;     "record":  {"cmd": "ffmpeg -f avfoundation -i :0 -t %s -ar 16000
+;;;                         -ac 1 -y %o", "seconds": "3"}
+;;;     "verdict": {"cmd": "python3 examples/langpop/tools/score-morae.py
+;;;                         --request %q --out %v"}
+;;;
+;;; THE PLAN SAID A JSON-RPC SIDE-CAR and this is a command, which is a
+;;; deliberate departure.  The argument for a persistent process was
+;;; model load time -- and the scorer that exists loads no model, so the
+;;; latency that justified it is not there to measure.  The contract is
+;;; the same either way (a request object in, a verdict object out), so
+;;; the day a model makes startup hurt, the transport changes inside
+;;; lp_pronounced and nothing above it moves.  Measured, not assumed.
+;;;
+;;; `record` and `verdict` are NOT per-language.  A microphone is a
+;;; microphone, and the scorer is told the language in the request.
+define lp_recorder() -> cfg;
+    lvars cfg;
+    unless lp_voices_ready then lp_voices_load() endunless;
+    lp_voices("record") -> cfg;
+enddefine;
+
+define lp_scorer() -> cfg;
+    lvars cfg;
+    unless lp_voices_ready then lp_voices_load() endunless;
+    lp_voices("verdict") -> cfg;
+enddefine;
+
+define lp_can_speak() -> yes;
+    lvars yes = (lp_recorder() and lp_scorer()) and true;
+enddefine;
+
+;;; A RECORDING OF SOMEBODY'S VOICE IS THE MOST SENSITIVE THING THIS
+;;; PROJECT TOUCHES, so the sample is scratch: written under the data
+;;; directory, scored, and deleted.  Nothing keeps it, nothing uploads
+;;; it, and the only reason it is a file at all is that the scorer is a
+;;; separate process.
+define lp_sample_path(item) -> path;
+    lvars item, path = lp_home() <> 'samples/';
+    unless sys_file_exists(path) then sysobey('mkdir -p ' <> path) endunless;
+    path <> (item sys_>< '') <> '-' <> (lp_now_ms() sys_>< '') <> '.wav'
+        -> path;
+enddefine;
+
+define lp_audio_capture(item) -> (path, why);
+    lvars item, path = false, why = false, cfg = lp_recorder(), cmd;
+    dlocal pop_file_versions = false;
+    unless cfg then 'no_recorder' -> why; return endunless;
+    lp_sample_path(item) -> path;
+    cfg(1) -> cmd;
+    lp_audio_subst(cmd, '%o', path) -> cmd;
+    lp_audio_subst(cmd, '%s', cfg(2)) -> cmd;
+    sysobey(cmd);
+    ;;; Same rule as the voice: an exit status is not evidence.  A
+    ;;; recorder that writes nothing has not recorded the student, and
+    ;;; scoring silence would blame them for it.
+    unless sys_file_exists(path) and sysfilesize(path) > 0 then
+        false -> path; 'no_sample' -> why;
+    endunless;
+enddefine;
+
+;;; っ BEFORE A FRICATIVE IS NOT A SILENCE.  いっしょ is [iʃːo]: the mora
+;;; is a lengthened [ʃ] with energy all the way through, so there is no
+;;; gap to time and no threshold that finds one.  The graph knows the
+;;; following kana, so the tutor declines to ASK rather than asking and
+;;; abstaining -- which is the difference between a question with no
+;;; answer and a question that was never fair.
+lconstant SOKUON_FRICATIVES = ['っさ' 'っし' 'っす' 'っせ' 'っそ' 'っふ'
+                               'ッサ' 'ッシ' 'ッス' 'ッセ' 'ッソ' 'ッフ'];
+
+define lp_sokuon_detectable(item) -> yes;
+    lvars item, yes = false, text, why, f;
+    lp_audio_text(item) -> (text, why);
+    returnif(why);
+    returnunless(issubstring('っ', text) or issubstring('ッ', text));
+    true -> yes;
+    for f in SOKUON_FRICATIVES do
+        if issubstring(f, text) then false -> yes; return endif;
+    endfor;
+enddefine;
+
+;;; pronounced(Item, Sample) -> (outcome, confidence, detail).  The one
+;;; call the whole microphone side is behind: a request object out, a
+;;; verdict object back, and the engine knows nothing about how it was
+;;; arrived at.
+define lp_pronounced(item, sample, task, expect)
+        -> (outcome, confidence, detail, why);
+    lvars item, sample, task, expect,
+          outcome = false, confidence = 0.0, detail = false, why = false,
+          cfg = lp_scorer(), req, vpath, cmd, o, s, text, twhy;
+    dlocal pop_file_versions = false;
+    unless cfg then 'no_scorer' -> why; return endunless;
+    unless sample and sys_file_exists(sample) then
+        'no_sample' -> why; return;
+    endunless;
+    lp_audio_text(item) -> (text, twhy);
+    newmapping([], 8, false, true) -> req;
+    (item sys_>< '') -> req('item');
+    (lp_ilang(item) sys_>< '') -> req('lang');
+    sample -> req('sample');
+    (task sys_>< '') -> req('task');
+    expect -> req('expect');
+    if text then text -> req('text') endif;
+    ;;; A STRING AND NOT A BOOLEAN.  json_generate drops a false, so
+    ;;; `detectable: false` left the key out altogether -- and a scorer
+    ;;; reading an absent key as its default duly measured a gap in a
+    ;;; word that has none and called it right.  The same trap the aids
+    ;;; hit (`aids_off` stores names) and the exporter hit before that:
+    ;;; an absent field and a false field are the same thing once
+    ;;; parsed, so the fact is carried positively.
+    (if lp_sokuon_detectable(item) then 'yes' else 'no' endif)
+        -> req('detectable');
+    sample <> '.req.json' -> s;
+    sample <> '.verdict.json' -> vpath;
+    lp_write_file(s, json_generate(req));
+    cfg(1) -> cmd;
+    lp_audio_subst(cmd, '%q', s) -> cmd;
+    lp_audio_subst(cmd, '%v', vpath) -> cmd;
+    sysobey(cmd);
+    if sys_file_exists(vpath) then
+        json_parse(lp_read_file(vpath)) -> o;
+    else
+        false -> o;
+    endif;
+    if sys_file_exists(s) then sysdelete(s) endif;
+    if sys_file_exists(vpath) then sysdelete(vpath) endif;
+    unless o and (isproperty(o) or isjson_object(o)) then
+        'scorer_failed' -> why; return;
+    endunless;
+    ;;; An outcome the engine does not know is not an outcome.  A scorer
+    ;;; is somebody else's program, and lp_record mishaps on a word that
+    ;;; is not in OUTCOMES -- which would be a tutor crashing because a
+    ;;; model said something unexpected.
+    unless o('outcome')
+    and member(consword(o('outcome') sys_>< ''), lp_outcomes())
+    then 'bad_verdict' -> why; return endunless;
+    consword(o('outcome') sys_>< '') -> outcome;
+    (o('confidence') or 0.0) -> confidence;
+    o('detail') -> detail;
 enddefine;
 
 ;;; ------------------------------------------------------------ playing

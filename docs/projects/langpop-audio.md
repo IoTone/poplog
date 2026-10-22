@@ -458,7 +458,58 @@ a lesson: **before marking anything `needs_audio`, say out loud what the
 student would have to DO.** If the answer can be typed or picked, it is
 not an audio problem. Only *produce* survives that test.
 
-### Stage A — the seam and the tier, before any audio arrives
+### Stage A — the seam and the tier — **shipped**
+
+**Built 2026-10-21.** `MACHINE_CAP = 0.77`, tier 5 in `lp_record`, the
+`speak` channel (appended to every kind, so no gate channel moved), the
+recorder and the scorer as commands in `audio.conf`, `lp_pronounced/4`
+as the one call behind all of it, and `:speak <item>`. 1211 checks over
+seven suites.
+
+One departure, stated in the README and worth repeating here: **the
+side-car is a command, not a JSON-RPC process.** The argument for a
+persistent process was model load time, and the scorer that exists loads
+no model — so the latency that justified it is not there to measure. The
+contract is identical, so the transport changes inside one procedure
+when a model makes startup hurt. Measured, not assumed.
+
+`speak` is in the channel list and **not** in `VERIFIABLE`, exactly as
+this plan said, and `:speak` is not wired into `lp_next`: see §6.
+
+### Stage 1 — mora production — **shipped, and not as specified**
+
+The scope above was *beat boundaries, a duration per mora, a comparison
+against a count the graph already computes.* **The first half of that is
+wrong.** An energy envelope finds voiced runs, not beats: がっこう comes
+back as two runs — が, then っこう — because こ and う are one continuous
+voiced stretch. No threshold produces four.
+
+What the envelope sees is silence, and one Japanese mora **is** silence.
+So `tools/score-morae.py` (standard library only) scores the question
+`mora_sokuon` actually asks — is the held beat there? — over 188 TTS
+words with `lp_morae/1` as ground truth:
+
+| | n | gap ÷ mean mora |
+| --- | --- | --- |
+| geminate stops | 6 of 6 | 1.33 – 1.55 |
+| geminate fricative (っし) | 1 | 0.00 |
+| no geminate | 181 | 0.00 – 0.90 |
+| no geminate, scored as if it had one | 41 | **`wrong` 41/41** |
+
+Threshold 1.1, normalised by the word's own mean mora length so the
+speaker's rate cancels out and no calibration utterance is needed.
+
+**っ before a fricative is not a silence.** いっしょ is `[iʃːo]` — a
+lengthened `[ʃ]` with energy throughout — so the gap is 0 ms and nothing
+will find it. The graph knows the following kana, so the tutor declines
+to ask rather than asking and abstaining.
+
+**The caveat that matters: this is one TTS voice, not learner speech.**
+The separation is clean on a synthetic speaker and that is an upper
+bound. §4's Stage 3 is still the open question, and it is now the only
+thing between this and a verdict anyone should trust.
+
+### Stage A — the original plan, for the record
 
 This was buried in §5 as a precondition. It is a stage, it is first, and
 it is maybe two hundred lines.
