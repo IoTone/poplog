@@ -1374,6 +1374,28 @@ check_false('and oops', lp_aid("oops"));
 check_true('later was never touched', lp_aid("later"));
 check('both changes came back', length(lp_aid_log), 2);
 
+;;; The listening rate is the same kind of setting and survives the same
+;;; way.  It is held in lp_rate_want rather than audio.p's lp_rate
+;;; because audio.p is loaded on demand: a rate read out of the profile
+;;; at login would otherwise be overwritten by the `vars lp_rate =
+;;; RATE_DEFAULT` of the load that was supposed to honour it.
+"slow" -> lp_rate_want;
+lp_save();
+false -> lp_rate_want;
+check_true('the profile loads', lp_load_profile("switcher"));
+check('the listening rate came back', lp_rate_want, "slow");
+
+;;; And a profile that never named one does not invent a rate, so the
+;;; engine's own default stands.
+lvars withrate = lp_read_file(lp_profile_path("switcher"));
+lp_write_file(lp_profile_path("switcher"),
+    '{"user":"switcher","display":"Switcher","lang":"ja","level":"preschool"}');
+false -> lp_rate_want;
+lp_load_profile("switcher").erase;
+check_true('a profile with no rate leaves it unset', lp_rate_want == false);
+lp_write_file(lp_profile_path("switcher"), withrate);
+lp_load_profile("switcher").erase;
+
 ;;; A profile written before any of this existed has no aids_off field,
 ;;; and an absent field must not read as "all off" -- which is why the
 ;;; names are stored rather than a map of booleans.

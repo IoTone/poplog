@@ -882,7 +882,8 @@ check('audio: cached_only reaches the same answer with no voice',
 ;;; voice is `cp`, so the wav is the text -- which is what lets this
 ;;; check that the Japanese reached the command intact over the wire.
 lp_write_file(lp_audio_conf_path(),
-    '{"ja": {"cmd": "cp %i %o", "voice": "jf_test", "model": "rpc-stub"}}');
+    '{"ja": {"cmd": "cp %i %o", "voice": "jf_test", "model": "rpc-stub",'
+    <> ' "rates": {"slow": "0.7", "normal": "1.0"}}}');
 lp_voices_load();
 
 lvars sayv = result('langpop/audio.say', jsonrpc_obj([% 'item', 'hi_a' %]));
@@ -919,6 +920,36 @@ check_true('audio: and it is NOT an error -- the answer is simply "not yet"',
                                'cached_only', true %]))('error') == false);
 check_true('audio: and the model was not run',
            not(sys_file_exists(lp_audio_lang_dir("ja") <> 'hi_i-jf_test')));
+
+;;; The rate the student hears, over the wire.  A client with a speed
+;;; control needs three things: the rate it got, the rates it may ask
+;;; for, and whether slowing THIS item down misleads.
+check('audio: the rate it was said at', sayv('rate'), 'normal');
+check_true('audio: and the rates this voice offers, so a client can offer them',
+           member('slow', [% explode(sayv('rates')) %]) /== false);
+check_true('audio: あ is not timing sensitive',
+           not(sayv('timing_sensitive')));
+
+lvars slowv = result('langpop/audio.say',
+                     jsonrpc_obj([% 'item', 'hi_a', 'rate', 'slow' %]));
+check('audio: a rate asked for is the rate reported', slowv('rate'), 'slow');
+check_true('audio: and a different file', slowv('path') /= sayv('path'));
+check_true('audio: with the rate in its name',
+           issubstring('-slow-', slowv('path')) /== false);
+
+;;; An item where length is contrastive says so, because a slowed voice
+;;; stretches the beats and not always evenly -- a client offering a
+;;; speed control has to be able to warn.
+lvars gem = result('langpop/audio.say',
+                   jsonrpc_obj([% 'item', 'w_gakkou' %]));
+check_true('audio: a geminate is flagged as timing sensitive',
+           gem('timing_sensitive'));
+
+;;; An unknown rate is a PARAMS error, not an unbuilt one: the name came
+;;; from the client, and the message names the ones that exist.
+check('audio: an unknown rate is -32602',
+      errcode('langpop/audio.say',
+              jsonrpc_obj([% 'item', 'hi_a', 'rate', 'glacial' %])), -32602);
 
 ;;; An English item with no voice for English: the per-language table
 ;;; means one installed voice does not imply the other.

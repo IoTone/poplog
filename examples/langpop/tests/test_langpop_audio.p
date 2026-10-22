@@ -43,11 +43,11 @@ check_true('no voice is configured', not(lp_audio_ready("ja")));
 check_true('nor for English', not(lp_audio_ready("en")));
 
 lvars path, made, why;
-lp_audio_name("hi_a") -> (path, why);
+lp_audio_name("hi_a", false) -> (path, why);
 check('a name needs a voice to name the file after', why, 'no_voice');
-lp_audio_path("hi_a") -> (path, why);
+lp_audio_path("hi_a", false) -> (path, why);
 check('and so does a lookup', why, 'no_voice');
-lp_audio_make("hi_a") -> (path, made, why);
+lp_audio_make("hi_a", false) -> (path, made, why);
 check('making one says so plainly', why, 'no_voice');
 check_true('and writes nothing', not(sys_file_exists(tmpdir <> 'audio')));
 
@@ -107,6 +107,19 @@ define conf(cmd, voice, model);
     lp_voices_load();
 enddefine;
 
+;;; The same, with rates declared.  Two configs rather than one argument
+;;; because the point of several checks below is a voice that has NO rate
+;;; control -- which is a config with no `rates` key, not an empty one.
+define conf_rates(cmd, voice, model, rates);
+    lvars cmd, voice, model, rates;
+    lp_write_file(lp_audio_conf_path(),
+        '{"ja": {"cmd": "' <> cmd <> '", "voice": "' <> voice
+        <> '", "model": "' <> model <> '", "rates": ' <> rates <> '},'
+        <> ' "en": {"cmd": "' <> cmd <> '", "voice": "' <> voice
+        <> '", "model": "' <> model <> '", "rates": ' <> rates <> '}}');
+    lp_voices_load();
+enddefine;
+
 lvars callfile = tmpdir <> 'calls';
 lvars stub = 'echo x >> ' <> callfile <> '; cp %i %o';
 
@@ -114,20 +127,20 @@ conf(stub, 'jf_alpha', 'stub-1');
 check_true('a voice is configured now', lp_audio_ready("ja"));
 
 lvars n1, n2, n3, n4;
-lp_audio_name("hi_a") -> (n1, why);
+lp_audio_name("hi_a", false) -> (n1, why);
 check_true('a name is produced', why == false);
-lp_audio_name("hi_a") -> (n2, why);
+lp_audio_name("hi_a", false) -> (n2, why);
 check('the same question gives the same name', n2, n1);
 check_true('the voice is in the name, so two voices do not collide',
            has('jf_alpha', n1));
 check_true('and the language is in the path', has('/ja/', n1));
 
 conf(stub, 'jf_beta', 'stub-1');
-lp_audio_name("hi_a") -> (n3, why);
+lp_audio_name("hi_a", false) -> (n3, why);
 check_true('a different voice is a different file', n3 /= n1);
 
 conf(stub, 'jf_alpha', 'stub-2');
-lp_audio_name("hi_a") -> (n4, why);
+lp_audio_name("hi_a", false) -> (n4, why);
 check_true('a different model is a different file', n4 /= n1);
 check_true('even with the voice unchanged', has('jf_alpha', n4));
 
@@ -136,17 +149,17 @@ check_true('even with the voice unchanged', has('jf_alpha', n4));
 ;;; not land on one file.
 conf(stub, 'jf_alpha', 'stub-1');
 lvars na, ni;
-lp_audio_name("hi_a") -> (na, why);
-lp_audio_name("hi_i") -> (ni, why);
+lp_audio_name("hi_a", false) -> (na, why);
+lp_audio_name("hi_i", false) -> (ni, why);
 check_true('two items are two files', na /= ni);
 
 ;;; ------------------------------------------------------- rendering once
-lp_audio_path("hi_a") -> (path, why);
+lp_audio_path("hi_a", false) -> (path, why);
 check('nothing is cached yet', why, 'not_generated');
 check_true('and asking did NOT run the voice',
            lp_read_file(callfile) == false);
 
-lp_audio_make("hi_a") -> (path, made, why);
+lp_audio_make("hi_a", false) -> (path, made, why);
 check_true('rendering succeeds', why == false);
 check_true('and says it rendered', made);
 check_true('the file is on disk', sys_file_exists(path));
@@ -159,12 +172,12 @@ check('the voice ran exactly once', length(lp_read_file(callfile)), 2);
 ;;; made of them.
 check('the text arrived as bytes, unmangled', lp_read_file(path), 'あ');
 
-lp_audio_make("hi_a") -> (path, made, why);
+lp_audio_make("hi_a", false) -> (path, made, why);
 check_true('a second ask is not a second render', not(made));
 check_true('and no error', why == false);
 check('the voice still ran only once', length(lp_read_file(callfile)), 2);
 
-lp_audio_path("hi_a") -> (path, why);
+lp_audio_path("hi_a", false) -> (path, why);
 check_true('and now the lookup finds it', why == false);
 
 ;;; The scratch file holding the text is not left behind: a cache
@@ -188,7 +201,7 @@ check_true('and the command, so a bad render can be reproduced',
 ;;; ---------------------------------------------------------- a whole level
 ;;; Ahead of time: the reason --audio exists.
 lvars m, c, sk;
-lp_audio_level("preschool") -> (m, c, sk);
+lp_audio_level("preschool", false) -> (m, c, sk);
 check_true('most of the level renders', m > 100);
 check('and the one already cached is counted as cached', c, 1);
 check_true('and the rest is reported, not silently dropped', length(sk) > 0);
@@ -208,7 +221,7 @@ endfor;
 check_true('reasons were given at all', reasons /== []);
 check_true('and the only reasons are the graph\'s own', not(odd));
 
-lp_audio_level("preschool") -> (m, c, sk);
+lp_audio_level("preschool", false) -> (m, c, sk);
 check('a second pass renders nothing', m, 0);
 check_true('because it is all cached', c > 100);
 
@@ -236,14 +249,168 @@ check_true('the voice and model are named on the page, since that is '
 ;;; A command can exit 0 and write nothing.  That is not a render, and a
 ;;; student must not be handed a zero-byte file as though it were a word.
 conf('true', 'jf_alpha', 'stub-3');
-lp_audio_make("hi_u") -> (path, made, why);
+lp_audio_make("hi_u", false) -> (path, made, why);
 check('a voice that writes nothing is a failure', why, 'voice_failed');
 check_true('and no path is offered', path == false);
 
 ;;; A command that does not exist is the same answer, not a crash.
 conf('nosuchcommand-langpop', 'jf_alpha', 'stub-4');
-lp_audio_make("hi_u") -> (path, made, why);
+lp_audio_make("hi_u", false) -> (path, made, why);
 check('a voice that is not installed is the same answer', why, 'voice_failed');
+
+;;; ------------------------------------------------------------- the rate
+;;; A learner asks for slower, not for 0.7.  The engine's scale lives in
+;;; the engine's config and langpop uses the three names.
+
+;;; A voice with no rate control at all -- which is most of the ways a
+;;; command can be wired up, and the state the checks above ran in.
+conf(stub, 'jf_alpha', 'stub-1');
+check('a voice with no rates offers exactly one',
+      lp_audio_rates("ja"), [normal]);
+lp_audio_make("hi_a", "slow") -> (path, made, why);
+check('and does not pretend to go slow', why, 'no_such_rate');
+check_true('nothing is written for a rate that does not exist',
+           path == false);
+
+lvars val, ok;
+lp_audio_rate_value("ja", "normal") -> (val, ok);
+check_true('normal is a rate it does have', ok);
+check_true('with nothing to substitute, which is the point', val == false);
+
+;;; Declared out of order on purpose: the config is an object and
+;;; json_parse gives a property, so declaration order is not preserved.
+;;; The order the student is offered has to come from us.
+conf_rates(stub, 'jf_alpha', 'stub-1',
+           '{"fast": "1.3", "slow": "0.7", "normal": "1.0"}');
+check('the rates are offered slowest first, not in config order',
+      lp_audio_rates("ja"), [slow normal fast]);
+
+;;; A name outside the three is dropped rather than honoured: see the
+;;; header of audio.p.  A dial is not what a tutor needs.
+conf_rates(stub, 'jf_alpha', 'stub-1',
+           '{"slow": "0.7", "glacial": "0.2"}');
+check('an unrecognised name is not offered',
+      lp_audio_rates("ja"), [slow normal]);
+check_true('and normal is supplied even when the config forgot it',
+           member("normal", lp_audio_rates("ja")) /== false);
+lp_audio_rate_value("ja", "normal") -> (val, ok);
+check_true('as a rate with no value, so the command is left alone',
+           ok and val == false);
+
+;;; --------------------------------------------- the rate is part of the key
+conf_rates(stub, 'jf_alpha', 'stub-1',
+           '{"slow": "0.7", "normal": "1.0", "fast": "1.3"}');
+lvars slowp, normp, fastp;
+lp_audio_name("hi_a", "slow") -> (slowp, why);
+lp_audio_name("hi_a", "normal") -> (normp, why);
+lp_audio_name("hi_a", "fast") -> (fastp, why);
+check_true('three rates are three files', slowp /= normp and normp /= fastp);
+check_true('and the rate is in the name, so a directory can be read',
+           has('-slow-', slowp) and has('-normal-', normp));
+
+;;; The VALUE goes through the hash: a config that redefines slow from
+;;; 0.7 to 0.8 has to invalidate what 0.7 produced, or the student goes
+;;; on hearing the old speed under the new name.
+lvars slow07 = slowp;
+conf_rates(stub, 'jf_alpha', 'stub-1',
+           '{"slow": "0.8", "normal": "1.0", "fast": "1.3"}');
+lp_audio_name("hi_a", "slow") -> (slowp, why);
+check_true('redefining a rate invalidates its cache', slowp /= slow07);
+check_true('and the name still says slow', has('-slow-', slowp));
+
+;;; ------------------------------------------------- %r reaches the command
+lvars ratefile = tmpdir <> 'rates';
+conf_rates('echo %r >> ' <> ratefile <> '; cp %i %o',
+           'jf_alpha', 'stub-1',
+           '{"slow": "0.7", "normal": "1.0", "fast": "1.3"}');
+lp_audio_make("hi_ka", "slow") -> (path, made, why);
+check_true('a slow render succeeds', why == false and made);
+check_true('the engine was handed ITS number, not our name',
+           has('0.7', lp_read_file(ratefile)));
+check_true('and not the name we call it by',
+           not(has('slow', lp_read_file(ratefile))));
+
+lp_audio_make("hi_ka", "fast") -> (path, made, why);
+check_true('and a fast one is a separate render', made);
+check_true('with the other number',
+           has('1.3', lp_read_file(ratefile)));
+
+;;; --------------------------------------------------- the student's rate
+;;; `false` means "whatever they are listening at", which is what every
+;;; call that does not care about rate passes.
+"slow" -> lp_rate;
+lvars deflt;
+lp_audio_name("hi_a", false) -> (deflt, why);
+lp_audio_name("hi_a", "slow") -> (slowp, why);
+check('a false rate is the student\'s rate', deflt, slowp);
+"normal" -> lp_rate;
+lp_audio_name("hi_a", false) -> (deflt, why);
+check_true('and it moves when they change it', deflt /= slowp);
+
+;;; ------------------------------------------- rhythm is not rate-neutral
+;;; Japanese length is contrastive: きて and きって differ by a beat of
+;;; silence.  Every engine stretches those durations under a rate change
+;;; and none promises to stretch a closure by the same factor as the
+;;; vowel beside it -- so the tutor says which items that applies to.
+check_true('a geminate carries contrastive length',
+           lp_audio_timing("w_gakkou"));
+check_true('and a plain kana does not', not(lp_audio_timing("hi_a")));
+
+lvars long_v = false, moraic = false;
+for i in lp_items do
+    nextunless(lp_ilang(i) == "ja");
+    if not(long_v) and issubstring('ー', lp_form_of(i, "katakana") sys_>< '')
+    then i -> long_v endif;
+    if not(moraic) and issubstring('ん', lp_form_of(i, "hiragana") sys_>< '')
+    then i -> moraic endif;
+endfor;
+if long_v then
+    check_true('a long vowel mark counts too', lp_audio_timing(long_v));
+endif;
+if moraic then
+    check_true('and a moraic n', lp_audio_timing(moraic));
+endif;
+
+;;; A skill has no text, so the question does not arise -- and must not
+;;; raise either.
+check_true('an item with nothing to say is not timing sensitive',
+           not(lp_audio_timing("mora_count")));
+
+;;; ---------------------------------------- provenance records the rate
+lp_audio_make("w_gakkou", "slow") -> (path, made, why);
+check_true('a word renders slow', why == false);
+lvars side2 = lp_read_file(substring(1, length(path) - 4, path) <> '.json'),
+     prov2 = json_parse(side2);
+check('the sidecar names the rate', prov2('rate'), 'slow');
+check('and the number the engine was given', prov2('rate_value'), '0.7');
+check_true('and that this one is timing sensitive, which is why it matters',
+           prov2('timing_sensitive'));
+
+;;; ------------------------------------------- the page gets a column each
+;;; One column per rate something was rendered at -- not per rate the
+;;; config declares, because an empty `fast` column reads as a voice that
+;;; cannot go fast.
+lp_audio_level("preschool", "normal") -> (m, c, sk);
+lp_audio_index("preschool") -> (page, pwhy);
+check_true('the page is written', pwhy == false);
+lp_read_file(page) -> html;
+check_true('with a column for the rate that was rendered',
+           has('<th>normal</th>', html));
+;;; `fast` is here because ONE item was rendered fast above, which is the
+;;; rule working rather than a stray: a column appears when anything has
+;;; that rate, and the items that do not get an empty cell rather than a
+;;; missing column or a broken player.
+check_true('a rate one item has gives a column', has('<th>fast</th>', html));
+check_true('and an item without it has an empty cell there',
+           has('</audio></td><td></td>', html));
+check_true('the timing mark is on the page, with its explanation',
+           has('&#9834;', html) and has('contrastive length', html));
+
+lp_audio_level("preschool", "slow") -> (m, c, sk);
+lp_audio_index("preschool") -> (page, pwhy);
+lp_read_file(page) -> html;
+check_true('now there are two columns',
+           has('<th>slow</th>', html) and has('<th>normal</th>', html));
 
 sysobey('rm -rf ' <> tmpdir);
 test_summary();

@@ -301,8 +301,8 @@ wrong.
 Kokoro behind a cache. No assessment, no verdict, no microphone.
 
 **Built 2026-10-21**: `examples/langpop/audio.p`, `--audio <level>`, the
-TUI's `:say`, `langpop/audio.say` as the 18th method, and 60 checks in
-`test_langpop_audio.p`. The engine runs with no model installed and says
+TUI's `:say` and `:rate`, `langpop/audio.say` as the 18th method, and 94
+checks in `test_langpop_audio.p`. The engine runs with no model installed and says
 `no voice for ja`, which is the state CI is in. See the README section
 *Stage 0 of audio: the student can hear it* for the shape of the config,
 the cache key and what has no sound.
@@ -337,6 +337,30 @@ JSON per wav**, naming the item, text, voice, model and command. The plan
 said `manifest`, which would have been one file read, modified and
 rewritten per render; a sidecar cannot be raced, and it goes stale with
 the file it describes instead of outliving it in an index.
+
+**Rate control, added 2026-10-21, and it reaches into Stage 1.** A
+beginner needs it slower, so the config maps a *name* to whatever the
+engine's scale wants (`"rates": {"slow": "0.7", …}`, substituted as
+`%r`) — there is no portable number, since Kokoro takes a multiplier and
+`say(1)` takes words per minute. The rate is part of the cache key, name
+in the filename and value through the hash, and `:rate` persists in the
+profile beside the aids.
+
+The part that matters to this document: **a slowed voice is not a slowed
+language.** Japanese length is contrastive — きて against きって — and
+every engine stretches durations under a rate change without promising
+to stretch a geminate *closure* by the same factor as the vowel beside
+it. So slow is right for finding the segments in a word and wrong for
+learning its rhythm, and langpop now says which items that applies to
+(`っ ッ ー ん ン` in the spoken form, which is what `lp_morae/1` counts as
+beats of their own) rather than refusing the rate.
+
+**Stage 1 inherits a rule from this:** the mora verdict is a judgement
+about duration, so it can only ever be taken on audio recorded at the
+normal rate. A student listening at `slow` is hearing a rhythm the
+language does not have, and scoring their production against it would be
+measuring the TTS engine's stretching behaviour. The `timing_sensitive`
+flag already on the wire is where that check belongs.
 
 **It does not make `hear` verifiable.** Playing a sound and checking a
 student heard it are different claims, and the ladder must keep saying

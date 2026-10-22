@@ -994,6 +994,7 @@ enddefine;
 define lp_m_audio_say(msg) -> res;
     lvars msg, res, item = lp_param(msg, 'item'),
           cached = lp_param(msg, 'cached_only'),
+          rate = lp_param(msg, 'rate'),
           path, made, why, cfg, text, twhy;
     unless item then
         lp_err(LP_E_PARAMS, 'audio.say: item needed') -> res; return
@@ -1002,9 +1003,12 @@ define lp_m_audio_say(msg) -> res;
     unless lp_kind(item) then
         lp_err(LP_E_ITEM, 'no such item: ' <> (item sys_>< '')) -> res; return
     endunless;
+    ;;; An absent rate is the server's own default, not an error: a client
+    ;;; that does not care about rate should not have to name one.
+    if rate then consword(rate sys_>< '') -> rate endif;
 
-    if cached then lp_audio_path(item) -> (path, why); false -> made;
-    else lp_audio_make(item) -> (path, made, why);
+    if cached then lp_audio_path(item, rate) -> (path, why); false -> made;
+    else lp_audio_make(item, rate) -> (path, made, why);
     endif;
 
     if why = 'no_spoken_form' then
@@ -1018,6 +1022,14 @@ define lp_m_audio_say(msg) -> res;
                              <> ': name one in ' <> lp_audio_conf_path()) -> res
     elseif why = 'voice_failed' then
         lp_err(LP_E_UNBUILT, 'the voice command wrote nothing') -> res
+    elseif why = 'no_such_rate' then
+        ;;; A params error and not -32005: the rate is a name the CLIENT
+        ;;; chose, and the reply names the ones this voice has so the
+        ;;; client can offer them rather than guess again.
+        lp_err(LP_E_PARAMS, 'no such rate: ' <> (rate sys_>< '')
+                            <> ' (this voice has: '
+                            <> (lp_audio_rates(lp_ilang(item)) sys_>< '')
+                            <> ')') -> res
     elseif why = 'not_generated' then
         ;;; Not an error: the caller asked what was cached and nothing is.
         jsonrpc_obj([% 'item', lp_jkey(item), 'generated', false,
@@ -1033,7 +1045,16 @@ define lp_m_audio_say(msg) -> res;
                        'rendered_now', made,
                        'path', path, 'format', 'wav',
                        'text', text,
-                       'voice', cfg(2), 'model', cfg(3) %]) -> res
+                       'voice', cfg(2), 'model', cfg(3),
+                       'rate', (lp_audio_rate_of(rate) sys_>< ''),
+                       'rates', lp_vec([% lvars r;
+                                          for r in lp_audio_rates(lp_ilang(item))
+                                          do r sys_>< '' endfor %]),
+                       ;;; Said, not enforced: length is contrastive in
+                       ;;; this item, so a client offering a rate control
+                       ;;; can warn that the RHYTHM is only trustworthy at
+                       ;;; the normal rate.
+                       'timing_sensitive', lp_audio_timing(item) %]) -> res
     endif;
 enddefine;
 

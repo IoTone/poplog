@@ -931,6 +931,11 @@ define lp_save();
     consvector(#| for a in lp_aid_log do
                       {% a(1) sys_>< '', a(2), a(3) %}
                   endfor |#) -> o('aid_changes');
+    ;;; The listening rate, if one was ever chosen.  Written from the
+    ;;; HELD name rather than lp_rate, because a session that never
+    ;;; loaded audio.p still has to save the choice it was started with.
+    if lp_audio_loaded then lp_rate -> lp_rate_want endif;
+    if lp_rate_want then lp_rate_want sys_>< '' -> o('rate') endif;
     lp_ensure_home();
     lp_write_file(lp_profile_path(lp_user), json_generate(o));
 enddefine;
@@ -985,6 +990,9 @@ define lp_load_profile(user) -> found;
             conspair(o('corrections')(i), lp_corrections) -> lp_corrections;
         endfor;
     endif;
+    ;;; Into the held name, not lp_rate: the profile is read at login and
+    ;;; audio.p is not loaded until something asks to hear a word.
+    if o('rate') then consword(o('rate') sys_>< '') -> lp_rate_want endif;
     if o('aids_off') then
         for i from 1 to length(o('aids_off')) do
             false -> lp_aids(consword(o('aids_off')(i) sys_>< ''));
@@ -3079,18 +3087,26 @@ enddefine;
 ;;; same questions it asked yesterday.
 vars lp_audio_loaded = false;
 
+;;; The rate the student asked for, held HERE and not in audio.p, because
+;;; audio.p is loaded on demand and its `vars lp_rate = RATE_DEFAULT`
+;;; runs at that moment -- so a choice made before the first :say (by
+;;; --rate, or by a profile read at login) would be overwritten by the
+;;; load that was supposed to honour it.
+vars lp_rate_want = false;
+
 define lp_load_audio();
     unless lp_audio_loaded then
         pop11_compile(langpop_dir <> 'audio.p');
         true -> lp_audio_loaded;
+        if lp_rate_want then lp_rate_want -> lp_rate endif;
     endunless;
 enddefine;
 
 ;;; :say DOES synthesise, where a question never would.  The rule is
 ;;; about not making a student wait mid-question; here the student asked
 ;;; for the sound and is waiting on purpose.
-define lp_show_say(i);
-    lvars i, path, made, why;
+define lp_show_say(i, rate);
+    lvars i, rate, path, made, why;
     lp_load_audio();
     unless lp_kind(i) then
         printf('  I have no item called %p.\n', [^i]); return;
@@ -3101,7 +3117,12 @@ define lp_show_say(i);
         printf('  the header of examples/langpop/audio.p.\n');
         return;
     endunless;
-    lp_audio_make(i) -> (path, made, why);
+    unless rate == false or member(rate, lp_audio_rates(lp_ilang(i))) then
+        printf('  This voice has no %p rate.  It has: %p\n',
+               [% rate, lp_audio_rates(lp_ilang(i)) %]);
+        return;
+    endunless;
+    lp_audio_make(i, rate) -> (path, made, why);
     if why = 'no_spoken_form' then
         printf('  %p is a skill, not a sound -- there is nothing to say.\n',
                [^i]);
@@ -3115,11 +3136,46 @@ define lp_show_say(i);
     elseif why then
         printf('  I cannot say that: %p\n', [^why]);
     else
-        printf('  %p%p\n', [% path, if made then '' else '  (cached)' endif %]);
+        printf('  %p  (%p%p)\n',
+               [% path, lp_audio_rate_of(rate),
+                  if made then '' else ', cached' endif %]);
+        ;;; A slowed voice is good for finding the segments and wrong for
+        ;;; learning the rhythm -- see the note in audio.p.  Said once,
+        ;;; where the student can act on it, and not as a refusal.
+        if lp_audio_rate_of(rate) /== "normal" and lp_audio_timing(i) then
+            printf('  Length is contrastive in this one.  Hear its RHYTHM\n');
+            printf('  at normal rate -- a slowed voice stretches the beats\n');
+            printf('  and not always evenly.\n');
+        endif;
         unless lp_audio_play(path) then
             printf('  No player here; the file is on disk.\n');
         endunless;
     endif;
+enddefine;
+
+;;; The rate the student listens at, which sticks: a beginner who has
+;;; asked for slow should not have to ask again tomorrow.
+define lp_show_rate(arg);
+    lvars arg, r;
+    lp_load_audio();
+    unless lp_audio_ready(lp_lang) then
+        printf('  I have no %p voice, so there is no rate to set.\n',
+               [% lp_lang %]);
+        return;
+    endunless;
+    if arg = '' then
+        printf('  Listening at %p.  This voice has: %p\n',
+               [% lp_rate, lp_audio_rates(lp_lang) %]);
+        return;
+    endif;
+    consword(arg) -> r;
+    unless member(r, lp_audio_rates(lp_lang)) then
+        printf('  This voice has no %p rate.  It has: %p\n',
+               [% r, lp_audio_rates(lp_lang) %]);
+        return;
+    endunless;
+    r -> lp_rate; r -> lp_rate_want;
+    printf('  Listening at %p from now on.\n', [% lp_rate %]);
 enddefine;
 
 ;;; ------------------------------------------------------------- the session
@@ -3133,6 +3189,7 @@ define lp_help();
     printf('  :aids            which helps are on (slip, oops, later)\n');
     printf('  :card <item>     draw it, and open it in the system viewer\n');
     printf('  :say <item>      hear it said, if a voice is installed\n');
+    printf('  :rate slow       listen slower from now on (slow|normal|fast)\n');
     printf('  :sheet           today\'s work, as a page to print\n');
     printf('  :zine            the study plan, as a booklet to fold\n');
     printf('  :chart <script>  hiragana, katakana or youon, on one page\n');
@@ -3272,8 +3329,13 @@ define lp_session();
                 if arg = '' then printf('  :card <item id>\n')
                 else lp_show_card(consword(arg)) endif;
             elseif cmd = 'say' then
-                if arg = '' then printf('  :say <item id>\n')
-                else lp_show_say(consword(arg)) endif;
+                lp_split2(arg) -> (a2, outcome);
+                if a2 = '' then printf('  :say <item id> [slow|normal|fast]\n')
+                else lp_show_say(consword(a2),
+                                 if outcome = '' then false
+                                 else consword(outcome) endif)
+                endif;
+            elseif cmd = 'rate' then lp_show_rate(arg);
             elseif cmd = 'assign' then lp_assign().erase;
             elseif cmd = 'report' then
                 lp_split2(arg) -> (a2, outcome);
@@ -3433,7 +3495,7 @@ enddefine;
 define lp_main();
     lvars args = poparglist, a, user = false, display = false,
           batch = false, checkonly = false, auditonly = false,
-          sheetonly = false, audioonly = false, rest = [];
+          sheetonly = false, audioonly = false, rate = false, rest = [];
     find_dir() -> langpop_dir;
     until args == [] do
         hd(args) -> a;
@@ -3450,6 +3512,8 @@ define lp_main();
         elseif a = '--zine' then "zine" -> sheetonly; tl(args) -> args;
         elseif a = '--audio' then
             consword(hd(tl(args))) -> audioonly; tl(tl(args)) -> args;
+        elseif a = '--rate' then
+            consword(hd(tl(args))) -> rate; tl(tl(args)) -> args;
         else conspair(a, rest) -> rest; tl(args) -> args;
         endif;
     enduntil;
@@ -3463,7 +3527,7 @@ define lp_main();
     ;;; property of the graph, like a card.
     if audioonly then
         lp_load_audio();
-        lp_audio_show(audioonly);
+        lp_audio_show(audioonly, rate);
         return;
     endif;
     ;;; A chart needs no student; today's sheet needs one, and says so
@@ -3489,6 +3553,10 @@ define lp_main();
         endif;
         return;
     endif;
+    ;;; --rate outside --audio is the student saying how they want to be
+    ;;; spoken to for the whole session.  audio.p may not be loaded yet,
+    ;;; so the name is held and lp_load_audio picks it up.
+    if rate then rate -> lp_rate_want endif;
     lp_load_persona(if lp_lang == "en" then 'hill' else 'aoi' endif);
     unless user then
         lp_greet();

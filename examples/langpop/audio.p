@@ -18,17 +18,33 @@
    is not going to load ONNX, and a tutor that cannot be run without a
    model is worse than one that says it has no voice today.
 
-       {"ja": {"cmd":   "kokoro --voice %v --text-file %i --out %o",
+       {"ja": {"cmd":   "kokoro --voice %v --speed %r --text-file %i --out %o",
                "voice": "jf_alpha",
-               "model": "kokoro-82m-v1.0"},
-        "en": {"cmd":   "kokoro --voice %v --text-file %i --out %o",
+               "model": "kokoro-82m-v1.0",
+               "rates": {"slow": "0.7", "normal": "1.0", "fast": "1.3"}},
+        "en": {"cmd":   "kokoro --voice %v --speed %r --text-file %i --out %o",
                "voice": "af_heart",
-               "model": "kokoro-82m-v1.0"}}
+               "model": "kokoro-82m-v1.0",
+               "rates": {"slow": "0.7", "normal": "1.0", "fast": "1.3"}}}
 
-   %i is a file holding the text, %o the wav to write, %v the voice.  The
-   TEXT GOES THROUGH A FILE and never onto the command line: the words
-   are Japanese, the shell is not, and a quoting bug in a tutor would be
-   a quoting bug in whatever the shell made of ひらがな.
+   %i is a file holding the text, %o the wav to write, %v the voice, %r
+   the rate.  The TEXT GOES THROUGH A FILE and never onto the command
+   line: the words are Japanese, the shell is not, and a quoting bug in a
+   tutor would be a quoting bug in whatever the shell made of ひらがな.
+
+   THE RATE SCALE BELONGS TO THE ENGINE, THE NAME BELONGS TO US.  Kokoro
+   takes a multiplier where 1.0 is normal; say(1) takes words per minute
+   where 175 is normal; a hypothetical third takes a percentage.  There
+   is no portable number, so the config maps a NAME to whatever that
+   engine wants and %r substitutes it:
+
+       "rates": {"slow": "110", "normal": "175", "fast": "220"}
+
+   The three names are the three a learner asks for, and they are the
+   only ones recognised: a tutor needs slower and faster, not an
+   arbitrary dial.  A config that declares none gets `normal` with
+   nothing substituted, which is what an engine with no rate control
+   wants -- so %r simply does not appear in its template.
 
    `model` is declared rather than detected, because an external command
    cannot be asked what weights it loaded.  It is part of the cache key,
@@ -51,6 +67,11 @@
 ;;; as English.  English is read from the latin form and never from the
 ;;; IPA, which is a notation and not a word -- a voice handed /wɜrld/
 ;;; says something, and it is not `world`.
+;;; The rates a learner asks for, slowest first -- which is also the order
+;;; they are reported and rendered in.
+lconstant RATE_ORDER = [slow normal fast];
+lconstant RATE_DEFAULT = "normal";
+
 lconstant SPOKEN_JA = [hiragana katakana kanji];
 lconstant SPOKEN_EN = [latin];
 
@@ -77,6 +98,29 @@ enddefine;
 ;;; that has just been told how to say things should not need restarting.
 vars lp_voices = newproperty([], 8, false, "perm"), lp_voices_ready = false;
 
+;;; [[name value] ...] in RATE_ORDER, from the config's `rates` object.
+;;; A name outside RATE_ORDER is dropped rather than honoured: see the
+;;; header.  No `rates` at all is not an error -- it is an engine with no
+;;; rate control, and `normal` substitutes nothing.
+define lp_rates_of(o) -> rs;
+    lvars o, rs = [], r, v;
+    unless o and (isproperty(o) or isjson_object(o)) then
+        [[normal ^false]] -> rs; return;
+    endunless;
+    ;;; One pass over RATE_ORDER, so the result is in RATE_ORDER -- and
+    ;;; `normal` is included whether or not the config declared it,
+    ;;; because every call that does not ask for a rate wants it.  Adding
+    ;;; it afterwards put it first and broke the slowest-first order the
+    ;;; student is offered.
+    for r in RATE_ORDER do
+        o(r sys_>< '') -> v;
+        if v then rs <> [[% r, (v sys_>< '') %]] -> rs
+        elseif r == RATE_DEFAULT then rs <> [[% r, false %]] -> rs
+        endif;
+    endfor;
+enddefine;
+
+
 define lp_voices_load();
     lvars s, o, lang, cfg;
     newproperty([], 8, false, "perm") -> lp_voices;
@@ -93,7 +137,39 @@ define lp_voices_load();
         if cfg and (isproperty(cfg) or isjson_object(cfg)) and cfg('cmd') then
             {% cfg('cmd'),
                cfg('voice') or 'default',
-               cfg('model') or 'unnamed' %} -> lp_voices(consword(lang));
+               cfg('model') or 'unnamed',
+               lp_rates_of(cfg('rates')) %} -> lp_voices(consword(lang));
+        endif;
+    endfor;
+enddefine;
+
+;;; The rate the student is listening at.  Persisted with the profile
+;;; beside the aids, because a beginner who has asked for slow should not
+;;; have to ask again tomorrow.
+vars lp_rate = RATE_DEFAULT;
+
+define lp_rate_names() -> l;
+    lvars l = RATE_ORDER;
+enddefine;
+
+;;; What this language's voice can actually do, which is a fact about the
+;;; config and not about langpop: an engine with no rate control offers
+;;; `normal` alone, and :rate says so rather than pretending.
+define lp_audio_rates(lang) -> names;
+    lvars lang, names = [], cfg = lp_voice(lang), r;
+    returnunless(cfg);
+    [% for r in cfg(4) do hd(r) endfor %] -> names;
+enddefine;
+
+;;; (value, ok): the string to substitute for %r, and whether this voice
+;;; knows the name at all.  A value of false is a known rate with nothing
+;;; to substitute -- `normal` on an engine with no rate control.
+define lp_audio_rate_value(lang, rate) -> (val, ok);
+    lvars lang, rate, val = false, ok = false, cfg = lp_voice(lang), r;
+    returnunless(cfg);
+    for r in cfg(4) do
+        if hd(r) == rate then
+            hd(tl(r)) -> val; true -> ok; return;
         endif;
     endfor;
 enddefine;
@@ -134,6 +210,32 @@ define lp_audio_text(item) -> (text, why);
     endif;
 enddefine;
 
+;;; ---------------------------------------------------- rate and rhythm
+;;; A SLOWED VOICE IS NOT A SLOWED LANGUAGE, and for one family of items
+;;; that matters.  Japanese length is contrastive: きて and きって differ
+;;; by a beat of silence, and the mora skills exist to teach exactly
+;;; that.  Every TTS engine stretches those durations under a rate
+;;; change, and none of them promises to stretch a geminate closure by
+;;; the same factor as the vowel beside it -- so at 0.7 the student may
+;;; hear a ratio the language does not have.
+;;;
+;;; Slow is still the right setting for finding the segments in a word.
+;;; It is the wrong one for learning its rhythm, and those are different
+;;; lessons on the same item.  So this is reported, never refused: the
+;;; tutor says which it is and the student decides.
+lconstant TIMING_MARKS = ['っ' 'ッ' 'ー' 'ん' 'ン'];
+
+define lp_audio_timing(item) -> yes;
+    lvars item, yes = false, text, why, m;
+    lp_audio_text(item) -> (text, why);
+    returnif(why);
+    ;;; Byte search is safe here: UTF-8 is self-synchronising, so a
+    ;;; three-byte sequence cannot match across a character boundary.
+    for m in TIMING_MARKS do
+        if issubstring(m, text) then true -> yes; return endif;
+    endfor;
+enddefine;
+
 ;;; ---------------------------------------------------------- the key
 ;;; djb2 over the bytes, modulo 2^24.  The key is {item, voice, model,
 ;;; text} and three of the four are in the filename in full, so the hash
@@ -150,23 +252,37 @@ enddefine;
 ;;; The cache key IS the filename, so there is no index to keep in step
 ;;; with the directory: a changed form writes a new name and the old file
 ;;; stops being reachable rather than being quietly served.
-define lp_audio_name(item) -> (path, why);
-    lvars item, path = false, why = false, text, cfg, lang;
+;;; `rate` is false for "whatever the student is listening at", a name
+;;; for an explicit one.  It lands in the filename beside the voice, and
+;;; its VALUE goes through the hash with the model: a config that
+;;; redefines slow from 0.7 to 0.8 has to invalidate what 0.7 produced.
+define lp_audio_rate_of(rate) -> r;
+    lvars rate, r = rate;
+    unless r then lp_rate -> r endunless;
+    unless r then RATE_DEFAULT -> r endunless;
+enddefine;
+
+define lp_audio_name(item, rate) -> (path, why);
+    lvars item, rate, path = false, why = false, text, cfg, lang, val, ok;
     lp_audio_text(item) -> (text, why);
     returnif(why);
     lp_ilang(item) -> lang;
     lp_voice(lang) -> cfg;
     unless cfg then 'no_voice' -> why; return endunless;
+    lp_audio_rate_of(rate) -> rate;
+    lp_audio_rate_value(lang, rate) -> (val, ok);
+    unless ok then 'no_such_rate' -> why; return endunless;
     lp_audio_lang_dir(lang)
-        <> (item sys_>< '') <> '-' <> cfg(2) <> '-'
-        <> (lp_audio_hash(text <> '\n' <> cfg(3)) sys_>< '') <> '.wav' -> path;
+        <> (item sys_>< '') <> '-' <> cfg(2) <> '-' <> (rate sys_>< '') <> '-'
+        <> (lp_audio_hash(text <> '\n' <> cfg(3) <> '\n'
+                          <> (val or '')) sys_>< '') <> '.wav' -> path;
 enddefine;
 
 ;;; ---------------------------------------------------- the cached answer
 ;;; Never synthesises.  This is what a question asks.
-define lp_audio_path(item) -> (path, why);
-    lvars item, path, why;
-    lp_audio_name(item) -> (path, why);
+define lp_audio_path(item, rate) -> (path, why);
+    lvars item, rate, path, why;
+    lp_audio_name(item, rate) -> (path, why);
     returnif(why);
     unless sys_file_exists(path) then
         false -> path; 'not_generated' -> why;
@@ -177,10 +293,14 @@ enddefine;
 ;;; A sidecar per file rather than one manifest: no read-modify-write, so
 ;;; two renders cannot race a shared file, and a stale wav's provenance
 ;;; goes stale with it instead of outliving it in an index.
-define lp_audio_note(path, item, text);
-    lvars path, item, text, o = newmapping([], 8, false, true),
-          cfg = lp_voice(lp_ilang(item));
+define lp_audio_note(path, item, text, rate);
+    lvars path, item, text, rate, o = newmapping([], 8, false, true),
+          cfg = lp_voice(lp_ilang(item)), val, ok;
     dlocal pop_file_versions = false;
+    lp_audio_rate_value(lp_ilang(item), rate) -> (val, ok);
+    (rate sys_>< '') -> o('rate');
+    if val then val -> o('rate_value') endif;
+    lp_audio_timing(item) -> o('timing_sensitive');
     (item sys_>< '') -> o('item');
     (lp_ilang(item) sys_>< '') -> o('lang');
     text -> o('text');
@@ -208,12 +328,13 @@ define lp_audio_subst(tmpl, key, val) -> s;
     endrepeat;
 enddefine;
 
-define lp_audio_make(item) -> (path, made, why);
-    lvars item, path = false, made = false, why = false,
-          text, cfg, cmd, tf, ok;
+define lp_audio_make(item, rate) -> (path, made, why);
+    lvars item, rate, path = false, made = false, why = false,
+          text, cfg, cmd, tf, ok, val;
     dlocal pop_file_versions = false;
-    lp_audio_name(item) -> (path, why);
+    lp_audio_name(item, rate) -> (path, why);
     returnif(why);
+    lp_audio_rate_of(rate) -> rate;
     ;;; A cache hit is not a render, and the caller is told which it got
     ;;; -- `--audio` reporting 46 made on every run would be a lie about
     ;;; what the machine just did.
@@ -235,6 +356,13 @@ define lp_audio_make(item) -> (path, made, why);
     lp_audio_subst(cmd, '%i', tf) -> cmd;
     lp_audio_subst(cmd, '%o', path) -> cmd;
     lp_audio_subst(cmd, '%v', cfg(2)) -> cmd;
+    ;;; A rate with no value is `normal` on an engine with no rate
+    ;;; control.  Substituting an empty string would hand that engine a
+    ;;; bare flag with no argument, which is a command-line error rather
+    ;;; than a default, so %r is left alone and a template that mentions
+    ;;; it had better have a rate to put there.
+    lp_audio_rate_value(lp_ilang(item), rate) -> (val, ok);
+    if val then lp_audio_subst(cmd, '%r', val) -> cmd endif;
     sysobey(cmd);
 
     ;;; An exit status is not evidence.  A command can succeed and write
@@ -242,7 +370,7 @@ define lp_audio_make(item) -> (path, made, why);
     ;;; would be handed silence as though it were a reading.
     if sys_file_exists(path) and sysfilesize(path) > 0 then
         true -> made;
-        lp_audio_note(path, item, text);
+        lp_audio_note(path, item, text, rate);
     else
         false -> path; 'voice_failed' -> why;
     endif;
@@ -263,11 +391,11 @@ enddefine;
 
 ;;; -------------------------------------------------------- a whole level
 ;;; Ahead of time, which is the point: see the file header.
-define lp_audio_level(level) -> (made, cached, skipped);
-    lvars level, made = 0, cached = 0, skipped = [], i, path, did, why;
+define lp_audio_level(level, rate) -> (made, cached, skipped);
+    lvars level, rate, made = 0, cached = 0, skipped = [], i, path, did, why;
     for i in lp_items do
         nextunless(lp_ilevel(i) == level and lp_ilang(i) == lp_lang);
-        lp_audio_make(i) -> (path, did, why);
+        lp_audio_make(i, rate) -> (path, did, why);
         if why then
             skipped <> [[% i, consword(why) %]] -> skipped;
         elseif did then made + 1 -> made;
@@ -306,35 +434,77 @@ enddefine;
 
 define lp_audio_index(level) -> (path, why);
     lvars level, path = false, why = false, i, h, apath, awhy, n = 0,
-          text, twhy, cfg = lp_voice(lp_lang);
+          text, twhy, cfg = lp_voice(lp_lang), rates = [], r, cell, any;
     dlocal pop_file_versions = false;
     unless cfg then 'no_voice' -> why; return endunless;
+
+    ;;; A column per rate that something was actually rendered at, not
+    ;;; per rate the config declares: a page with an empty `fast` column
+    ;;; says the voice cannot go fast, which is not what it means.
+    for r in lp_audio_rates(lp_lang) do
+        false -> any;
+        for i in lp_items do
+            nextunless(lp_ilevel(i) == level and lp_ilang(i) == lp_lang);
+            lp_audio_path(i, r) -> (apath, awhy);
+            unless awhy then true -> any; quitloop endunless;
+        endfor;
+        if any then rates <> [^r] -> rates endif;
+    endfor;
+    if rates == [] then 'not_generated' -> why; return endif;
+
     '<!doctype html>\n<html><head><meta charset="utf-8">\n'
       <> '<title>langpop: listen to ' <> (lp_lang sys_>< '') <> ' '
       <> (level sys_>< '') <> '</title>\n'
       <> '<style>body{font:16px/1.5 system-ui,sans-serif;margin:3em auto;'
-      <> 'max-width:46em}td{padding:.3em .8em;border-bottom:1px solid #eee}'
-      <> '.g{font-size:2em}</style>\n</head><body>\n'
+      <> 'max-width:60em}td,th{padding:.3em .8em;border-bottom:1px solid #eee;'
+      <> 'text-align:left}.g{font-size:2em}audio{height:2em}'
+      <> '.t{color:#8a6d3b}</style>\n</head><body>\n'
       <> '<h1>' <> (lp_lang sys_>< '') <> ' &middot; '
       <> (level sys_>< '') <> '</h1>\n'
       <> '<p>Voice <b>' <> lp_audio_esc(cfg(2)) <> '</b>, model <b>'
       <> lp_audio_esc(cfg(3)) <> '</b>. Does it sound like a person '
       <> 'reading, and would you learn to say it this way?</p>\n'
-      <> '<table>\n' -> h;
+      <> '<p class="t">A row marked &#9834; carries contrastive length '
+      <> '(&#12387;, &#12540;, &#12435;). Judge its RHYTHM at the normal '
+      <> 'rate only: every engine stretches those durations under a rate '
+      <> 'change and none promises to stretch a closure by the same '
+      <> 'factor as the vowel beside it.</p>\n'
+      <> '<table>\n<tr><th></th><th></th>' -> h;
+    for r in rates do
+        h <> '<th>' <> lp_audio_esc(r sys_>< '') <> '</th>' -> h;
+    endfor;
+    h <> '</tr>\n' -> h;
+
     for i in lp_items do
         nextunless(lp_ilevel(i) == level and lp_ilang(i) == lp_lang);
-        lp_audio_path(i) -> (apath, awhy);
-        nextif(awhy);
         lp_audio_text(i) -> (text, twhy);
+        nextif(twhy);
+        ;;; Only rows with something to play.  An item rendered at no
+        ;;; rate at all is not a row with empty cells.
+        false -> any;
+        for r in rates do
+            lp_audio_path(i, r) -> (apath, awhy);
+            unless awhy then true -> any; quitloop endunless;
+        endfor;
+        nextunless(any);
         n + 1 -> n;
-        ;;; src is the BASENAME: the page sits in the directory the wavs
-        ;;; are in, and an absolute path in a src attribute is a path a
-        ;;; browser will not follow once the file is moved or served.
         h <> '<tr><td class="g">' <> lp_audio_esc(text)
+          <> (if lp_audio_timing(i) then ' <span class="t">&#9834;</span>'
+              else '' endif)
           <> '</td><td>' <> lp_audio_esc(lp_gloss_of(i, lp_learner_lang())
                                          or lp_gloss_of(i, "en") or '')
-          <> '</td><td><audio controls src="'
-          <> lp_audio_esc(lp_audio_base(apath)) <> '"></audio></td></tr>\n' -> h;
+          <> '</td>' -> h;
+        for r in rates do
+            lp_audio_path(i, r) -> (apath, awhy);
+            ;;; src is the BASENAME: the page sits in the directory the
+            ;;; wavs are in, and an absolute path in a src attribute is a
+            ;;; path a browser will not follow once the file is moved.
+            if awhy then '' else
+                '<audio controls src="' <> lp_audio_esc(lp_audio_base(apath))
+                  <> '"></audio>' endif -> cell;
+            h <> '<td>' <> cell <> '</td>' -> h;
+        endfor;
+        h <> '</tr>\n' -> h;
     endfor;
     if n == 0 then 'not_generated' -> why; return endif;
     h <> '</table>\n<p>' <> (n sys_>< '')
@@ -347,8 +517,8 @@ enddefine;
 ;;; ------------------------------------------------------ the CLI report
 ;;; Says what it did and, for everything it did not do, why -- a level
 ;;; where half the items have no spoken form is a fact about the graph.
-define lp_audio_show(level);
-    lvars level, made, cached, skipped, e, path, why, tot,
+define lp_audio_show(level, rate);
+    lvars level, rate, made, cached, skipped, e, path, why, r, which,
           counts = newproperty([], 8, 0, "perm"), k;
     unless lp_audio_ready(lp_lang) then
         printf('audio: no voice for %p.  Name one in %p -- see the '
@@ -361,9 +531,27 @@ define lp_audio_show(level);
                [% level, lp_lang, lp_levels(lp_lang) %]);
         return;
     endunless;
-    lp_audio_level(level) -> (made, cached, skipped);
-    printf('audio: %p made, %p already cached in %p\n',
-           [% made, cached, lp_audio_lang_dir(lp_lang) %]);
+    ;;; --rate all renders every rate the voice declares, which is what
+    ;;; the listening page wants a column of each for.
+    if rate == "all" then lp_audio_rates(lp_lang) -> which
+    else [% lp_audio_rate_of(rate) %] -> which
+    endif;
+    for r in which do
+        unless member(r, lp_audio_rates(lp_lang)) then
+            printf('audio: this voice has no %p rate (it has: %p)\n',
+                   [% r, lp_audio_rates(lp_lang) %]);
+            return;
+        endunless;
+    endfor;
+    0 -> made; 0 -> cached;
+    for r in which do
+        lvars m2, c2, s2;
+        lp_audio_level(level, r) -> (m2, c2, s2);
+        made + m2 -> made; cached + c2 -> cached; s2 -> skipped;
+        printf('audio: %p at %p made, %p already cached\n',
+               [% m2, r, c2 %]);
+    endfor;
+    printf('audio: in %p\n', [% lp_audio_lang_dir(lp_lang) %]);
     for e in skipped do
         counts(hd(tl(e))) + 1 -> counts(hd(tl(e)));
     endfor;

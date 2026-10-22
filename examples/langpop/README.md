@@ -27,6 +27,7 @@ privileges a phone app would not have.
 ./poplog basepop11 examples/langpop/langpop.p --chart hiragana   # a page to print
 ./poplog basepop11 examples/langpop/langpop.p --zine --user bob  # a booklet to fold
 ./poplog basepop11 examples/langpop/langpop.p --audio preschool  # make the sound files
+./poplog basepop11 examples/langpop/langpop.p --audio preschool --rate slow
 
 # B: the same session, over a protocol
 ./poplog basepop11 examples/langpop/server.p --port 7801 &
@@ -1819,7 +1820,8 @@ asserts the doubled form would **not** have survived.
 | `:sheet` | today's work, as a page to print |
 | `:chart <script>` | hiragana, katakana or youon, on one page |
 | `:zine` | the study plan, as a booklet to fold |
-| `:say <item>` | hear it said, if a voice is installed |
+| `:say <item>` | hear it said, if a voice is installed; `:say <item> slow` |
+| `:rate slow` | listen slower from now on, and it sticks (`slow`/`normal`/`fast`) |
 | `:assign` | something to do away from the keyboard |
 | `:report <n> ok` | done it (tier 3) |
 | `:report <n> 17/20` | done it, with a result (tier 2) |
@@ -2101,12 +2103,14 @@ The voice is a command named in `~/.langpop/audio.conf`, the way `card.p`
 shells out to `open(1)`:
 
 ```json
-{"ja": {"cmd":   "kokoro --voice %v --text-file %i --out %o",
+{"ja": {"cmd":   "kokoro --voice %v --speed %r --text-file %i --out %o",
         "voice": "jf_alpha",
-        "model": "kokoro-82m-v1.0"}}
+        "model": "kokoro-82m-v1.0",
+        "rates": {"slow": "0.7", "normal": "1.0", "fast": "1.3"}}}
 ```
 
-`%i` is a file holding the text, `%o` the wav to write, `%v` the voice.
+`%i` is a file holding the text, `%o` the wav to write, `%v` the voice,
+`%r` the rate.
 **The text goes through a file and never onto the command line**: the
 words are Japanese and the shell is not, and a quoting bug in a tutor
 would be a quoting bug in whatever the shell made of ひらがな.
@@ -2120,8 +2124,9 @@ To hear the pipeline work before wiring Kokoro up, macOS already has a
 Japanese voice:
 
 ```json
-{"ja": {"cmd": "/usr/bin/say -v Kyoko -f %i -o %o --file-format=WAVE --data-format=LEI16@22050",
-        "voice": "Kyoko", "model": "macos-say"}}
+{"ja": {"cmd": "/usr/bin/say -v Kyoko -r %r -f %i -o %o --file-format=WAVE --data-format=LEI16@22050",
+        "voice": "Kyoko", "model": "macos-say",
+        "rates": {"slow": "110", "normal": "175", "fast": "220"}}}
 ```
 
 That is not a teaching voice and it is not meant to be one. It is
@@ -2179,6 +2184,67 @@ something, and it is not *world*. That last one means the twelve sound
 contrasts have no sound of their own, which is correct: `/l/` is not
 something a voice can pronounce in isolation. It is heard through the
 words that exercise it, and the graph already links them.
+
+### Controlling the rate, and the one item family it misleads
+
+A beginner needs it slower. So the config maps a **name** to whatever
+that engine's scale wants, and `%r` substitutes it:
+
+```json
+"rates": {"slow": "0.7", "normal": "1.0", "fast": "1.3"}
+```
+
+There is no portable number to use instead. Kokoro takes a multiplier
+where `1.0` is normal; `say(1)` takes **words per minute** where `175` is
+normal; the next engine will take a percentage. **The scale belongs to
+the engine and the name belongs to us** — so langpop says `slow`, the
+config says `0.7`, and nothing in the engine has an opinion about which
+number means slow.
+
+```sh
+./poplog basepop11 examples/langpop/langpop.p --audio preschool --rate slow
+./poplog basepop11 examples/langpop/langpop.p --audio preschool --rate all
+```
+
+In a session it is `:say <item> slow` for one word and `:rate slow` for
+all of them, which **persists in the profile** beside the aids: a
+beginner who has asked for slow should not have to ask again tomorrow.
+On the wire it is `rate` on `langpop/audio.say`, and the reply carries
+both the rate it used and the rates that voice has, so a client can
+offer a control rather than guess at one.
+
+The rate is **part of the cache key**, and so is its *value*:
+
+    hi_a-Kyoko-slow-7083155.wav
+
+The name is in the filename so a directory can be read; the number goes
+through the hash with the model, because a config that redefines `slow`
+from `0.7` to `0.8` has to invalidate what `0.7` produced — otherwise the
+student goes on hearing the old speed under the new name.
+
+**And then the part that is not plumbing.** Japanese length is
+*contrastive*: きて and きって differ by a beat of silence, and four of
+the mora skills exist to teach exactly that. Every TTS engine stretches
+durations under a rate change, and **none of them promises to stretch a
+geminate closure by the same factor as the vowel beside it** — so at
+`0.7` the student may be listening to a ratio the language does not have.
+
+Slow is still the right setting for finding the *segments* in a word. It
+is the wrong one for learning its *rhythm*, and those are two different
+lessons on the same item. So langpop reports it and never refuses:
+
+```
+Aoi> :say w_gakkou slow
+  ~/.langpop/audio/ja/w_gakkou-Kyoko-slow-4821930.wav  (slow)
+  Length is contrastive in this one.  Hear its RHYTHM
+  at normal rate -- a slowed voice stretches the beats
+  and not always evenly.
+```
+
+The test is `っ`, `ッ`, `ー`, `ん` or `ン` in the spoken form — the
+characters `lp_morae/1` counts as beats of their own. On the wire the
+same fact is `timing_sensitive`, and on the listening page those rows
+carry a ♪ with the reason printed above the table.
 
 ### The listening test is the part that is not wiring
 
