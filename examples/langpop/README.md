@@ -1822,6 +1822,7 @@ asserts the doubled form would **not** have survived.
 | `:zine` | the study plan, as a booklet to fold |
 | `:say <item>` | hear it said, if a voice is installed; `:say <item> slow` |
 | `:rate slow` | listen slower from now on, and it sticks (`slow`/`normal`/`fast`) |
+| `:mic` | check the microphone level, and whether the room is quiet enough |
 | `:speak <item>` | say it, and have the held beat timed (needs a microphone) |
 | `again` | *at a listening question:* play it once more, free and unlimited |
 | `:assign` | something to do away from the keyboard |
@@ -2585,6 +2586,79 @@ Aoi> :speak w_issho
   before し is a long し, so there is no gap to time.
 ```
 
+### A verdict you cannot attribute to the recording is useless
+
+`wrong` from a microphone that was not plugged in, and `wrong` from a
+learner who dropped the beat, are the same word. There are **two**
+indicators, because they answer different questions.
+
+**While you speak**, sox's own VU bar — which is why the recommended
+config says `-S` and not `-q`:
+
+```
+In:0.00% 00:00:00.60 [00:00:01.40] Out:9.60k [   -==|==-   ]  Clip:0
+```
+
+**After**, what the scorer saw, in the scorer's own units:
+
+```
+Aoi> :mic
+  Say anything -- a word, a count to three.  I will show you
+  the level and the silences the scorer would see.
+  (enter to record)  ->
+  peak    -9.8 dBFS  =============---------------------------
+  rms    -25.8 dBFS  ==--------------------------------------
+  floor  -88.7 dBFS  ----------------------------------------
+  heard 0.33 s of 0.37 s recorded
+  silences inside it: 100 ms
+
+  ▂▅▆▆▅▄▃    ▁▂██▇▃
+         ^^^^^        <- silence the scorer times (longest 100 ms)
+
+  level is good
+```
+
+The envelope is the point. `^` marks the silence inside the word — the
+thing `score-morae.py` actually times — so the difference between
+きって and きて is something you can **see** before you argue about the
+verdict. Compare that 5-column gap with きって's:
+
+```
+       ▁▁▃▃▂▁        ▁▇██▇▇▃▁
+            ^^^^^^^^^^         <- silence the scorer times (longest 200 ms)
+```
+
+**The floor line is the one that matters most**, and it is why this tool
+exists at all: a held beat *is* silence, so a room with a fan in it
+fills in the very thing being measured and the verdict comes back
+`wrong` for a learner who did nothing wrong. Above −35 dBFS the meter
+says `THE ROOM IS NOISY` rather than letting the scorer blame the
+student.
+
+And `:speak` shows the meter itself on **anything but a clean `right`**,
+because that is exactly when attribution matters.
+
+### What a dead microphone looks like
+
+The case the whole tool is for, and it was wrong on the first attempt:
+
+```
+  heard 0.00 s of 0.40 s recorded
+  NOTHING REACHED THE MICROPHONE -- not one non-zero sample.
+  Check the input device, the cable, and that the terminal
+  has microphone permission.
+```
+
+With a peak of zero the gate is zero, so `v >= gate` was true for every
+frame and a silent recording reported *"the voiced part fills the whole
+recording"* — true, and the exact opposite of useful. The gate needs
+`v > 0` as well.
+
+It also exited non-zero, which made the tutor say *"I could not run the
+meter"* over a perfectly good report of a dead microphone. A non-zero
+exit now means only **I could not read the recording**; reporting that
+nothing arrived is a successful run.
+
 ### Tier 5, and why it is capped
 
 A machine verdict is its own kind of evidence: the student spoke,
@@ -2611,9 +2685,9 @@ in neither direction for it.
 ### Both ends are commands, and absence is an answer
 
 ```json
-"record":  {"cmd": "ffmpeg -f avfoundation -i :0 -t %s -ar 16000 -ac 1 -y %o",
-            "seconds": "3"},
-"verdict": {"cmd": "python3 tools/score-morae.py --request %q --out %v"}
+"record":  {"cmd": "rec -S -r 16000 -c 1 -b 16 %o trim 0 %s", "seconds": "2"},
+"verdict": {"cmd": "python3 tools/score-morae.py --request %q --out %v"},
+"meter":   optional -- defaults to tools/mic-level.py
 ```
 
 Same terms as the voice, and neither is per-language: a microphone is a

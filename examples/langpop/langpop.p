@@ -3487,6 +3487,49 @@ enddefine;
 ;;; scorer answers, and none of lp_drill's machinery -- the slip
 ;;; tolerance, the confusable diagnosis, the answer list -- has anything
 ;;; to do.  Bending one into the other would have cost both.
+;;; A VERDICT YOU CANNOT ATTRIBUTE TO THE RECORDING IS USELESS.  `wrong`
+;;; from a microphone that was not plugged in, or from a room with a fan
+;;; in it, is indistinguishable from `wrong` from a learner who dropped
+;;; the beat -- unless somebody looks at the signal.  So :mic records
+;;; two seconds and shows what the scorer would see: the level, the
+;;; floor, the voiced span, and the silences inside it.
+;;;
+;;; Say anything at all into it.  The point is not the word; it is
+;;; whether the microphone is working and whether the room is quiet
+;;; enough for a held beat -- which is silence -- to survive.
+define lp_mic_check();
+    lvars sample, swhy, line;
+    lp_load_audio();
+    unless lp_recorder() then
+        printf('  I have no recorder.  It is a command named in %p --\n',
+               [% lp_audio_conf_path() %]);
+        printf('  see the header of examples/langpop/audio.p.\n');
+        return;
+    endunless;
+    printf('\n  Say anything -- a word, a count to three.  I will show you\n');
+    printf('  the level and the silences the scorer would see.\n');
+    printf('  (enter to record)  -> ');
+    sysflush(popdevout);
+    lp_readline() -> line;
+    returnif(line == termin);
+    lp_audio_capture("mic") -> (sample, swhy);
+    if swhy then
+        printf('  The recorder wrote nothing (%p).  Check the command in\n',
+               [^swhy]);
+        printf('  %p, and that the terminal has microphone permission.\n',
+               [% lp_audio_conf_path() %]);
+        return;
+    endif;
+    printf('\n');
+    unless lp_mic_meter(sample) then
+        printf('  I could not run the meter.  The recording is at %p\n',
+               [^sample]);
+        return;
+    endunless;
+    ;;; Same rule as a scored sample: it goes.
+    if sys_file_exists(sample) then sysdelete(sample) endif;
+enddefine;
+
 define lp_speak_drill(item) -> done;
     lvars item, done = false, text, why, sample, swhy,
           outcome, confidence, detail, t0, line, expect;
@@ -3547,14 +3590,20 @@ define lp_speak_drill(item) -> done;
     endif;
     lp_pronounced(item, sample, "sokuon", expect)
         -> (outcome, confidence, detail, why);
-    ;;; The sample goes, whatever happened.  See lp_sample_path.
-    if sys_file_exists(sample) then sysdelete(sample) endif;
     if why then
+        if sys_file_exists(sample) then sysdelete(sample) endif;
         printf('  I could not get a verdict (%p).  Nothing recorded.\n',
                [^why]);
         return;
     endif;
     printf('  %p\n', [% detail or (outcome sys_>< '') %]);
+    ;;; Anything but a clean `right` and the signal is worth seeing: it
+    ;;; is the only way to tell a learner who dropped the beat from a
+    ;;; room that buried it.
+    unless outcome == "right" then
+        printf('\n');
+        lp_mic_meter(sample).erase;
+    endunless;
     ;;; `near` is the scorer saying it could not tell, and tier 5 moves
     ;;; the belief in neither direction for it -- but it is still
     ;;; recorded, because "I asked and could not tell" is a fact about
@@ -3563,6 +3612,8 @@ define lp_speak_drill(item) -> done;
     printf('  (machine verdict, confidence %p -- capped at %p, because a\n',
            [% confidence, MACHINE_CAP %]);
     printf('   confident model is still a model)\n');
+    ;;; The sample goes, whatever happened.  See lp_sample_path.
+    if sys_file_exists(sample) then sysdelete(sample) endif;
     true -> done;
 enddefine;
 
@@ -3674,6 +3725,7 @@ define lp_help();
     printf('  :card <item>     draw it, and open it in the system viewer\n');
     printf('  :say <item>      hear it said, if a voice is installed\n');
     printf('  :rate slow       listen slower from now on (slow|normal|fast)\n');
+    printf('  :mic             check the microphone level, and the room\n');
     printf('  :speak <item>    say it, and have the held beat timed\n');
     printf('  :sheet           today\'s work, as a page to print\n');
     printf('  :zine            the study plan, as a booklet to fold\n');
@@ -3889,6 +3941,7 @@ define lp_session();
             elseif cmd = 'card' then
                 if arg = '' then printf('  :card <item id>\n')
                 else lp_show_card(consword(arg)) endif;
+            elseif cmd = 'mic' then lp_mic_check();
             elseif cmd = 'speak' then
                 if arg = '' then printf('  :speak <item id>\n')
                 else lp_speak_drill(consword(arg)).erase endif;

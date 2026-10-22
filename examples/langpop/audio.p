@@ -144,7 +144,7 @@ define lp_voices_load();
     ;;; The microphone and the scorer are not per-language: see the
     ;;; comment on lp_recorder.  They live in the same table because it
     ;;; is the same config file and the same "named or absent" rule.
-    for lang in ['record' 'verdict'] do
+    for lang in ['record' 'verdict' 'meter'] do
         o(lang) -> cfg;
         if cfg and (isproperty(cfg) or isjson_object(cfg)) and cfg('cmd') then
             {% cfg('cmd'), (cfg('seconds') or '3') %}
@@ -438,10 +438,19 @@ enddefine;
 ;;; model.  Two more commands in audio.conf, on exactly the terms the
 ;;; voice is on -- named by the config, absent without consequence:
 ;;;
-;;;     "record":  {"cmd": "ffmpeg -f avfoundation -i :0 -t %s -ar 16000
-;;;                         -ac 1 -y %o", "seconds": "3"}
+;;;     "record":  {"cmd": "rec -S -r 16000 -c 1 -b 16 %o trim 0 %s",
+;;;                 "seconds": "2"}
 ;;;     "verdict": {"cmd": "python3 examples/langpop/tools/score-morae.py
 ;;;                         --request %q --out %v"}
+;;;     "meter":   optional; defaults to tools/mic-level.py
+;;;
+;;; `-S` AND NOT `-q`, which is the difference between a tutor you can
+;;; trust and one you cannot: sox's -S draws a live VU bar and a clip
+;;; counter while it records, so the student can see they are being
+;;; heard AS THEY SPEAK.  The meter afterwards says what the scorer saw;
+;;; the bar during says whether anything arrived at all.  ffmpeg does
+;;; the same job -- "ffmpeg -f avfoundation -i :0 -t %s -ar 16000 -ac 1
+;;; -y %o" -- and prints its own level line.
 ;;;
 ;;; THE PLAN SAID A JSON-RPC SIDE-CAR and this is a command, which is a
 ;;; deliberate departure.  The argument for a persistent process was
@@ -463,6 +472,31 @@ define lp_scorer() -> cfg;
     lvars cfg;
     unless lp_voices_ready then lp_voices_load() endunless;
     lp_voices("verdict") -> cfg;
+enddefine;
+
+;;; The level meter.  Optional in the config, because unlike the voice
+;;; and the scorer it is OURS -- there is no third-party choice to make
+;;; -- so an absent key falls back to the tool in the tree rather than
+;;; disabling the feature.  Configure it to use a different interpreter,
+;;; or to point at something better.
+define lp_meter() -> cmd;
+    lvars cmd, cfg;
+    unless lp_voices_ready then lp_voices_load() endunless;
+    lp_voices("meter") -> cfg;
+    if cfg then cfg(1) -> cmd
+    else 'python3 -I ' <> langpop_dir <> 'tools/mic-level.py %o' -> cmd
+    endif;
+enddefine;
+
+;;; Straight to the terminal.  The meter's whole job is to be LOOKED AT,
+;;; so its output is not captured and reprinted -- sysobey hands the
+;;; child the same terminal, exactly as the audio player gets it.
+define lp_mic_meter(sample) -> ok;
+    lvars sample, ok = false, cmd;
+    returnunless(sample and sys_file_exists(sample));
+    lp_audio_subst(lp_meter(), '%o', sample) -> cmd;
+    sysobey(cmd);
+    pop_status == 0 -> ok;
 enddefine;
 
 define lp_can_speak() -> yes;

@@ -798,5 +798,75 @@ check_true('no scratch json is left behind',
            not(sys_file_exists(spath <> '.req.json'))
            and not(sys_file_exists(spath <> '.verdict.json')));
 
+;;; -------------------------------------------------------- the meter
+;;; A verdict you cannot attribute to the recording is useless, so the
+;;; level and the room are inspectable.  Tested THROUGH the seam -- the
+;;; meter is a configured command, so pointing it at a file is how its
+;;; output gets read back here.
+lvars mout = tmpdir <> 'meter.txt';
+define meter_conf(wav);
+    lvars wav;
+    lp_write_file(lp_audio_conf_path(),
+        '{"ja": {"cmd": "cp %i %o", "voice": "v", "model": "m"},'
+        <> ' "record":  {"cmd": "cp ' <> wav <> ' %o", "seconds": "2"},'
+        <> ' "meter":   {"cmd": "python3 -I ' <> langpop_dir
+        <> 'tools/mic-level.py %o > ' <> mout <> '"}}');
+    lp_voices_load();
+enddefine;
+
+;;; Unconfigured, it falls back to the tool in the tree rather than
+;;; disabling itself: unlike the voice and the scorer there is no
+;;; third-party choice to make.
+lp_write_file(lp_audio_conf_path(), '{}');
+lp_voices_load();
+check_true('the meter has a default', lp_meter() /== false);
+check_true('and it is the tool in the tree',
+           has('mic-level.py', lp_meter()));
+
+;;; A good recording: き, a 200ms held beat, って.
+meter_conf(held);
+check_true('the meter runs', lp_mic_meter(held));
+lvars m = lp_read_file(mout);
+check_true('it reports a peak in dBFS', has('peak', m) and has('dBFS', m));
+check_true('and the floor, because a held beat IS silence',
+           has('floor', m));
+check_true('it finds the silence the scorer times',
+           has('200 ms', m));
+check_true('and draws it under the envelope', has('^', m));
+check_true('a clean signal is called good', has('level is good', m));
+
+;;; Too quiet to measure: the commonest way a microphone is "not
+;;; working" is working at the wrong gain.
+lvars faint = tmpdir <> 'faint.wav';
+wav_write(faint, 16000, [[130 200] [200 0] [130 200]]);
+lp_mic_meter(faint).erase;
+lp_read_file(mout) -> m;
+check_true('a faint recording says so', has('too quiet', m));
+
+;;; A NOISY ROOM IS THE TRAP THIS WHOLE TOOL EXISTS FOR.  The scorer
+;;; looks for silence; a fan fills it in, and the verdict comes back
+;;; `wrong` for a learner who did nothing wrong.
+lvars noisy = tmpdir <> 'noisy.wav';
+wav_write(noisy, 16000, [[130 8000] [200 1500] [130 8000]]);
+lp_mic_meter(noisy).erase;
+lp_read_file(mout) -> m;
+check_true('a noisy room is named as a room, not as a wrong answer',
+           has('ROOM IS NOISY', m));
+
+;;; And nothing at all: no microphone, wrong input, nobody spoke.
+lvars dead = tmpdir <> 'dead.wav';
+wav_write(dead, 16000, [[400 0]]);
+lp_mic_meter(dead).erase;
+lp_read_file(mout) -> m;
+check_true('silence throughout is the one case this tool is for',
+           has('NOTHING REACHED THE MICROPHONE', m));
+check_true('and it says what to check',
+           has('permission', m));
+check_true('and says nothing else, because there is nothing to measure',
+           not(has('level is good', m)) and not(has('clipped', m)));
+
+check_true('a missing recording is not a crash',
+           not(lp_mic_meter(tmpdir <> 'nope.wav')));
+
 sysobey('rm -rf ' <> tmpdir);
 test_summary();
