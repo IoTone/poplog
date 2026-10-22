@@ -216,9 +216,30 @@ check_true('the page is bigger than the data it carries',
 
 ;;; The embedded JSON must be the same dump the --json mode writes, not a
 ;;; second walk that can drift away from it.
+;;;
+;;; Compared with the "generated" stamp masked out, and that is not a
+;;; weakening of the check -- it is what makes it a check at all.  The
+;;; dump opens with dt_iso(sys_real_time()), and this suite necessarily
+;;; captures TWO walks: one for --json and one inside the page.  When the
+;;; two landed either side of a second boundary the stamp differed and
+;;; this failed, which was an intermittent red in a suite that is
+;;; otherwise deterministic -- and it said nothing about the exporter.
+;;; Everything after the stamp is still compared byte for byte.
+define dump_unstamp(x) -> y;
+    lvars x, y = x, a, b;
+    issubstring('"generated": "', x) -> a;
+    returnunless(a);
+    a + length('"generated": "') -> a;
+    locchar(`"`, a, x) -> b;
+    returnunless(b);
+    substring(1, a - 1, x) <> 'WHEN' <> allbutfirst(b - 1, x) -> y;
+enddefine;
+
 lvars at = issubstring('const EMBEDDED =\n', html) + length('const EMBEDDED =\n');
-check('the embedded dump is byte for byte the JSON dump',
-      substring(at, length(js), html), js);
+check('the embedded dump is byte for byte the JSON dump, bar the stamp',
+      dump_unstamp(substring(at, length(js), html)), dump_unstamp(js));
+check_true('and the stamp is there to be masked',
+           issubstring('"generated": "', js) /== false);
 
 ;;; ----------------------------------------------------------- arguments
 check_mishaps('an unknown argument is refused',

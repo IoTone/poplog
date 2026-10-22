@@ -2389,12 +2389,79 @@ reasonable curriculum order, so nobody would ever notice.
 
 The fix is one character, `=` for `==`, in both choosers.
 
+### Which word did you hear?
+
+A contrast has no written form — it is not a word — so there was nothing
+for the listening question to swap the stimulus of, and all twelve were
+reported `needs_audio`. **It was never the microphone that was missing;
+it was a pair.**
+
+```
+Mr Hill>
+  Listen.  What did you hear?
+    1) boat
+    2) vote
+  ->  1
+  Not yet. We will return to it.  It is vote -- /v/ - /b/.
+```
+
+`pair(Contrast, A, B)` in `graph/en/items.pl`: 29 pairs over 8 of the 12
+contrasts. **Not called `minimal_pair`, and the name is the point.**
+`right`/`light` differ in one phoneme; `sport`/`support` do not — they
+differ by a whole schwa. They are a pair *here* because the epenthesis a
+Japanese speaker brings to a consonant cluster turns the first into the
+second. A relation called `minimal_pair` would have been a claim about
+English; this one is a claim about the learner, which is what the graph
+is for.
+
+Shaped as **`listen_pick`, deliberately not a new shape**: hear a sound,
+choose between two options. `lp_drill`, the protocol and every client
+need no new arm — only what the options *mean* differs, two glosses for
+a trap and two words for a contrast. The one-in-two guess is the same
+bargain the trap questions already strike, and there is no typing version
+of this question: a student who cannot hear /r/ from /l/ cannot type the
+difference either, and asking them to spell it would be testing spelling.
+
+Four contrasts have no pair and are deliberately absent — `s_final`
+(*need* against *need-o* is not two words), `s_stress` (**PRE**sent and
+pre**SENT** are one spelling, so the question would offer the same option
+twice), `s_schwa` and `s_rhythm` (properties of an utterance, not a
+word). The audit says so rather than pretending.
+
+**The pair words are not items.** `right` and `light` are drill material
+belonging to a contrast, and making them items to get them spoken would
+have inflated every English vocabulary criterion with words whose only
+job is a drill. So the audio cache lost its assumption that everything it
+speaks is an item: the key is `{name, voice, rate, model, text}`, an
+item's name is its id, and a pair word's is a slug of the word. One file
+per word, shared between the contrasts that use it — `berry` separates
+`/r/`–`/l/` from *belly* and `/v/`–`/b/` from *very*.
+
+### Two things the rotation and the reveal got wrong first
+
+**Each pair would always have played the same side.** `lp_pair_item`
+picks the pair with `asked mod 4`, so choosing the side with
+`asked mod 2` gives pair 0 an even count every time: `right`/`light`
+would play *right* for ever and *light* never, and a student could learn
+the pair number instead of the contrast. Dividing first —
+`(asked div npairs) mod 2` — means the first pass through the pairs plays
+one side of each and the second pass plays the other.
+
+**And the reveal said `It is 2.`** The first session read
+
+```
+  Not yet. We will return to it.  It is 2 -- /v/ - /b/.
+```
+
+when what the student needed was the word. For a question answered by a
+number the answer *is* a number, and revealing it teaches nothing — which
+had been true of the trap questions all along, not just these. The reveal
+now shows the option, and `expected` on the wire does too.
+
 ### What it does not change
 
-`--audit` still reports `needs_audio` for `sound_contrasts`: a contrast
-wants a minimal **pair**, not a word, and that is a different probe. Every
-`vocabulary(N, hear)` row is now measurable, and with the pre-school
-audio rendered:
+Every `vocabulary(N, hear)` row is now measurable, and with the
+pre-school audio rendered:
 
 ```
 ja  preschool  vocabulary(50, hear)   50   50   ok
@@ -2406,7 +2473,47 @@ ja  preschool  7   yes
 
 The first exitable rung in the project, and it was one criterion away
 from exitable for the whole of the project's life — parked behind a
-microphone it never needed.
+microphone it never needed. With the pairs, English pre-school goes the
+same way:
+
+```
+en  preschool  sound_contrasts   12   29   ok -- 4 of 12 cannot be asked
+en  preschool  3   yes
+```
+
+And with a voice for **both** languages, and both pre-school levels
+rendered:
+
+```
+11 ok   28 short   0 needs_audio   0 unmeasured
+
+2 of 12 rungs can be left as the graph stands.
+```
+
+**`needs_audio` is empty.** All fourteen rows were `hear`; not one was
+`produce`, which has been inside `VERIFIABLE` the whole time. Every
+criterion in this graph is measurable without a microphone, and what is
+left on every rung is content — 28 `short` rows of curation.
+
+Which is also the uncomfortable conclusion: a pronunciation verdict,
+Stages 1 and 2 of `docs/projects/langpop-audio.md`, would not move a
+single row of `--audit`. Production is an **unstated goal** — if it
+matters, the ladder has to declare criteria that say so, and it does
+not. That is a curation question before it is an engineering one.
+
+### The honest `ok`, and what the breadth change had cost
+
+`sound_contrasts` reporting `ok` with four of its twelve contrasts silent
+looks like a false claim, and the columns made it worse: `12  29` reads
+as full coverage because **`askable` counts distinct questions**, not
+items. That is the price of the earlier change from items to questions,
+and this is the first criterion partial enough to show it.
+
+The verdict is right and stays: accuracy on an item-set criterion is
+measured over the answers given, so an item nobody can be asked about
+leaves the measurement rather than capping it. What was missing was the
+reader being told. Hence `ok -- 4 of 12 cannot be asked`, and with no
+voice installed at all, `needs_audio -- 12 of 12 cannot be asked`.
 
 ## What A deliberately does not have
 

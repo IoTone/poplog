@@ -266,6 +266,14 @@ kana_table.
 % that a graph holding none of them still answers rather than raising.
 probe(none, none).
 
+% The confusion pairs that make a sound contrast askable.  Guarded for
+% the same reason as probe/2 -- the Japanese graph declares none, and an
+% undefined predicate raises under :- unknown(_, error).
+pair(none, '', '').
+
+pairs :- pair(C, A, B), C \== none, lp_take(pr(C, A, B)), fail.
+pairs.
+
 % The characters a written form may hold that are not kana in their own
 % right.  Guarded for the same reason -- the English graph declares none.
 modifier(none, none, none).

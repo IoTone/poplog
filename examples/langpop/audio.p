@@ -262,24 +262,59 @@ define lp_audio_rate_of(rate) -> r;
     unless r then RATE_DEFAULT -> r endunless;
 enddefine;
 
-define lp_audio_name(item, rate) -> (path, why);
-    lvars item, rate, path = false, why = false, text, cfg, lang, val, ok;
-    lp_audio_text(item) -> (text, why);
-    returnif(why);
-    lp_ilang(item) -> lang;
+;;; A filesystem-safe stem for text that is not an item id.  The pair
+;;; words are words, and a word can carry a hyphen or an apostrophe.
+define lp_audio_slug(text) -> t;
+    lvars text, t = '', c;
+    for c in_string (text sys_>< '') do
+        if (c >= `a` and c <= `z`) or (c >= `A` and c <= `Z`)
+        or (c >= `0` and c <= `9`) then t <> consstring(c, 1) -> t
+        else t <> '_' -> t
+        endif;
+    endfor;
+enddefine;
+
+;;; THE CACHE KNOWS NOTHING ABOUT ITEMS.  It was written for them, and
+;;; the confusion pairs are the case that showed why that was too
+;;; narrow: `right` and `light` are teaching material belonging to a
+;;; contrast, not vocabulary items, and making them items to get them
+;;; spoken would have inflated every vocabulary criterion with words
+;;; whose only job is a drill.
+;;;
+;;; So the key is {name, voice, rate, model, text} -- a name the caller
+;;; chooses, and the text to say.  An item's name is its id; a pair
+;;; word's is a slug of the word.  Everything else below is unchanged.
+define lp_audio_name_of(name, text, lang, rate) -> (path, why);
+    lvars name, text, lang, rate, path = false, why = false, cfg, val, ok;
     lp_voice(lang) -> cfg;
     unless cfg then 'no_voice' -> why; return endunless;
     lp_audio_rate_of(rate) -> rate;
     lp_audio_rate_value(lang, rate) -> (val, ok);
     unless ok then 'no_such_rate' -> why; return endunless;
     lp_audio_lang_dir(lang)
-        <> (item sys_>< '') <> '-' <> cfg(2) <> '-' <> (rate sys_>< '') <> '-'
-        <> (lp_audio_hash(text <> '\n' <> cfg(3) <> '\n'
+        <> (name sys_>< '') <> '-' <> cfg(2) <> '-' <> (rate sys_>< '') <> '-'
+        <> (lp_audio_hash((text sys_>< '') <> '\n' <> cfg(3) <> '\n'
                           <> (val or '')) sys_>< '') <> '.wav' -> path;
+enddefine;
+
+define lp_audio_name(item, rate) -> (path, why);
+    lvars item, rate, path = false, why = false, text;
+    lp_audio_text(item) -> (text, why);
+    returnif(why);
+    lp_audio_name_of(item, text, lp_ilang(item), rate) -> (path, why);
 enddefine;
 
 ;;; ---------------------------------------------------- the cached answer
 ;;; Never synthesises.  This is what a question asks.
+define lp_audio_path_of(name, text, lang, rate) -> (path, why);
+    lvars name, text, lang, rate, path, why;
+    lp_audio_name_of(name, text, lang, rate) -> (path, why);
+    returnif(why);
+    unless sys_file_exists(path) then
+        false -> path; 'not_generated' -> why;
+    endunless;
+enddefine;
+
 define lp_audio_path(item, rate) -> (path, why);
     lvars item, rate, path, why;
     lp_audio_name(item, rate) -> (path, why);
@@ -293,17 +328,22 @@ enddefine;
 ;;; A sidecar per file rather than one manifest: no read-modify-write, so
 ;;; two renders cannot race a shared file, and a stale wav's provenance
 ;;; goes stale with it instead of outliving it in an index.
-define lp_audio_note(path, item, text, rate);
-    lvars path, item, text, rate, o = newmapping([], 8, false, true),
-          cfg = lp_voice(lp_ilang(item)), val, ok;
+define lp_audio_note(path, name, text, lang, rate, item);
+    lvars path, name, text, lang, rate, item,
+          o = newmapping([], 8, false, true),
+          cfg = lp_voice(lang), val, ok;
     dlocal pop_file_versions = false;
-    lp_audio_rate_value(lp_ilang(item), rate) -> (val, ok);
+    lp_audio_rate_value(lang, rate) -> (val, ok);
     (rate sys_>< '') -> o('rate');
     if val then val -> o('rate_value') endif;
-    lp_audio_timing(item) -> o('timing_sensitive');
-    (item sys_>< '') -> o('item');
-    (lp_ilang(item) sys_>< '') -> o('lang');
-    text -> o('text');
+    ;;; An item answers whether its length is contrastive; a bare word
+    ;;; from a confusion pair has no item to ask, and the question does
+    ;;; not arise for English anyway.
+    if item then lp_audio_timing(item) -> o('timing_sensitive') endif;
+    (name sys_>< '') -> o('name');
+    if item then (item sys_>< '') -> o('item') endif;
+    (lang sys_>< '') -> o('lang');
+    (text sys_>< '') -> o('text');
     cfg(2) -> o('voice');
     cfg(3) -> o('model');
     cfg(1) -> o('command');
@@ -328,11 +368,11 @@ define lp_audio_subst(tmpl, key, val) -> s;
     endrepeat;
 enddefine;
 
-define lp_audio_make(item, rate) -> (path, made, why);
-    lvars item, rate, path = false, made = false, why = false,
-          text, cfg, cmd, tf, ok, val;
+define lp_audio_make_of(name, text, lang, rate, item) -> (path, made, why);
+    lvars name, text, lang, rate, item,
+          path = false, made = false, why = false, cfg, cmd, tf, ok, val;
     dlocal pop_file_versions = false;
-    lp_audio_name(item, rate) -> (path, why);
+    lp_audio_name_of(name, text, lang, rate) -> (path, why);
     returnif(why);
     lp_audio_rate_of(rate) -> rate;
     ;;; A cache hit is not a render, and the caller is told which it got
@@ -340,18 +380,16 @@ define lp_audio_make(item, rate) -> (path, made, why);
     ;;; what the machine just did.
     returnif(sys_file_exists(path));
 
-    lp_audio_text(item) -> (text, why);
-    returnif(why);
-    lp_voice(lp_ilang(item)) -> cfg;
+    lp_voice(lang) -> cfg;
     unless cfg then 'no_voice' -> why; false -> path; return endunless;
 
-    unless sys_file_exists(lp_audio_lang_dir(lp_ilang(item))) then
-        sysobey('mkdir -p ' <> lp_audio_lang_dir(lp_ilang(item)));
+    unless sys_file_exists(lp_audio_lang_dir(lang)) then
+        sysobey('mkdir -p ' <> lp_audio_lang_dir(lang));
     endunless;
 
     ;;; The text through a file, never through the command line.
     path <> '.txt' -> tf;
-    lp_write_file(tf, text);
+    lp_write_file(tf, text sys_>< '');
     cfg(1) -> cmd;
     lp_audio_subst(cmd, '%i', tf) -> cmd;
     lp_audio_subst(cmd, '%o', path) -> cmd;
@@ -361,7 +399,7 @@ define lp_audio_make(item, rate) -> (path, made, why);
     ;;; bare flag with no argument, which is a command-line error rather
     ;;; than a default, so %r is left alone and a template that mentions
     ;;; it had better have a rate to put there.
-    lp_audio_rate_value(lp_ilang(item), rate) -> (val, ok);
+    lp_audio_rate_value(lang, rate) -> (val, ok);
     if val then lp_audio_subst(cmd, '%r', val) -> cmd endif;
     sysobey(cmd);
 
@@ -370,11 +408,19 @@ define lp_audio_make(item, rate) -> (path, made, why);
     ;;; would be handed silence as though it were a reading.
     if sys_file_exists(path) and sysfilesize(path) > 0 then
         true -> made;
-        lp_audio_note(path, item, text, rate);
+        lp_audio_note(path, name, text, lang, rate, item);
     else
         false -> path; 'voice_failed' -> why;
     endif;
     if sys_file_exists(tf) then sysdelete(tf) endif;
+enddefine;
+
+define lp_audio_make(item, rate) -> (path, made, why);
+    lvars item, rate, path = false, made = false, why = false, text;
+    lp_audio_text(item) -> (text, why);
+    returnif(why);
+    lp_audio_make_of(item, text, lp_ilang(item), rate, item)
+        -> (path, made, why);
 enddefine;
 
 ;;; ------------------------------------------------------------ playing
@@ -408,12 +454,37 @@ enddefine;
 ;;; -------------------------------------------------------- a whole level
 ;;; Ahead of time, which is the point: see the file header.
 define lp_audio_level(level, rate) -> (made, cached, skipped);
-    lvars level, rate, made = 0, cached = 0, skipped = [], i, path, did, why;
+    lvars level, rate, made = 0, cached = 0, skipped = [], i, path, did, why,
+          pr, w, words = [];
     for i in lp_items do
         nextunless(lp_ilevel(i) == level and lp_ilang(i) == lp_lang);
         lp_audio_make(i, rate) -> (path, did, why);
         if why then
             skipped <> [[% i, consword(why) %]] -> skipped;
+        elseif did then made + 1 -> made;
+        else cached + 1 -> cached;
+        endif;
+        ;;; The words of a confusion pair are not items -- they are drill
+        ;;; material belonging to a contrast -- so walking lp_items would
+        ;;; never reach them, and the contrast would stay unaskable with
+        ;;; the voice installed and the level rendered.  Collected first
+        ;;; and deduplicated, because `berry` separates two contrasts and
+        ;;; wants one file.
+        if lp_kind(i) == "sound" then
+            for pr in lp_pairs_of(i) do
+                for w in pr do
+                    unless member(w, words) then words <> [^w] -> words
+                    endunless;
+                endfor;
+            endfor;
+        endif;
+    endfor;
+    for w in words do
+        lp_audio_make_of(lp_pair_word_name(w), w, "en", rate, false)
+            -> (path, did, why);
+        if why then
+            skipped <> [[% consword(lp_pair_word_name(w)), consword(why) %]]
+                -> skipped;
         elseif did then made + 1 -> made;
         else cached + 1 -> cached;
         endif;

@@ -521,11 +521,110 @@ lp_voices_load();
 "en" -> lp_lang;
 check_true('with an English voice, hearing is verifiable', lp_can_hear());
 lp_question("s_r_l", "hear") -> (hsh, hpr, hans, hopt);
-check('a contrast is still not a listening question -- it wants a pair',
-      hsh, "none");
-check_true('so nothing can gate on it', lp_ungateable("s_r_l"));
+check('a contrast with no audio rendered cannot be asked', hsh, "none");
+check_true('so nothing can gate on it yet', lp_ungateable("s_r_l"));
 check_true('and the English rung still has something ready',
            lp_plan() /== []);
+
+;;; ------------------------------------------------ the confusion pairs
+;;; WHICH WORD DID YOU HEAR.  A contrast has no written form -- it is not
+;;; a word -- so there was nothing for the listening question to swap the
+;;; stimulus of, and all twelve were reported needs_audio.  It was never
+;;; the microphone that was missing; it was a pair.
+check('four pairs separate /r/ from /l/',
+      length(lp_pairs_of("s_r_l")), 4);
+check('and they are words, not ids',
+      hd(lp_pairs_of("s_r_l")), [right light]);
+check('a contrast with no pair has none', lp_pairs_of("s_final"), []);
+check('breadth is one question per pair', lp_probe_breadth("s_r_l"), 4);
+
+;;; Render the pair words.  They are NOT items, which is the whole
+;;; reason lp_audio_make_of exists: making them items to get them spoken
+;;; would have inflated every English vocabulary criterion with words
+;;; whose only job is a drill.
+define say_pairs(c);
+    lvars c, pr, w;
+    for pr in lp_pairs_of(c) do
+        for w in pr do
+            lp_audio_make_of(lp_pair_word_name(w), w, "en", "normal", false)
+                -> (, , );
+        endfor;
+    endfor;
+enddefine;
+say_pairs("s_r_l");
+
+lp_question("s_r_l", "hear") -> (hsh, hpr, hans, hopt);
+check('now a contrast can be asked', hsh, "listen_pick");
+check('with two words to choose between', length(hopt), 2);
+check_true('and a sound to judge', sys_file_exists(hpr));
+
+;;; THE ANSWER MUST POINT AT THE WORD THAT WAS PLAYED.  The path carries
+;;; the slug of the word in it, so this can be checked from the outside
+;;; rather than by trusting the builder -- and an off-by-one here would
+;;; mark every right answer wrong.
+define played_is_answer(sh, pr, ans, opt) -> ok;
+    lvars sh, pr, ans, opt, said = opt(strnumber(hd(ans)));
+    has(lp_audio_slug(said sys_>< ''), pr) -> ok;
+enddefine;
+check_true('the answer is the word that was played',
+           played_is_answer(hsh, hpr, hans, hopt));
+
+;;; Both the word played and the position it is offered in turn over.
+;;; Otherwise the answer is always 1, or always the first word of the
+;;; pair, and the student learns the pattern instead of the contrast.
+;;; Answers are recorded between builds, because that is what advances
+;;; lp_asked and so the rotation -- eight builds in a row with nothing
+;;; answered is the same question eight times, which is correct and
+;;; tests nothing.
+lvars saids = [], answers = [], pairs_seen = [], k;
+"rotator" -> lp_user;
+for k from 1 to 8 do
+    lp_question("s_r_l", "hear") -> (hsh, hpr, hans, hopt);
+    check_true('every rotation is internally consistent',
+               played_is_answer(hsh, hpr, hans, hopt));
+    unless member(hd(hans), answers) then
+        answers <> [% hd(hans) %] -> answers;
+    endunless;
+    lvars w2;
+    for w2 in hopt do
+        if has(lp_audio_slug(w2 sys_>< ''), hpr)
+        and not(member(w2, saids)) then saids <> [^w2] -> saids endif;
+    endfor;
+    unless member(sort([% explode(hopt) %]), pairs_seen) then
+        pairs_seen <> [% sort([% explode(hopt) %]) %] -> pairs_seen;
+    endunless;
+    lp_record("s_r_l", "hear", 1, "right", 1000);
+endfor;
+check('all four pairs come round in eight questions',
+      length(pairs_seen), 4);
+check_true('the answer is not always the same option',
+           length(answers) == 2);
+check_true('and both sides of a pair get played across two cycles',
+           length(saids) >= 5);
+
+;;; One file per word, shared between the contrasts that use it: `berry`
+;;; separates /r/-/l/ from belly and /v/-/b/ from very.
+lvars bp1, bp2, bw;
+lp_pair_audio('berry', "normal") -> (bp1, bw);
+check_true('a shared word renders once', bw == false);
+lp_pair_audio('berry', "normal") -> (bp2, bw);
+check('and is one file for both contrasts', bp2, bp1);
+
+;;; The audit can measure the family now, and says which part of it it
+;;; cannot reach: four contrasts have no pair.
+check_true('a contrast with a pair is probeable', lp_probeable("s_r_l", "hear"));
+check_true('one without is not', not(lp_probeable("s_final", "hear")));
+
+;;; AND THE GATE.  s_th_v requires s_th_un, and with pairs that edge is
+;;; a real gate for the first time -- which is what `requires` means.
+;;; The contrasts that still have no pair must stay exempt, or they lock
+;;; everything built on them all over again.
+say_pairs("s_th_un");
+check_true('a contrast that can be asked is gateable now',
+           not(lp_ungateable("s_th_un")));
+check_true('and one that cannot is still exempt',
+           lp_ungateable("s_final"));
+check_true('so the rung still has something ready', lp_plan() /== []);
 
 ;;; An English trap is a pick question, and listening keeps it one.
 lp_audio_make("t_mansion", "normal") -> (path, made, why);

@@ -1654,6 +1654,105 @@ define lp_count_near(item, typed) -> why;
     (kata sys_>< '') -> why;
 enddefine;
 
+;;; -------------------------------------------------- confusion pairs
+;;; pair(Contrast, A, B) from the graph: two real words the contrast
+;;; keeps apart and a Japanese speaker is liable to merge.  See the
+;;; comment on the facts in graph/en/items.pl for why they are not called
+;;; minimal pairs.
+vars lp_pairs = newproperty([], 16, [], "perm"), lp_pairs_ready = false;
+
+define lp_pairs_of(contrast) -> ps;
+    lvars contrast, ps, pr, c;
+    unless lp_pairs_ready then
+        true -> lp_pairs_ready;
+        clearproperty(lp_pairs);
+        for pr in lp_ask("pairs", 0) do
+            prolog_deref(prolog_arg(1, pr)) -> c;
+            lp_pairs(c) <> [[% prolog_full_deref(prolog_arg(2, pr)),
+                               prolog_full_deref(prolog_arg(3, pr)) %]]
+                -> lp_pairs(c);
+        endfor;
+    endunless;
+    lp_pairs(contrast) -> ps;
+enddefine;
+
+;;; Rotated by how often this contrast has been asked, exactly as the
+;;; mora material is: four pairs is four questions, and a bigger graph
+;;; is a bigger question bank for free.
+define lp_pair_item(contrast) -> pr;
+    lvars contrast, ps = lp_pairs_of(contrast), pr = false;
+    returnif(ps == []);
+    ps(1 + (lp_asked(contrast) mod length(ps))) -> pr;
+enddefine;
+
+;;; A pair word is drill material belonging to a contrast, not an item,
+;;; so its audio is cached under a slug of the word itself.  Several
+;;; contrasts share a word -- `berry` separates /r/-/l/ from belly and
+;;; /v/-/b/ from very -- and one file serves both.
+define lp_pair_word_name(word) -> n;
+    lvars word, n = 'pair-' <> lp_audio_slug(word);
+enddefine;
+
+;;; "en" literally: the pairs are English words and so is their audio,
+;;; whichever language the session is being taught in.  A Japanese
+;;; speaker drilling /r/ against /l/ needs an English voice saying them,
+;;; and lp_lang at that moment is "en" anyway -- but the contrast is a
+;;; property of English, not of the session.
+define lp_pair_audio(word, rate) -> (path, why);
+    lvars word, rate, path, why;
+    lp_audio_path_of(lp_pair_word_name(word), word, "en", rate)
+        -> (path, why);
+enddefine;
+
+;;; WHICH WORD DID YOU HEAR.  Discrimination, and it needs no microphone
+;;; -- the answer is one of two words on the screen.  This is what makes
+;;; a sound contrast askable at all: a contrast has no written form, so
+;;; lp_question returned `none` for all twelve of them and --audit called
+;;; the whole family needs_audio.  It was never the microphone that was
+;;; missing; it was a pair.
+;;;
+;;; Deliberately shaped as listen_pick and NOT as a new shape.  The
+;;; interaction is identical -- hear a sound, choose between two options
+;;; -- so lp_drill, every client and the protocol need no new arm.  The
+;;; difference is only what the options mean: two glosses for a trap,
+;;; two words for a contrast.
+;;;
+;;; The one-in-two guess is real and is the same bargain the trap
+;;; questions already strike.  There is no typing version of this
+;;; question: a student who cannot hear /r/ from /l/ cannot type the
+;;; difference either, and asking them to spell what they heard would be
+;;; testing spelling.
+define lp_pair_question(item) -> (shape, prompt, answer, options);
+    lvars item, shape, prompt, answer, options, pr, said, other, path, why;
+    ("none", '', [], []) -> (shape, prompt, answer, options);
+    lp_pair_item(item) -> pr;
+    returnunless(pr);
+    ;;; Which of the two is played, and in which position it is offered,
+    ;;; both turn over -- otherwise the answer is always 1, or always the
+    ;;; first word of the pair, and the student learns the pattern
+    ;;; instead of the contrast.
+    ;;;
+    ;;; The side turns over per CYCLE and not per question, which is the
+    ;;; difference between rotating and not.  lp_pair_item already picks
+    ;;; the pair with `asked mod 4`, so a side chosen with `asked mod 2`
+    ;;; gives pair 0 an even count every time: right/light would play
+    ;;; `right` for ever and `light` never, and the student could learn
+    ;;; the pair number instead of the contrast.  Dividing first means
+    ;;; the first pass through the four pairs plays one side of each and
+    ;;; the second pass plays the other.
+    lvars ps = lp_pairs_of(item);
+    lp_flip + 1 -> lp_flip;
+    if (lp_asked(item) div length(ps)) mod 2 == 0 then (hd(pr), hd(tl(pr)))
+    else (hd(tl(pr)), hd(pr)) endif -> (said, other);
+    lp_pair_audio(said, "normal") -> (path, why);
+    returnif(why);
+    if lp_flip mod 2 == 1 then
+        ("listen_pick", path, ['1'], [% said, other %])
+    else
+        ("listen_pick", path, ['2'], [% other, said %])
+    endif -> (shape, prompt, answer, options);
+enddefine;
+
 ;;; A LISTENING QUESTION IS THE SAME ANSWER KEY WITH A DIFFERENT
 ;;; STIMULUS.  The reading question shows あ and wants `a`; the listening
 ;;; question plays あ and wants `a`.  Only the prompt changes, so the
@@ -1679,6 +1778,13 @@ define lp_hear_question(item) -> (shape, prompt, answer, options);
     ("none", '', [], []) -> (shape, prompt, answer, options);
     returnunless(lp_can_hear());
     returnunless(member("hear", lp_channels(item)));
+    ;;; A sound contrast has no written form of its own -- it is not a
+    ;;; word -- so there is no reading question to swap the stimulus of.
+    ;;; It is asked through the two words it keeps apart.
+    if lp_kind(item) == "sound" then
+        lp_pair_question(item) -> (shape, prompt, answer, options);
+        return;
+    endif;
     lp_audio_path(item, "normal") -> (path, why);
     returnif(why);
     lp_question(item, lp_primary(item)) -> (shape, prompt, answer, options);
@@ -1937,11 +2043,24 @@ enddefine;
 ;;; averaging that channels were introduced to stop.
 define lp_drill(item, ch) -> done;
     lvars item, ch, shape, prompt, answer, options, o, i = 0, t0, line, typed,
-          other, kslip = false, retried = false, heard = false;
+          other, kslip = false, retried = false, heard = false, shown;
     true -> done;
     lp_question(item, ch) -> (shape, prompt, answer, options);
     returnif(shape == "none")(false -> done);
     if shape == "listen" or shape == "listen_pick" then true -> heard endif;
+    ;;; WHAT TO SAY IT WAS.  For a typed question the answer is the
+    ;;; answer.  For a question answered by number the answer is a
+    ;;; NUMBER, and "It is 2." tells a student nothing they can learn
+    ;;; from -- the first contrast-pair session read
+    ;;;
+    ;;;     Not yet.  It is 2 -- /v/ - /b/.
+    ;;;
+    ;;; when what they needed was the word: it was `vote`, and the thing
+    ;;; they missed was /v/ against /b/.  Also true of the trap
+    ;;; questions, which have been revealing option numbers all along.
+    if (shape == "pick" or shape == "listen_pick")
+    and strnumber(hd(answer)) and strnumber(hd(answer)) <= length(options)
+    then options(strnumber(hd(answer))) else hd(answer) endif -> shown;
     lp_now_ms() -> t0;
     repeat
         0 -> i;
@@ -2072,7 +2191,7 @@ define lp_drill(item, ch) -> done;
         ;;; the most informative answer away.
         lp_record(item, ch, 1, "skip", lp_now_ms() - t0);
         printf('  %p  It is %p%p.\n',
-               [% lp_line('skip'), hd(answer),
+               [% lp_line('skip'), shown,
                   if heard then ' -- ' <> (lp_any_form(item) sys_>< '')
                   else '' endif %]);
     else
@@ -2089,10 +2208,10 @@ define lp_drill(item, ch) -> done;
                    [% lp_line('almost'), lp_any_form(other) %]);
         elseif kslip then
             printf('  %p  That is the beats in %p.  The English word has %p.\n',
-                   [% lp_line('almost'), kslip, hd(answer) %]);
+                   [% lp_line('almost'), kslip, shown %]);
         else
             printf('  %p  It is %p%p.\n',
-                   [% lp_line('wrong'), hd(answer),
+                   [% lp_line('wrong'), shown,
                       if heard then ' -- ' <> (lp_any_form(item) sys_>< '')
                       else '' endif %]);
         endif;
@@ -2840,6 +2959,10 @@ define lp_probe_breadth(item) -> n;
     lvars item, n = 1;
     if lp_kind(item) == "skill" and lp_probe_of(item) then
         length(lp_probe_material(item)) -> n;
+    elseif lp_kind(item) == "sound" and lp_pairs_of(item) /== [] then
+        ;;; One question per confusion pair, which is why four pairs were
+        ;;; written for most contrasts: AUDIT_THIN is three.
+        length(lp_pairs_of(item)) -> n;
     endif;
 enddefine;
 
@@ -2863,9 +2986,17 @@ enddefine;
 ;;; One criterion: {verdict have askable want}.  `want` is false for a
 ;;; criterion that is not a count, where the question is whether the set
 ;;; can be asked at all rather than whether there is enough of it.
-define lp_audit_one(crit, level) -> (verdict, have, askable, want);
+;;; `silent` is how many items of an ITEM-SET criterion cannot be asked
+;;; about at all.  It exists because the breadth change cost the reader
+;;; something: askable counts distinct QUESTIONS, so `12 29` for
+;;; sound_contrasts looks like full coverage when four of the twelve
+;;; contrasts have no confusion pair and no question.  The verdict is
+;;; unchanged and deliberately so -- accuracy is measured over the
+;;; answers given, which is the argument in the branch below -- but a
+;;; criterion measured over part of its set now says which part.
+define lp_audit_one(crit, level) -> (verdict, have, askable, want, silent);
     lvars crit, level, f, i, pool, items, ch, n = 0;
-    false -> want;
+    false -> want; 0 -> silent;
     if prolog_complexterm(crit) then prolog_functor(crit) else crit endif -> f;
     if f == "vocabulary" or f == "kanji" then
         prolog_full_deref(prolog_arg(1, crit)) -> want;
@@ -2907,6 +3038,9 @@ define lp_audit_one(crit, level) -> (verdict, have, askable, want);
         length(items) -> have;
         lvars audible = 0;
         for i in items do
+            unless lp_probeable(i, lp_primary(i)) then
+                silent + 1 -> silent;
+            endunless;
             if lp_probeable(i, lp_primary(i)) then
                 ;;; DISTINCT QUESTIONS, not items.  A skill with a
                 ;;; generated probe is one item that can be asked about
@@ -2946,8 +3080,9 @@ define lp_audit() -> rows;
     for e in lp_exits do
         hd(e) -> lang; hd(tl(e)) -> level; hd(tl(tl(e))) -> crit;
         lang -> lp_lang; level -> lp_level;
-        lp_audit_one(crit, level) -> (verdict, have, askable, want);
-        rows <> [{% lang, level, crit, verdict, have, askable, want %}]
+        lvars silent;
+        lp_audit_one(crit, level) -> (verdict, have, askable, want, silent);
+        rows <> [{% lang, level, crit, verdict, have, askable, want, silent %}]
             -> rows;
     endfor;
 enddefine;
@@ -3021,6 +3156,11 @@ define lp_audit_show();
                   lp_pad(lp_term_str(r(3)), 26), lp_pad(r(5), 6),
                   lp_pad(r(6), 9), v,
                   if v == "short" then ' by ' <> ((r(7) - r(6)) sys_>< '')
+                  elseif r(8) > 0 then
+                      ;;; Not a different verdict: the same one, with the
+                      ;;; part of the set it does not reach.
+                      ' -- ' <> (r(8) sys_>< '') <> ' of ' <> (r(5) sys_>< '')
+                      <> ' cannot be asked'
                   else '' endif %]);
     endfor;
     printf('\n');
@@ -3035,6 +3175,8 @@ define lp_audit_show();
     printf('  no probe    = a criterion nothing can ask about -- a bug, or an unbuilt import\n');
     printf('  needs audio = outside VERIFIABLE; see docs/projects/langpop-pronunciation.md\n');
     printf('  unmeasured  = nothing measures it at all\n');
+    printf('  "N of M cannot be asked" = an item-set criterion whose accuracy\n');
+    printf('                is measured over part of its set -- see lp_audit_one\n');
 enddefine;
 
 define lp_why(item);

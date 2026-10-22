@@ -1026,6 +1026,16 @@ check_true('an unasked item is answered on its gate channel',
 check('and not on the channel of the question before it',
       lp_bel("hi_a", "hear"), 0.0);
 
+;;; `expected` for a question answered by NUMBER is the option, not the
+;;; number: "2" is not something a client can show a learner, and for a
+;;; confusion pair the word is the whole lesson.
+lvars trapq = result('langpop/answer',
+                     jsonrpc_obj([% 'session_id', hsess, 'item', 't_mansion',
+                                    'answer', '9' %]));
+check_true('a wrong pick is wrong', not(trapq('correct')));
+check_true('and expected names the option, not its index',
+           trapq('expected') /= '1' and trapq('expected') /= '2');
+
 jsonrpc_close(client); jsonrpc_close(server);
 sysobey('rm -rf ' <> tmpdir);
 

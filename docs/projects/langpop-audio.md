@@ -393,15 +393,70 @@ and it must actually **play** — a question that could not be played is not
 marked, because filing that answer records a failure of the machine as a
 failure of the learner.
 
-`sound_contrasts` stays `needs_audio`: a contrast wants a minimal **pair**
-and that is a different probe. Discrimination — *which word did you hear,
-`light` or `right`* — is the obvious next listening question, and it needs
-no microphone either.
+**`sound_contrasts` followed, the same day.** It was the last row the
+listening question did not reach, because a contrast has no written form
+to swap the stimulus of — so it is asked through the two words it keeps
+apart: `pair(Contrast, A, B)`, 29 pairs over 8 of the 12 contrasts, play
+one and ask which. Shaped as `listen_pick`, so no client needs a new arm.
+
+The four without pairs are honest absences — `s_final` (*need* against
+*need-o* is not two words), `s_stress` (one spelling, so the question
+would offer the same option twice), `s_schwa` and `s_rhythm` (properties
+of an utterance). `--audit` now reads `ok -- 4 of 12 cannot be asked`,
+which is a reporting fix the pairs forced: `askable` counts distinct
+questions, so `12 29` had looked like full coverage.
+
+With that, `en/preschool` can be left too. And the headline, with a voice
+for both languages and both pre-school levels rendered:
+
+```
+11 ok   28 short   0 needs_audio   0 unmeasured
+
+2 of 12 rungs can be left as the graph stands.
+```
+
+**`needs_audio` is empty.** All fourteen rows were `hear`; none was
+`produce`, because `produce` has been inside `VERIFIABLE` all along.
+
+### Which means Stages 1 and 2 serve no criterion this ladder declares
+
+That is the uncomfortable conclusion of the three discoveries above, and
+it belongs in this document rather than nowhere. Every criterion in the
+graph is now measurable without a microphone. A pronunciation verdict
+would not move a single row of `--audit`.
+
+That does not make production worthless — *"a mount everest"* of
+unlearning is the whole reason `langpop-pronunciation.md` exists, and a
+learner who can hear `/r/` from `/l/` and cannot say them has not
+finished. It makes production an **unstated goal**: if it matters, the
+ladder has to declare criteria that say so, and those criteria do not
+exist. Writing them is a curation question — *what counts as good enough
+production at N4?* — and until it is answered, Stages 1 and 2 would be
+building an instrument with nothing on the ladder to measure.
+
+**So the next decision about audio is not technical.** It is whether the
+ladder should carry production criteria at all, and at what thresholds.
+Everything in §3 and §4 below stays correct and stays parked.
 
 **The general lesson, which this document already contains and I still
 managed to miss:** *ask what the question actually needs before assuming
 it needs audio.* The mora work learned it, §4's Stage 1 writes it down,
 and `hear` sat behind a microphone for another five commits anyway.
+
+### Stage 0.6 — discrimination, which was also not a microphone problem
+
+Covered in the Stage 0.5 note above, and recorded as its own stage for
+one reason: **after the listening question shipped, `sound_contrasts` was
+still `needs_audio`, and I wrote in this document that it needed a
+different probe.** It needed a different *question*, over data the graph
+did not have — two words, not a microphone. That is the third time this
+project has found a criterion parked behind audio that was a knowledge
+question: the mora count, the listening vocabulary, and now the contrasts.
+
+The rule that would have caught all three, stated as a check rather than
+a lesson: **before marking anything `needs_audio`, say out loud what the
+student would have to DO.** If the answer can be typed or picked, it is
+not an audio problem. Only *produce* survives that test.
 
 ### Stage A — the seam and the tier, before any audio arrives
 

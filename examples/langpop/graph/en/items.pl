@@ -38,6 +38,66 @@ requires(s_cluster, s_final).
 requires(s_rhythm, s_stress).
 requires(s_schwa,  s_stress).
 
+% --- Confusion pairs ------------------------------------------------------
+% pair(Contrast, A, B): two real English words that this contrast keeps
+% apart and that a Japanese speaker is liable to merge.  This is what
+% makes a contrast ASKABLE: play one of them and ask which was said.
+% Discrimination needs no microphone -- the answer is typed -- which is
+% the same discovery the mora probe and the listening question both made.
+%
+% NOT "minimal pairs" in the strict phonemic sense, and the name says so.
+% right/light differ in one phoneme; sport/support do not -- they differ
+% by a whole schwa.  They are a pair HERE because the epenthesis a
+% Japanese speaker brings to a consonant cluster turns the first into the
+% second, which is the confusion the item exists to teach.  A relation
+% called minimal_pair would have been a claim about English; this one is
+% a claim about the learner, which is what the graph is for.
+%
+% Four contrasts have no pair and are deliberately absent: s_final
+% (need against need-o is not two words), s_stress (PREsent and preSENT
+% are one spelling, so a question offering both would be offering the
+% same option twice), s_schwa and s_rhythm (properties of a whole
+% utterance, not of a word).  --audit reports them as short rather than
+% pretending, and that is the honest state until a different probe exists.
+pair(s_r_l,    'right',   'light').
+pair(s_r_l,    'pray',    'play').
+pair(s_r_l,    'correct', 'collect').
+pair(s_r_l,    'berry',   'belly').
+
+pair(s_th_un,  'think',   'sink').
+pair(s_th_un,  'thick',   'sick').
+pair(s_th_un,  'path',    'pass').
+pair(s_th_un,  'mouth',   'mouse').
+
+pair(s_th_v,   'breathe', 'breeze').
+pair(s_th_v,   'then',    'den').
+pair(s_th_v,   'those',   'doze').
+
+pair(s_v_b,    'vote',    'boat').
+pair(s_v_b,    'van',     'ban').
+pair(s_v_b,    'vest',    'best').
+pair(s_v_b,    'very',    'berry').
+
+pair(s_f_h,    'food',    'hood').
+pair(s_f_h,    'fat',     'hat').
+pair(s_f_h,    'fill',    'hill').
+pair(s_f_h,    'fair',    'hair').
+
+pair(s_ae_uh,  'cat',     'cut').
+pair(s_ae_uh,  'bad',     'bud').
+pair(s_ae_uh,  'hat',     'hut').
+pair(s_ae_uh,  'match',   'much').
+
+pair(s_si_shi, 'see',     'she').
+pair(s_si_shi, 'sip',     'ship').
+pair(s_si_shi, 'save',    'shave').
+pair(s_si_shi, 'sell',    'shell').
+
+% The epenthesis pairs: a vowel inserted into the cluster lands the
+% learner on a different word that exists.
+pair(s_cluster, 'sport',  'support').
+pair(s_cluster, 'train',  'terrain').
+
 % --- Loanword traps ------------------------------------------------------
 % The ja gloss is JAPANESE.  It used to hold "what the katakana means",
 % in English -- 'apartment building' filed under ja -- which made

@@ -586,7 +586,16 @@ define lp_m_answer(msg) -> res;
                    ;;; The canonical spelling only.  A client does not
                    ;;; need the whole accepted set, and showing it would
                    ;;; tell a learner that gakko would have done.
+                   ;;;
+                   ;;; For a question answered by NUMBER this is the
+                   ;;; option itself and not the number: `expected: "2"`
+                   ;;; is not something a client can show a learner, and
+                   ;;; for a confusion pair the word IS the lesson.
                    'expected', if correct then json_null
+                               elseif (shape == "pick" or shape == "listen_pick")
+                               and strnumber(hd(answer))
+                               and strnumber(hd(answer)) <= length(options)
+                               then lp_jkey(options(strnumber(hd(answer))))
                                else lp_jkey(hd(answer)) endif,
                    'mistook_for', if other then lp_jkey(other) else json_null endif,
                    ;;; the katakana whose beats they counted, so a client
