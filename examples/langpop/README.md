@@ -1822,6 +1822,7 @@ asserts the doubled form would **not** have survived.
 | `:zine` | the study plan, as a booklet to fold |
 | `:say <item>` | hear it said, if a voice is installed; `:say <item> slow` |
 | `:rate slow` | listen slower from now on, and it sticks (`slow`/`normal`/`fast`) |
+| `again` | *at a listening question:* play it once more, free and unlimited |
 | `:assign` | something to do away from the keyboard |
 | `:report <n> ok` | done it (tier 3) |
 | `:report <n> 17/20` | done it, with a result (tier 2) |
@@ -2253,6 +2254,159 @@ a question for an ear, not a benchmark — for teaching, the model's own
 accent is the product. So `--audio` also writes a page with every file on
 it, the voice and model named at the top, and one question: *does it
 sound like a person reading, and would you learn to say it this way?*
+
+## Hearing needs a speaker; only producing needs a microphone
+
+`hear` sat outside `VERIFIABLE` for the whole of this project's life,
+with a comment explaining that there is no audio in langpop. Stage 0
+ended that, and the mistake underneath it is worth keeping on the
+record: **`hear` and `produce` were parked together as "audio"** when
+they are not the same problem. Producing a sound needs a microphone, a
+phoneme model and a verdict. *Hearing* one needs a speaker.
+
+So a listening question is: **play the word, the student types what they
+heard.** The grading is exact match on a typed answer, exactly as it is
+for reading. Nothing is machine-judged, so it needs no new evidence tier
+— the only machine in it is the one that spoke.
+
+```
+Aoi>
+  聞いてください。What did you hear?
+  ->  again
+  もう一度。
+
+  Listen.  Which word was that?
+  ->  neko
+  そうです。  ねこ
+```
+
+The written form appears **after** the answer, never before: a listening
+question has nothing to read, and the glyph is the other half of the item
+the student has just recognised by ear.
+
+### The same answer key, one stimulus swapped
+
+`lp_question/2` gained a channel. On `hear` it builds the reading
+question and replaces the prompt with the path to the sound:
+
+| | reading | listening |
+| --- | --- | --- |
+| stimulus | ねこ | `w_neko-Kyoko-normal-4821930.wav` |
+| answer | `neko` | `neko` |
+| shape | `type` | `listen` |
+
+An English trap keeps its two glosses and becomes `listen_pick`. Nothing
+else in `lp_drill` changes — the slip tolerance, the confusable
+diagnosis, `later`, `:oops` and the clock are all reused rather than
+reimplemented. And that substitution is exactly what
+`vocabulary(50, hear)` means: *can you recognise these fifty words by
+ear.*
+
+### Four conditions, all of them load-bearing
+
+- **A voice must be installed.** `lp_verifiable("hear")` is conditional
+  on `lp_can_hear()`, because a machine with no `audio.conf` must go on
+  saying `needs_audio` rather than reporting a listening vocabulary of
+  zero — which reads as a student who failed instead of a tutor that
+  cannot ask.
+- **The sound must already be cached.** Asking never synthesises;
+  `--audio <level>` is how the files get there. The rule from Stage 0
+  stands: 188 items took 89 seconds, and half a second mid-question is a
+  tutor that feels broken.
+- **At the normal rate.** A slowed voice is an easier exposure, and for
+  the geminate words it is a rhythm the language does not have. Slow is
+  for studying; the measurement is at `normal`.
+- **It must actually play.** `lp_audio_play` now checks `pop_status`
+  rather than merely finding a player binary, and a question that could
+  not be played is **not marked at all**. Asking *what did you hear?* of
+  somebody who heard nothing, and then filing the answer, would record a
+  failure of this machine as a failure of the learner.
+
+### The pool is the words already read
+
+`lp_hear_plan/0` is not `lp_plan/0`, and it cannot be: `ready/4` excludes
+anything already known, and *known* reads the gate channel — so a word
+leaves the plan the moment it is mastered on **read**, and a listening
+question drawn from the plan could never reach it. But
+`vocabulary(50, hear)` is measured over the same fifty words as
+`vocabulary(50, read)`.
+
+So the pool is **words the student has already read-mastered, has not yet
+heard, and whose audio is cached**. Which is also the right teaching
+order rather than merely the convenient one: recognising by ear a word
+you cannot read is a harder and different task, and no criterion in the
+graph asks for it.
+
+One question in four is by ear (`HEAR_EVERY`), and the last one in a
+level is by ear too — a ratio rather than *listening once the reading is
+done*, because otherwise a student with reading left would never practise
+listening and the criterion would only start moving at the very end.
+
+### The trap: making `hear` verifiable re-locks the English ladder
+
+`gate_ok/2` lets an unverifiable prerequisite off, so that a channel
+nothing can check does not hold the door shut. That exemption was
+*"is the gate channel outside `VERIFIABLE`?"* — and the twelve English
+contrasts are `sound` items whose gate is `hear`. Install a voice, and
+the exemption vanishes and every one of them starts locking everything
+built on it. That is the defect `570849c` fixed, coming back in through
+the door Stage 0 opened.
+
+The first fix was wrong in an instructive way. I made the exemption
+*"can this item be drilled?"* — which is true of a contrast and also true
+of `hiragana_all`, an aggregate with no probe whose belief rises **by
+inference** from the 46 kana it requires. Undrillable is not uncheckable.
+The result was that every aggregate became a free pass and all 50 starter
+words were declared ready at the first question. The suite caught it:
+*only the vowels are ready at the start* went from 5 items to 53.
+
+`lp_ungateable/1` is the narrow version. For `read` and `produce` it is
+the channel alone, exactly as before. For `hear` — which became verifiable
+only because a voice exists — it asks whether a listening question can
+actually be asked, and where one cannot, nothing has changed from the
+state before the voice arrived.
+
+### What running it found that reading it did not
+
+**The tie-break had never fired, once, in the project's history.**
+
+```pop11
+if not(best) or b < bb or (b == bb and a < ba) then
+```
+
+A belief is a float, and in Pop-11 `==` on floats is **identity**: two
+`0.0` *literals* are not `==` each other, let alone two separately
+computed ones. So `b == bb` was false for every pair of beliefs ever
+compared, and `lp_choose` returned the first item in plan order and kept
+returning it until it was mastered — which is precisely what its own
+comment says it exists to prevent, *"which is how a learner comes to hate
+a flashcard"*.
+
+It showed up because a listening session asked ひと twice in a row with
+49 untouched words in the pool. In the reading path the same bug is
+invisible: ties at 0.0 are broken by plan order, which looks like a
+reasonable curriculum order, so nobody would ever notice.
+
+The fix is one character, `=` for `==`, in both choosers.
+
+### What it does not change
+
+`--audit` still reports `needs_audio` for `sound_contrasts`: a contrast
+wants a minimal **pair**, not a word, and that is a different probe. Every
+`vocabulary(N, hear)` row is now measurable, and with the pre-school
+audio rendered:
+
+```
+ja  preschool  vocabulary(50, hear)   50   50   ok
+...
+ja  preschool  7   yes
+
+1 of 12 rungs can be left as the graph stands.
+```
+
+The first exitable rung in the project, and it was one criterion away
+from exitable for the whole of the project's life — parked behind a
+microphone it never needed.
 
 ## What A deliberately does not have
 

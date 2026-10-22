@@ -366,6 +366,43 @@ flag already on the wire is where that check belongs.
 student heard it are different claims, and the ladder must keep saying
 *cannot be checked here* until something checks.
 
+### Stage 0.5 — the listening question — **shipped**
+
+**Not in the plan at all, and it should have been.** §1's table splits
+the problem into *hear a correct model* (easy, TTS) and *produce the
+sound* (hard, microphone) — and then §5 put `hear` and `speak` together
+on the far side of the verdict interface, as though both needed a
+machine's judgement. Only one of them does.
+
+A listening question is: play the word, the student **types what they
+heard**. Exact match on a typed answer, exactly as for reading. No
+microphone, no phoneme model, no GOP, and **no new evidence tier** — the
+only machine in it is the one that spoke. Built 2026-10-21: `hear` joins
+`VERIFIABLE` whenever a voice is installed, and all eleven
+`vocabulary(N, hear)` criteria became measurable.
+
+The result is the first exitable rung in the project. `ja/preschool` was
+one criterion away from exitable for the whole of the project's life, and
+that criterion was parked behind a microphone it never needed.
+
+Four conditions, named because each is a way to be unfair: a voice must
+be installed (otherwise the honest answer is still `needs_audio`, not a
+listening vocabulary of zero); the audio must already be **cached**
+(asking never synthesises); at the **normal rate** (the rate note above);
+and it must actually **play** — a question that could not be played is not
+marked, because filing that answer records a failure of the machine as a
+failure of the learner.
+
+`sound_contrasts` stays `needs_audio`: a contrast wants a minimal **pair**
+and that is a different probe. Discrimination — *which word did you hear,
+`light` or `right`* — is the obvious next listening question, and it needs
+no microphone either.
+
+**The general lesson, which this document already contains and I still
+managed to miss:** *ask what the question actually needs before assuming
+it needs audio.* The mora work learned it, §4's Stage 1 writes it down,
+and `hear` sat behind a microphone for another five commits anyway.
+
 ### Stage A — the seam and the tier, before any audio arrives
 
 This was buried in §5 as a precondition. It is a stage, it is first, and
@@ -512,6 +549,9 @@ The two checks that gate work rather than planning:
 
 ## 7. What not to do
 
+- **Do not assume a channel needs a model.** `hear` cost this project
+  its first exitable rung by sitting beside `produce` under the word
+  "audio".  Hearing needs a speaker; only producing needs a microphone.
 - **Do not start with ASR**, and that now includes the convenient one.
   §0 and Option 0: an audio GGUF under llama.cpp is still a recogniser,
   and a recogniser is trained to normalise away the only signal we want.

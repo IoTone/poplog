@@ -150,21 +150,45 @@ define lp_primary(item) -> ch;
     hd(lp_channels(item)) -> ch;
 enddefine;
 
-;;; Which channels this build can actually check.  `hear` is absent
-;;; because there is no audio anywhere in langpop, and that is a fact
-;;; about the tool rather than about the language -- which is why it is
-;;; here and not in the graph.
+;;; Which channels this build can actually check.
 ;;;
-;;; The consequence is deliberate.  A listening criterion can be driven
-;;; by an assignment and a self-reported result, which is tier 2 and
-;;; capped below MASTERY, so it can never be claimed to mastery.  The
-;;; system therefore says "your reading is at N2 and I cannot certify
-;;; your listening", which is true, and better than a single number that
-;;; quietly averages the two.  See docs/projects/langpop-pronunciation.md
-;;; for what would have to exist to change this.
+;;; `hear` WAS absent, on the grounds that there is no audio anywhere in
+;;; langpop.  Those grounds expired when Stage 0 shipped, and the mistake
+;;; underneath them is worth keeping on the record: `hear` and `produce`
+;;; were parked together as "audio", when hearing needs a SPEAKER and
+;;; only producing needs a microphone.  A listening question -- play the
+;;; word, the student types what they heard -- is a typed answer graded
+;;; by exact match, exactly as a reading question is.  Nothing in it is
+;;; machine-judged, so it needs no new evidence tier: the only machine
+;;; involved is the one that spoke.
+;;;
+;;; It is conditional rather than constant because it is a fact about the
+;;; INSTALLATION.  A machine with no voice configured cannot ask a
+;;; listening question and must go on saying `needs_audio`, rather than
+;;; reporting a listening vocabulary of zero -- which would read as a
+;;; student who failed instead of a tutor that cannot ask.
+;;;
+;;; `produce` stays unverifiable by typing, for the harder reason: it
+;;; wants a microphone, which is Stage 1 and Stage 2 of
+;;; docs/projects/langpop-audio.md.  The self-report path stays too -- a
+;;; criterion can still be driven by an assignment at tier 2, capped
+;;; below MASTERY -- so "your reading is at N2 and I cannot certify your
+;;; production" remains sayable, and true.
 lconstant VERIFIABLE = [read produce];
+lconstant VERIFIABLE_HEARD = [hear];
 
-define lp_verifiable(ch); lvars ch; member(ch, VERIFIABLE) enddefine;
+;;; audio.p is loaded on demand, so this asks "is there a voice in this
+;;; session", and the `and` short-circuits before naming anything
+;;; audio.p defines.
+define lp_can_hear() -> yes;
+    lvars yes = (lp_audio_loaded and lp_audio_ready(lp_lang)) and true;
+enddefine;
+
+define lp_verifiable(ch);
+    lvars ch;
+    member(ch, VERIFIABLE)
+    or (member(ch, VERIFIABLE_HEARD) and lp_can_hear())
+enddefine;
 
 define lp_bel(item, ch) -> b;
     lvars item, ch;
@@ -218,11 +242,50 @@ enddefine;
 ;;; What it does NOT do is let the student pass anything.  s_final is
 ;;; still unmastered, sound_contrasts is still unreachable, and --audit
 ;;; still says needs_audio.  It unlocks the teaching, not the criterion.
+;;; REFINED when `hear` became verifiable, and the refinement is the
+;;; point.  This used to ask "is the gate channel outside VERIFIABLE?",
+;;; which exempted every sound item because `hear` was unverifiable
+;;; wholesale.  Install a voice and that exemption vanishes -- so the
+;;; twelve English contrasts, which are sound items that no listening
+;;; question can yet ask (a contrast wants a minimal PAIR, not a word),
+;;; would have gone straight back to locking the whole English ladder.
+;;; That is the defect 570849c fixed, re-entering by the back door.
+;;;
+;;; The honest test was never about the channel in the abstract: it is
+;;; whether THIS ITEM can be asked about at all.  A prerequisite nothing
+;;; can check does not hold the door shut, and it makes no difference
+;;; whether the reason is a missing microphone or a missing probe.
+;;; Can nothing ever move this item's gate belief?
+;;;
+;;; For `read` and `produce` the answer is the channel alone, exactly as
+;;; it was before listening existed -- and deliberately NOT drillability,
+;;; which was the first attempt and was wrong.  hiragana_all has no probe
+;;; and is not drillable, but its belief rises by INFERENCE from the 46
+;;; kana it requires, so it is perfectly checkable and must go on holding
+;;; the door shut.  Treating undrillable as uncheckable made every
+;;; aggregate a free pass and declared all 50 starter words ready at the
+;;; first question.
+;;;
+;;; For `hear` the channel became verifiable only because a voice is
+;;; installed, so there it means precisely "a listening question can be
+;;; asked" -- and where one cannot be, nothing has changed from the state
+;;; before the voice arrived.  That is the case this clause exists for:
+;;; the twelve English contrasts are sound items, their gate is `hear`,
+;;; and no listening question can ask them (a contrast wants a minimal
+;;; PAIR, not a word).  Without it, installing a voice would re-lock the
+;;; entire English ladder -- the defect 570849c fixed, coming back in
+;;; through the door Stage 0 opened.
+define lp_ungateable(item) -> yes;
+    lvars item, ch = lp_primary(item);
+    if not(lp_verifiable(ch)) then true
+    elseif member(ch, VERIFIABLE_HEARD) then not(lp_drillable_on(item, ch))
+    else false
+    endif -> yes;
+enddefine;
+
 define :prolog lp_unverifiable/1(i, contn);
     lvars i, contn;
-    unless lp_verifiable(lp_primary(prolog_deref(i))) then
-        chain(contn)
-    endunless;
+    if lp_ungateable(prolog_deref(i)) then chain(contn) endif;
 enddefine;
 
 define :prolog lp_take/1(x, contn);
@@ -875,6 +938,12 @@ define lp_home() -> d;
         unless d then '.' -> d endunless;
         d <> '/.langpop/' -> d;
     endif;
+enddefine;
+
+;;; Named here rather than in audio.p because lp_main has to ask whether
+;;; a voice exists before it decides whether to load audio.p at all.
+define lp_audio_conf_path() -> p;
+    lvars p = lp_home() <> 'audio.conf';
 enddefine;
 
 define lp_profile_path(user) -> p;
@@ -1585,9 +1654,54 @@ define lp_count_near(item, typed) -> why;
     (kata sys_>< '') -> why;
 enddefine;
 
-define lp_question(item) -> (shape, prompt, answer, options);
-    lvars item, k = lp_kind(item), r, en, ja, glyph, kanji, reads;
+;;; A LISTENING QUESTION IS THE SAME ANSWER KEY WITH A DIFFERENT
+;;; STIMULUS.  The reading question shows あ and wants `a`; the listening
+;;; question plays あ and wants `a`.  Only the prompt changes, so the
+;;; grading, the slip tolerance, the confusable diagnosis and the whole
+;;; of lp_drill below it are reused rather than reimplemented -- and
+;;; `vocabulary(50, hear)` means exactly "can you recognise these fifty
+;;; words by ear", which is what that substitution measures.
+;;;
+;;; The prompt is the PATH to the sound, not a glyph.  Printing the glyph
+;;; would hand over the answer, so a listening question has nothing to
+;;; read, and a client that cannot play audio gets a shape it does not
+;;; know and should refuse rather than render.
+;;;
+;;; Two conditions, both checked here so no caller can forget them:
+;;;   - the audio must ALREADY BE CACHED.  lp_audio_path never runs a
+;;;     model, because a student waiting on a model load mid-question is
+;;;     a tutor that feels broken (--audio <level> is how it gets there).
+;;;   - at the NORMAL rate.  A slowed voice is an easier exposure, and
+;;;     for the geminate words it is a rhythm the language does not have
+;;;     -- so it is a fine way to study and not a way to be measured.
+define lp_hear_question(item) -> (shape, prompt, answer, options);
+    lvars item, shape, prompt, answer, options, path, why;
     ("none", '', [], []) -> (shape, prompt, answer, options);
+    returnunless(lp_can_hear());
+    returnunless(member("hear", lp_channels(item)));
+    lp_audio_path(item, "normal") -> (path, why);
+    returnif(why);
+    lp_question(item, lp_primary(item)) -> (shape, prompt, answer, options);
+    if shape == "type" then "listen" -> shape;
+    elseif shape == "pick" then "listen_pick" -> shape;
+    else
+        ;;; A counting probe is not made into a listening question here.
+        ;;; "How many beats in what you just heard" is a real and useful
+        ;;; question -- it is perception, not production, so it needs no
+        ;;; microphone either -- but it is a different probe with a
+        ;;; different answer, not this one with the glyph taken away.
+        ("none", '', [], []) -> (shape, prompt, answer, options); return;
+    endif;
+    path -> prompt;
+enddefine;
+
+define lp_question(item, ch) -> (shape, prompt, answer, options);
+    lvars item, ch, k = lp_kind(item), r, en, ja, glyph, kanji, reads;
+    ("none", '', [], []) -> (shape, prompt, answer, options);
+    if ch == "hear" then
+        lp_hear_question(item) -> (shape, prompt, answer, options);
+        return;
+    endif;
     lp_form_of(item, "romaji") -> r;
     lp_form_of(item, "kanji") -> kanji;
     if (k == "grapheme" or k == "word") and r then
@@ -1649,10 +1763,16 @@ define lp_question(item) -> (shape, prompt, answer, options);
     endif;
 enddefine;
 
-define lp_drillable(item);
-    lvars item, shape;
-    lp_question(item) -> (shape, , , );
+define lp_drillable_on(item, ch);
+    lvars item, ch, shape;
+    lp_question(item, ch) -> (shape, , , );
     shape /== "none"
+enddefine;
+
+;;; On its GATE channel, which is what the plan and the gate ask about.
+define lp_drillable(item);
+    lvars item;
+    lp_drillable_on(item, lp_primary(item))
 enddefine;
 
 ;;; The confusable that the student probably meant.  This is why the
@@ -1703,7 +1823,7 @@ enddefine;
 ;;; meant; langpop has four outcomes and can afford to keep them apart.
 lconstant REQUEUE_GAP = 3, LATER_MAX = 2;
 
-vars lp_pending = [],                   ;;; [{item not_before} ...]
+vars lp_pending = [],                   ;;; [{item not_before channel} ...]
      lp_asked_n = 0,                    ;;; questions actually recorded
      lp_later_n = 0,                    ;;; questions put off, this session
      lp_laters = newproperty([], 32, 0, "perm");
@@ -1725,10 +1845,29 @@ define lp_unqueue(item);
         -> lp_pending;
 enddefine;
 
+;;; The queue remembers the CHANNEL, because a listening question put off
+;;; must come back as a listening question.  Without it the deferred
+;;; item returned as a reading question -- not wrong data, but the hear
+;;; belief the student was being asked about would never move, so the
+;;; criterion they were working on would stand still.
+define lp_requeue_on(item, ch);
+    lvars item, ch;
+    lp_unqueue(item);                   ;;; one copy, the later gap wins
+    lp_pending <> [{% item, lp_asked_n + REQUEUE_GAP, ch %}] -> lp_pending;
+enddefine;
+
 define lp_requeue(item);
     lvars item;
-    lp_unqueue(item);                   ;;; one copy, the later gap wins
-    lp_pending <> [{% item, lp_asked_n + REQUEUE_GAP %}] -> lp_pending;
+    lp_requeue_on(item, lp_primary(item));
+enddefine;
+
+;;; Which channel this one is waiting on.  Primary when it is not
+;;; waiting at all, so a caller need not ask twice.
+define lp_due_ch(item) -> ch;
+    lvars item, p, ch = lp_primary(item);
+    for p in lp_pending do
+        if p(1) == item then p(3) -> ch; return endif;
+    endfor;
 enddefine;
 
 ;;; Is this one waiting, and not yet due?
@@ -1750,7 +1889,7 @@ enddefine;
 define lp_due() -> item;
     lvars p, item = false;
     for p in lp_pending do
-        if p(2) <= lp_asked_n and lp_drillable(p(1)) then
+        if p(2) <= lp_asked_n and lp_drillable_on(p(1), p(3)) then
             p(1) -> item; return
         endif;
     endfor;
@@ -1778,23 +1917,58 @@ define lp_answered(item);
     lp_asked_n + 1 -> lp_asked_n;
 enddefine;
 
-define lp_later(item);
-    lvars item;
+define lp_later_on(item, ch);
+    lvars item, ch;
     lp_laters(item) + 1 -> lp_laters(item);
     lp_later_n + 1 -> lp_later_n;
-    lp_requeue(item);
+    lp_requeue_on(item, ch);
 enddefine;
 
-define lp_drill(item) -> done;
-    lvars item, shape, prompt, answer, options, o, i = 0, t0, line, typed,
-          other, kslip = false, retried = false;
+define lp_later(item);
+    lvars item;
+    lp_later_on(item, lp_primary(item));
+enddefine;
+
+;;; `ch` is the channel the answer is RECORDED on, and for everything but
+;;; a listening question it is the item's gate channel.  It is a
+;;; parameter rather than lp_primary(item) inside, because the same item
+;;; now carries two independent beliefs -- read it, and hear it -- and a
+;;; listening answer credited to reading would be the comfortable
+;;; averaging that channels were introduced to stop.
+define lp_drill(item, ch) -> done;
+    lvars item, ch, shape, prompt, answer, options, o, i = 0, t0, line, typed,
+          other, kslip = false, retried = false, heard = false;
     true -> done;
-    lp_question(item) -> (shape, prompt, answer, options);
+    lp_question(item, ch) -> (shape, prompt, answer, options);
     returnif(shape == "none")(false -> done);
+    if shape == "listen" or shape == "listen_pick" then true -> heard endif;
     lp_now_ms() -> t0;
     repeat
         0 -> i;
-        if shape == "type" then
+        if heard then
+            ;;; Nothing to read.  The sound is the whole prompt, so the
+            ;;; glyph must not appear anywhere until the answer is in.
+            printf('\n  %p\n', [% lp_line('listen') %]);
+            ;;; AND NOTHING IS RECORDED IF IT DID NOT PLAY.  Asking "what
+            ;;; did you hear?" of a student who heard nothing, and then
+            ;;; filing the answer, would be recording a failure of this
+            ;;; machine as a failure of the learner.  The first version
+            ;;; printed the path and carried on, because lp_audio_play
+            ;;; only checked that a player BINARY existed -- and the
+            ;;; session transcript duly showed afplay failing on every
+            ;;; question while the questions kept coming.
+            unless lp_audio_play(prompt) then
+                printf('  I cannot play that here, so I will not mark it.\n');
+                printf('  (%p)\n', [^prompt]);
+                false -> done; lp_undo_stop(); return;
+            endunless;
+            if shape == "listen_pick" then
+                for o in options do
+                    i + 1 -> i; printf('    %p) %p\n', [% i, o %]);
+                endfor;
+            endif;
+            printf('  -> ');
+        elseif shape == "type" then
             printf('\n  %p    -> ', [^prompt]);
         elseif shape == "count" then
             ;;; The word, then the question, because the question is the
@@ -1819,6 +1993,18 @@ define lp_drill(item) -> done;
         if line == termin then false -> done; lp_undo_stop(); return endif;
         lp_norm(line) -> typed;
 
+        ;;; A replay is free and unlimited.  A listening question the
+        ;;; student may only hear once is a memory test with a hearing
+        ;;; test on top of it, and the belief would be measuring the
+        ;;; wrong one of the two.  Nothing is recorded, and the clock
+        ;;; deliberately keeps running: speed on a listening item is
+        ;;; speed from the first playing, or a replay would be a way to
+        ;;; stop the clock.
+        if heard and (typed = 'again' or typed = ':again') then
+            printf('  %p\n', [% lp_line('again') %]);
+            nextloop;
+        endif;
+
         ;;; "later" is not an answer, and nothing about it is recorded.
         ;;; It is deliberately a word rather than a blank line, because
         ;;; the blank line already means something quite different and
@@ -1833,7 +2019,7 @@ define lp_drill(item) -> done;
                 printf('  That is twice now.  Let us settle this one: press\n');
                 printf('  enter if you do not know it.\n');
             else
-                lp_later(item);
+                lp_later_on(item, ch);
                 printf('  %p\n', [% lp_line('later') %]);
                 return;
             endif;
@@ -1871,22 +2057,31 @@ define lp_drill(item) -> done;
     ;;; half of every pre-school criterion is what tells reading from
     ;;; working it out.
     if member(typed, answer) then
-        lp_record(item, lp_primary(item), 1, "right", lp_now_ms() - t0);
-        printf('  %p\n', [% lp_line('praise') %]);
+        lp_record(item, ch, 1, "right", lp_now_ms() - t0);
+        printf('  %p%p\n',
+               [% lp_line('praise'),
+                  ;;; After a listening question, SHOW it: the student
+                  ;;; has just recognised a sound and the written form is
+                  ;;; the other half of the same item.
+                  if heard then '  ' <> (lp_any_form(item) sys_>< '')
+                  else '' endif %]);
     elseif typed = '' or typed = '?' then
         ;;; An empty line, or a question mark, is "I do not know" -- and
         ;;; saying so is worth more than a guess, both to the student and
         ;;; to the belief.  A tutor that forced a guess would be throwing
         ;;; the most informative answer away.
-        lp_record(item, lp_primary(item), 1, "skip", lp_now_ms() - t0);
-        printf('  %p  It is %p.\n', [% lp_line('skip'), hd(answer) %]);
+        lp_record(item, ch, 1, "skip", lp_now_ms() - t0);
+        printf('  %p  It is %p%p.\n',
+               [% lp_line('skip'), hd(answer),
+                  if heard then ' -- ' <> (lp_any_form(item) sys_>< '')
+                  else '' endif %]);
     else
         ;;; The wrong answer worth naming: a count that is the katakana's
         ;;; and not the English word's.  Computed BEFORE lp_record,
         ;;; because recording changes lp_asked and lp_asked is what
         ;;; chooses the material.
         if shape == "count" then lp_count_near(item, typed) -> kslip endif;
-        lp_record(item, lp_primary(item), 1,
+        lp_record(item, ch, 1,
                   if other or kslip then "near" else "wrong" endif,
                   lp_now_ms() - t0);
         if other then
@@ -1896,7 +2091,10 @@ define lp_drill(item) -> done;
             printf('  %p  That is the beats in %p.  The English word has %p.\n',
                    [% lp_line('almost'), kslip, hd(answer) %]);
         else
-            printf('  %p  It is %p.\n', [% lp_line('wrong'), hd(answer) %]);
+            printf('  %p  It is %p%p.\n',
+                   [% lp_line('wrong'), hd(answer),
+                      if heard then ' -- ' <> (lp_any_form(item) sys_>< '')
+                      else '' endif %]);
         endif;
     endif;
     lp_undo_stop();
@@ -2095,7 +2293,7 @@ define lp_place_items(axis, level) -> items;
             nextunless(lp_kind(i) == hd(arg));
             nextunless(not(hd(tl(arg))) or lp_form_of(i, hd(tl(arg))));
         endif;
-        lp_question(i) -> (sh, , , );
+        lp_question(i, lp_primary(i)) -> (sh, , , );
         nextif(sh == "none");
         items <> [^i] -> items;
     endfor;
@@ -2321,7 +2519,7 @@ define lp_place_run();
             printf('\n  -- %p, at %p\n', [% ax(1), lv %]);
             (ax(1) sys_>< '') <> '/' <> (lv sys_>< '') -> last;
         endunless;
-        quitunless(lp_drill(hd(its)));
+        quitunless(lp_drill(hd(its), lp_primary(hd(its))));
         asked + 1 -> asked;
         quitif(asked >= PLACE_MAX);
     endrepeat;
@@ -2622,11 +2820,17 @@ enddefine;
 ;;; match lp_primary and not merely be one of lp_channels -- the first
 ;;; version of this reported vocabulary(50, hear) as askable, which is
 ;;; exactly the comfortable answer channels were introduced to stop.
+;;; UPDATED when the listening question arrived.  The comment above was
+;;; right about the old code and is now the history: lp_question takes a
+;;; channel, so `hear` is askable on a word when a voice is installed and
+;;; the sound is cached -- and lp_drillable_on answers exactly that,
+;;; which is why this no longer needs to know anything about channels
+;;; beyond asking.
 define lp_probeable(item, ch) -> yes;
     lvars item, ch, yes = false;
     returnunless(lp_verifiable(ch));
-    returnunless(lp_primary(item) == ch);
-    lp_drillable(item) -> yes;
+    returnunless(member(ch, lp_channels(item)));
+    lp_drillable_on(item, ch) -> yes;
 enddefine;
 
 ;;; How many DIFFERENT questions this item can be asked.  One, for
@@ -3200,6 +3404,7 @@ define lp_help();
     printf('  :quit            save and stop\n');
     printf('\n  At a question: enter means "I do not know", which is an answer.\n');
     printf('  Typing "later" puts the question off until later today instead.\n');
+    printf('  At a listening question, "again" plays it once more, for free.\n');
 enddefine;
 
 define lp_split2(s) -> (a, b);
@@ -3220,6 +3425,47 @@ define lp_asked(item) -> n;
     endfor;
 enddefine;
 
+;;; ------------------------------------------------- the listening pool
+;;; WHY THIS IS NOT lp_plan().  ready/4 excludes anything already known,
+;;; and `known` reads the gate channel -- so the moment a word is
+;;; mastered on READ it leaves the plan, and a listening question over
+;;; the plan could never reach it.  vocabulary(50, hear) is measured over
+;;; the same fifty words as vocabulary(50, read), so the pool has to be
+;;; the words the student has already read-mastered.
+;;;
+;;; Which is also the right teaching order, and not merely the
+;;; convenient one: recognising a word by ear that you cannot read is a
+;;; harder and different task, and langpop has no criterion that asks
+;;; for it.  Hearing comes after reading, on the same item.
+define lp_hear_plan() -> items;
+    lvars items = [], i, top = lp_level_index(lp_level);
+    returnunless(lp_can_hear())(items);
+    for i in lp_items do
+        nextunless(lp_ilang(i) == lp_lang);
+        nextunless(lp_level_index(lp_ilevel(i)) >= 0
+                   and lp_level_index(lp_ilevel(i)) <= top);
+        nextunless(member("hear", lp_channels(i)));
+        nextunless(lp_mastered_on(i, "read"));
+        nextif(lp_mastered_on(i, "hear"));
+        nextif(lp_deferred(i));
+        nextunless(lp_drillable_on(i, "hear"));
+        items <> [^i] -> items;
+    endfor;
+enddefine;
+
+;;; Weakest belief first, then least asked -- the same rule lp_choose
+;;; uses, on the other channel.
+define lp_choose_hear() -> best;
+    lvars best = false, i, b, a, bb = false, ba = false;
+    for i in lp_hear_plan() do
+        lp_bel(i, "hear") -> b;
+        lp_asked(i) -> a;
+        if not(best) or b < bb or (b = bb and a < ba) then   ;;; `=`: see lp_choose
+            i -> best; b -> bb; a -> ba;
+        endif;
+    endfor;
+enddefine;
+
 define lp_choose(plan) -> best;
     lvars plan, item, b, a, bb = false, ba = false;
     false -> best;
@@ -3228,20 +3474,48 @@ define lp_choose(plan) -> best;
         nextif(lp_deferred(item));
         lp_bel(item, lp_primary(item)) -> b;
         lp_asked(item) -> a;
-        if not(best) or b < bb or (b == bb and a < ba) then
+        ;;; `=` AND NOT `==`.  A belief is a float, and in Pop-11 `==` on
+        ;;; floats is identity: two 0.0 LITERALS are not `==` each other,
+        ;;; let alone two separately computed ones.  So `b == bb` was
+        ;;; false for every pair of beliefs this has ever compared, the
+        ;;; tie-break never fired once, and lp_choose returned the first
+        ;;; item in plan order until it was mastered -- which is exactly
+        ;;; what the comment above says it exists to prevent, and what it
+        ;;; says makes a learner come to hate a flashcard.  Found by
+        ;;; running a listening session and being asked ひと twice in a
+        ;;; row with 49 untouched words in the pool.
+        if not(best) or b < bb or (b = bb and a < ba) then
             item -> best; b -> bb; a -> ba;
         endif;
     endfor;
 enddefine;
 
+;;; One listening question in every HEAR_EVERY, when there is a pool for
+;;; it.  A ratio rather than "listening once the reading is done",
+;;; because a student with reading work left would otherwise never
+;;; practise listening at all, and the criterion would only start moving
+;;; at the very end of a level.
+lconstant HEAR_EVERY = 4;
+
+;;; lconstant is file-local, and server.p interleaves by the same rule.
+define lp_hear_every() -> n;
+    lvars n = HEAR_EVERY;
+enddefine;
+
 define lp_next();
-    lvars item, due = lp_due(), plan;
+    lvars item, due = lp_due(), plan, hitem;
     ;;; Anything put off, or taken back, comes before anything new.  It
-    ;;; is owed: the student was told it would come back.
+    ;;; is owed: the student was told it would come back -- and on the
+    ;;; channel it was put off on.
     if due then
         printf('  Back to this one.\n');
-        lp_drill(due).erase;
+        lp_drill(due, lp_due_ch(due)).erase;
         return;
+    endif;
+    ;;; Every fourth question, by ear.
+    if (lp_asked_n + 1) mod HEAR_EVERY == 0 then
+        lp_choose_hear() -> hitem;
+        if hitem then lp_drill(hitem, "hear").erase; return endif;
     endif;
     lp_plan() -> plan;
     if plan == [] then
@@ -3257,7 +3531,13 @@ define lp_next();
     unless item then
         if lp_pending /== [] then hd(lp_pending)(1) -> item endif;
     endunless;
-    if item then lp_drill(item).erase
+    ;;; Nothing left to read at this level, but something left to hear:
+    ;;; that is how a rung whose reading is finished gets finished.
+    unless item then
+        lp_choose_hear() -> hitem;
+        if hitem then lp_drill(hitem, "hear").erase; return endif;
+    endunless;
+    if item then lp_drill(item, lp_primary(item)).erase
     else printf('  Nothing here can be checked by typing.  Try :assign.\n')
     endif;
 enddefine;
@@ -3520,6 +3800,12 @@ define lp_main();
     if lp_lang == "en" then "preschool" else "preschool" endif -> lp_level;
     lp_load();
     lp_index();
+    ;;; On demand everywhere else, but every mode below has to know up
+    ;;; front whether it can ask a listening question: lp_verifiable
+    ;;; ("hear") is consulted by the plan, the gate, --audit and --check,
+    ;;; long before anything would have asked to hear a word.  A machine
+    ;;; with no audio.conf still never compiles audio.p.
+    if sys_file_exists(lp_audio_conf_path()) then lp_load_audio() endif;
     ;;; Before the check, because a hollow rung is a fact about the
     ;;; graph and wants no student bound to it.
     if auditonly then lp_audit_show(); return endif;

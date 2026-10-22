@@ -89,9 +89,9 @@ define lp_audio_lang_dir(lang) -> d;
     lvars lang, d = lp_audio_dir() <> (lang sys_>< '') <> '/';
 enddefine;
 
-define lp_audio_conf_path() -> p;
-    lvars p = lp_home() <> 'audio.conf';
-enddefine;
+;;; lp_audio_conf_path is in langpop.p, beside lp_home: the engine has to
+;;; be able to ask whether a voice is configured BEFORE deciding to load
+;;; this file.
 
 ;;; ------------------------------------------------------ the voice table
 ;;; lang -> {cmd, voice, model}.  Loaded once, and reloadable: a session
@@ -378,13 +378,29 @@ define lp_audio_make(item, rate) -> (path, made, why);
 enddefine;
 
 ;;; ------------------------------------------------------------ playing
+;;; THE EXIT STATUS, not merely the existence of a player.  A player
+;;; that is installed and fails is the common case -- a truncated file, a
+;;; format it will not open, no audio device -- and reporting it as
+;;; played is how a listening question gets asked of a student who heard
+;;; nothing.  pop_status carries the child's status (REF * SYSUTIL).
+;;;
+;;; stderr goes to /dev/null because the player's complaint arrives in
+;;; the middle of a question: the session transcript read
+;;;
+;;;     聞いてください。What did you hear?
+;;;     Error: AudioFileOpen failed ('typ?')
+;;;     ->
+;;;
+;;; which tells the student nothing and the tutor nothing either.  The
+;;; status is what the tutor needs, and it says so in its own words.
 define lp_audio_play(path) -> ok;
     lvars path, ok = false, player;
     returnunless(path and sys_file_exists(path));
     for player in PLAYERS do
         if sys_file_exists(player) then
-            sysobey(player <> ' \'' <> path <> '\'');
-            true -> ok; return;
+            sysobey(player <> ' \'' <> path <> '\' 2>/dev/null');
+            pop_status == 0 -> ok;
+            return;
         endif;
     endfor;
 enddefine;
@@ -564,3 +580,9 @@ define lp_audio_show(level, rate);
     if why then printf('audio: no page (%p)\n', [^why])
     else printf('audio: listen at %p\n', [^path]) endif;
 enddefine;
+
+;;; Set HERE and not only by lp_load_audio, because lp_can_hear reads it
+;;; to decide whether a listening question is possible -- and server.p
+;;; and the test suites reach this file with a plain `load`, which the
+;;; on-demand loader never sees.  A file that is loaded knows it is.
+true -> lp_audio_loaded;

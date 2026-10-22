@@ -36,6 +36,15 @@
     "How many beats?",
     "Count the beats, not the letters:"
   ],
+  "listen": [
+    "Listen.  What did you hear?",
+    "Have a listen -- which word is that?",
+    "Once more.  What did you hear?"
+  ],
+  "again": [
+    "Again.",
+    "Once more."
+  ],
   "slip": [
     "That looks like a typing slip.  Try it again:",
     "Fingers, not English, I suspect.  Once more:"

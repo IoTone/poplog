@@ -36,6 +36,15 @@
     "何拍ですか。How many beats?",
     "Count the beats, not the letters:"
   ],
+  "listen": [
+    "聞いてください。What did you hear?",
+    "Listen.  Which word was that?",
+    "もう一度 -- what did you hear?"
+  ],
+  "again": [
+    "もう一度。",
+    "Again."
+  ],
   "slip": [
     "Typing, I think, not reading.  Once more:",
     "That looks like a slip of the fingers.  Again:"

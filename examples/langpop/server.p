@@ -53,8 +53,14 @@ define lp_new_session(student) -> sid;
     ;;; student has not changed, so a global queue would survive a close
     ;;; and reopen and bring yesterday's deferred questions back as
     ;;; though they had just been put off.
+    ;;; Slot 9 is the channel the question in flight was asked on.  It
+    ;;; has to be remembered rather than recomputed, because the same
+    ;;; item is now asked two ways -- read it, hear it -- and an answer
+    ;;; filed against the wrong channel is the comfortable averaging that
+    ;;; channels exist to prevent.
     {% student, lp_now_ms(), false, 0, false,
-       [], 0, newproperty([], 32, 0, "perm") %} -> lp_sessions(consword(sid));
+       [], 0, newproperty([], 32, 0, "perm"), false %}
+        -> lp_sessions(consword(sid));
 enddefine;
 
 ;;; The engine reads and writes the queue through its own globals, so a
@@ -339,8 +345,17 @@ define lp_m_next(msg) -> res;
     ;;; was told it would come round again, so it comes before anything
     ;;; new.  Reported as `requeued` so a client can say so rather than
     ;;; showing it as a fresh question.
-    lvars requeued = lp_due();
+    lvars requeued = lp_due(), ch = false;
     (requeued or lp_choose(lp_plan())) -> item;
+    if requeued then lp_due_ch(item) -> ch endif;
+    ;;; Every fourth question by ear, exactly as the TUI interleaves --
+    ;;; the rule lives in the engine so both doors ask the same way.
+    unless requeued then
+        if (lp_asked_n + 1) mod lp_hear_every() == 0 then
+            lvars hitem = lp_choose_hear();
+            if hitem then hitem -> item; "hear" -> ch endif;
+        endif;
+    endunless;
     ;;; Everything ready is deferred and nothing else can be asked: the
     ;;; gap gives way rather than handing the client an empty reply.
     if not(item) and lp_pending /== [] then
@@ -351,13 +366,19 @@ define lp_m_next(msg) -> res;
     if not(item) and lp_pending /== [] then
         hd(lp_pending)(1) -> item; true -> requeued;
     endif;
+    ;;; Nothing left to read here, but something left to hear.
+    unless item then
+        lvars hitem2 = lp_choose_hear();
+        if hitem2 then hitem2 -> item; "hear" -> ch endif;
+    endunless;
     unless item then
         jsonrpc_obj([% 'item', json_null,
                        'note', 'nothing here can be checked by typing -- try assign' %])
             -> res;
         return;
     endunless;
-    lp_question(item) -> (shape, prompt, answer, options);
+    unless ch then lp_primary(item) -> ch endunless;
+    lp_question(item, ch) -> (shape, prompt, answer, options);
     ;;; Remember what was asked and when, so the latency is OURS.  A
     ;;; client's own figure is a claim: the speed half of every pre-school
     ;;; exit criterion would be worth nothing if a client could send
@@ -365,13 +386,23 @@ define lp_m_next(msg) -> res;
     ;;; cannot reach.
     item -> s(3);
     lp_now_ms() -> s(4);
+    ch -> s(9);
+    ;;; A listening question's `prompt` is a PATH and not something to
+    ;;; print: showing it would not give the answer away, but a client
+    ;;; that rendered it as a glyph would be showing the student a
+    ;;; filename.  So it goes in `audio` under its own name, and `prompt`
+    ;;; is null -- there is nothing to read, which is the whole point of
+    ;;; the question.
     jsonrpc_obj([% 'item', lp_jkey(item),
                    'shape', lp_jkey(shape),
-                   'prompt', lp_jkey(prompt),
+                   'prompt', if ch == "hear" then json_null
+                             else lp_jkey(prompt) endif,
+                   'audio', if ch == "hear" then prompt else json_null endif,
+                   'channel', lp_jkey(ch),
                    'options', lp_vec([% lvars o; for o in options do lp_jkey(o) endfor %]),
                    'kind', lp_jkey(lp_kind(item)),
                    'requeued', requeued and true,
-                   'belief', lp_bel(item, lp_primary(item)) %]) -> res;
+                   'belief', lp_bel(item, ch) %]) -> res;
 enddefine;
 
 ;;; The judging, which stays here for the same reason the answer does.
@@ -432,7 +463,11 @@ define lp_m_answer(msg) -> res;
         ;;; Refused with a reply rather than an error, because the client
         ;;; did nothing wrong: it asked, and the answer is no.
         lvars may = lp_can_later(item);
-        if may then lp_later(item); lp_q_out(s) endif;
+        if may then
+            lp_later_on(item, (if s(3) == item then s(9) else false endif)
+                              or lp_primary(item));
+            lp_q_out(s);
+        endif;
         ;;; s(3) and s(4) are left alone.  A deferred question is asked
         ;;; again from scratch, so there is no clock to stop, and the
         ;;; item in flight stays in flight until something is recorded.
@@ -459,13 +494,28 @@ define lp_m_answer(msg) -> res;
     ;;; drives the graph without going through next (a batch import, a
     ;;; test), and it is reported separately so the two never blur.
     unless isinteger(latency) and latency >= 0 then false -> latency endunless;
-    lvars timed = false;
+    lvars timed = false, asked = s(3) == item;
     if s(3) == item and s(4) > 0 then
         lp_now_ms() - s(4) -> timed;
         false -> s(3);
     endif;
     lvars used = timed or latency or 0;
-    lp_question(item) -> (shape, prompt, answer, options);
+    ;;; The channel the question IN FLIGHT was asked on -- and only when
+    ;;; the item matches.  The first version read s(9) whenever it was
+    ;;; set, so a client answering some other item inherited the last
+    ;;; question's channel: answer `hi_a` after a listening question and
+    ;;; it was graded on `hear`, which a grapheme does not have, so the
+    ;;; question came back empty and the reply builder did hd([]).
+    ;;;
+    ;;; s(3) is cleared by the clock above, so this is computed from
+    ;;; `asked`, captured before it.
+    lvars ach = (if asked then s(9) else false endif) or lp_primary(item);
+    ;;; And a belt: a channel this item cannot be asked on falls back to
+    ;;; the gate channel rather than producing a question with no answer
+    ;;; in it.  Nothing should reach here now, which is the point of
+    ;;; putting it where a stale session would.
+    unless lp_drillable_on(item, ach) then lp_primary(item) -> ach endunless;
+    lp_question(item, ach) -> (shape, prompt, answer, options);
     lp_norm(given sys_>< '') -> typed;
     member(typed, answer) and true -> correct;
     ;;; Which of the four this was.  A client says "I do not know" by
@@ -517,7 +567,7 @@ define lp_m_answer(msg) -> res;
     ;;; one whenever a correct answer inferred a prerequisite from what
     ;;; the item contains.
     lp_undo_start(item);
-    lp_record(item, lp_primary(item), 1, outcome, used);
+    lp_record(item, ach, 1, outcome, used);
     lp_undo_stop();
     lp_answered(item);
     lp_q_out(s);
@@ -818,7 +868,7 @@ define lp_m_place_next(msg) -> res;
         return;
     endunless;
     hd(items) -> item;
-    lp_question(item) -> (shape, prompt, answer, options);
+    lp_question(item, lp_primary(item)) -> (shape, prompt, answer, options);
     ;;; the clock is ours, exactly as in langpop/next -- the speed half
     ;;; of a pre-school criterion is worth nothing if a client can send
     ;;; latency_ms: 1

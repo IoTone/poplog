@@ -122,7 +122,7 @@ check_true('the mark is named in the reason',
               endfor %] = ['mark(dakuten)']);
 
 ;;; And it can be asked, which is the whole point.
-lvars (vsh, vpr, vans, vopt) = lp_question("hi_ga");
+lvars (vsh, vpr, vans, vopt) = lp_question("hi_ga", lp_primary("hi_ga"));
 check('が can be asked by typing', vsh, "type");
 check('the prompt is the glyph', vpr sys_>< '', 'が');
 check_true('and ga is accepted', member('ga', vans));
@@ -311,17 +311,17 @@ check('both inside the latency window', fast, 0.5);
 
 ;;; --------------------------------------------------------- the questions
 check('a grapheme is typed',
-      [% lvars sh; lp_question("hi_a") -> (sh, , , ); sh %], [type]);
+      [% lvars sh; lp_question("hi_a", lp_primary("hi_a")) -> (sh, , , ); sh %], [type]);
 check('a loanword trap is a choice',
-      [% lvars sh; lp_question("t_mansion") -> (sh, , , ); sh %], [pick]);
+      [% lvars sh; lp_question("t_mansion", lp_primary("t_mansion")) -> (sh, , , ); sh %], [pick]);
 check('a sound cannot be checked by typing',
-      [% lvars sh; lp_question("s_r_l") -> (sh, , , ); sh %], [none]);
+      [% lvars sh; lp_question("s_r_l", lp_primary("s_r_l")) -> (sh, , , ); sh %], [none]);
 check_false('and so it is not drillable', lp_drillable("s_r_l"));
 check_true('while a word is', lp_drillable("w_neko"));
 
 ;;; The two options of a trap are its two meanings, and the answer is
 ;;; whichever position the English one landed in.
-lvars (sh2, pr2, ans2, opts2) = lp_question("t_service");
+lvars (sh2, pr2, ans2, opts2) = lp_question("t_service", lp_primary("t_service"));
 check('prompt is the English word', pr2, 'service');
 check('two options', length(opts2), 2);
 ;;; Against the graph's own gloss, not against a copy of its text: the
@@ -733,7 +733,7 @@ endif;
 ;;; not; the invariant at the end of this section holds either way, and
 ;;; it is the one that would have caught the original bug.
 if lp_ilang("k_65e5") then
-    lvars (ksh, kpr, kans, kopt) = lp_question("k_65e5");
+    lvars (ksh, kpr, kans, kopt) = lp_question("k_65e5", lp_primary("k_65e5"));
     check('an imported kanji can be asked', ksh, "type");
     check('the prompt is the character', kpr, '日');
     check_true('its kun reading answers', member('ひ', kans));
@@ -741,7 +741,7 @@ if lp_ilang("k_65e5") then
     check_true('and its on reading, folded to hiragana', member('にち', kans));
     check_true('and the romaji of that', member('nichi', kans));
 
-    lvars (wsh, wpr, wans, wopt) = lp_question("w_tanjoubi");
+    lvars (wsh, wpr, wans, wopt) = lp_question("w_tanjoubi", lp_primary("w_tanjoubi"));
     check('an imported word can be asked', wsh, "type");
     check('the prompt is the kanji, not the kana', wpr, '誕生日');
     check('the canonical answer is the kana', hd(wans), 'たんじょうび');
@@ -754,7 +754,7 @@ endif;
 ;;; Two skills, two strictnesses, and the difference is deliberate: がっこう
 ;;; at pre-school is a reading-the-kana exercise so the う counts, while
 ;;; 学校 at N5 is a reading-the-kanji exercise where it does not.
-lvars (psh, ppr, pans, popt) = lp_question("w_gakkou");
+lvars (psh, ppr, pans, popt) = lp_question("w_gakkou", lp_primary("w_gakkou"));
 check('a starter word is prompted as kana', ppr, 'がっこう');
 check('and accepts exactly one spelling', length(pans), 1);
 check_false('so a skipped vowel is wrong there', member('gakko', pans));
@@ -765,7 +765,7 @@ check_false('so a skipped vowel is wrong there', member('gakko', pans));
 ;;; audio.  A count would have gone stale; this says which kinds.
 lvars i, wrong = [], sh0;
 for i in lp_items do
-    lp_question(i) -> (sh0, , , );
+    lp_question(i, lp_primary(i)) -> (sh0, , , );
     nextunless(sh0 == "none");
     unless member(lp_kind(i), [skill pattern sound]) then
         wrong <> [^i] -> wrong
@@ -927,7 +927,7 @@ check_true('while dakuten is measured over the voiced kana',
            length(lp_ask(crit_named('skill(dakuten)'),
                          "criterion_items", 1)) >= 46);
 
-lvars (msh, mpr, man, mop) = lp_question("mora_count");
+lvars (msh, mpr, man, mop) = lp_question("mora_count", lp_primary("mora_count"));
 check('it can be asked', msh, "count");
 check_true('with a word for a prompt', length(mpr) > 0);
 check('and a number for an answer', length(man), 1);
@@ -1022,7 +1022,7 @@ if lp_form_of("t_mansion", "ipa") then
                       then i endunless endfor %] == []);
 
     ;;; The question is the English word, and the answer its syllables.
-    lvars (esh, epr, ean, eop) = lp_question("final_consonants");
+    lvars (esh, epr, ean, eop) = lp_question("final_consonants", lp_primary("final_consonants"));
     check('it can be asked', esh, "count");
     check_true('with an English word for a prompt', length(epr) > 0);
     check('and one number for an answer', length(ean), 1);

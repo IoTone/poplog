@@ -412,5 +412,156 @@ lp_read_file(page) -> html;
 check_true('now there are two columns',
            has('<th>slow</th>', html) and has('<th>normal</th>', html));
 
+;;; ------------------------------------------------ the listening question
+;;; Stage 0.5.  `hear` was parked behind a microphone with `produce`,
+;;; when hearing needs a SPEAKER: play the word, the student types what
+;;; they heard, and the grading is exact match exactly as it is for
+;;; reading.  These checks are mostly about the conditions, because
+;;; getting those wrong is how a tutor comes to ask a question it cannot
+;;; play or score a channel it cannot test.
+
+;;; --- with no voice, nothing has changed about anything
+lp_write_file(lp_audio_conf_path(), '{}');
+lp_voices_load();
+check_true('with no voice, hearing is not verifiable',
+           not(lp_verifiable("hear")));
+check_true('and lp_can_hear says so', not(lp_can_hear()));
+lvars hsh, hpr, hans, hopt;
+lp_question("w_neko", "hear") -> (hsh, hpr, hans, hopt);
+check('no voice, no listening question', hsh, "none");
+check_true('and the pool is empty', lp_hear_plan() == []);
+check_true('so the audit still reports needs_audio, not a score of zero',
+           not(lp_probeable("w_neko", "hear")));
+
+;;; Reading is untouched by all of this, which is the property that
+;;; matters most: installing or not installing a voice must not change
+;;; what a reading question is.
+lp_question("w_neko", "read") -> (hsh, hpr, hans, hopt);
+check('a reading question is unaffected', hsh, "type");
+
+;;; --- a voice, but nothing rendered yet
+;;; An n5 word, because every pre-school word was rendered by the level
+;;; pass above -- and an item nobody has rendered is exactly the case
+;;; this pair of checks is about.
+lvars unsaid = false, ui;
+for ui in lp_items do
+    if lp_ilang(ui) == "ja" and lp_kind(ui) == "word"
+    and lp_ilevel(ui) == "n5" then ui -> unsaid; quitloop endif;
+endfor;
+check_true('there is an n5 word to test with', unsaid /== false);
+
+conf_rates('cp %i %o', 'jf_alpha', 'stub-1',
+           '{"slow": "0.7", "normal": "1.0"}');
+check_true('a voice makes hearing verifiable in principle',
+           lp_verifiable("hear"));
+lp_question(unsaid, "hear") -> (hsh, hpr, hans, hopt);
+check('but an unrendered item cannot be asked', hsh, "none");
+lvars upath, uwhy;
+lp_audio_path(unsaid, "normal") -> (upath, uwhy);
+check('because nothing is cached, and asking must never synthesise',
+      uwhy, 'not_generated');
+
+;;; --- rendered at the normal rate
+lp_audio_make("w_neko", "normal") -> (path, made, why);
+check_true('the word renders', why == false);
+lp_question("w_neko", "hear") -> (hsh, hpr, hans, hopt);
+check('now it is a listening question', hsh, "listen");
+check('and the prompt is the SOUND, not the glyph', hpr, path);
+check_true('the glyph is nowhere in the prompt',
+           not(has('ねこ', hpr)));
+
+;;; The answer key is the reading question's, unchanged.  That is the
+;;; whole design: one stimulus swapped, nothing else.
+lvars rsh, rpr, rans, ropt;
+lp_question("w_neko", "read") -> (rsh, rpr, rans, ropt);
+check('the answer key is the reading question\'s', hans, rans);
+check_true('which is the romaji', member('neko', hans));
+
+;;; --- rate: a listening question is asked at the normal rate only
+lp_audio_make(unsaid, "slow") -> (path, made, why);
+check_true('a slow render succeeds', why == false);
+lp_question(unsaid, "hear") -> (hsh, hpr, hans, hopt);
+check('slow audio alone does not make a listening question', hsh, "none");
+check_true('because a slowed voice is an easier exposure, and for the '
+           <> 'geminates a rhythm the language does not have',
+           lp_audio_timing("w_gakkou"));
+lp_audio_make(unsaid, "normal") -> (path, made, why);
+lp_question(unsaid, "hear") -> (hsh, hpr, hans, hopt);
+check('at normal rate it can be asked', hsh, "listen");
+
+;;; --- the pool: words already read-mastered, not yet heard
+"hearer" -> lp_user;
+check_true('a word not yet read is not in the listening pool',
+           member("w_neko", lp_hear_plan()) == false);
+MASTERY -> lp_beliefs(lp_bkey(lp_user, "w_neko", "read"));
+check_true('once read, it is', member("w_neko", lp_hear_plan()) /== false);
+MASTERY -> lp_beliefs(lp_bkey(lp_user, "w_neko", "hear"));
+check_true('once heard, it leaves', member("w_neko", lp_hear_plan()) == false);
+0.0 -> lp_beliefs(lp_bkey(lp_user, "w_neko", "hear"));
+
+;;; A kana is not in it at all: a grapheme is read, not heard.
+check_true('a grapheme has no hear channel',
+           member("hear", lp_channels("hi_a")) == false);
+check_true('so it is never in the pool',
+           member("hi_a", lp_hear_plan()) == false);
+
+;;; --- the audit can measure it now
+check_true('a rendered, read-mastered word is probeable on hear',
+           lp_probeable("w_neko", "hear"));
+
+;;; --- a contrast still cannot be asked, and MUST NOT lock the ladder
+;;; The twelve English contrasts are sound items whose gate channel is
+;;; `hear`.  Making `hear` verifiable took away the exemption that kept
+;;; them from locking everything built on them -- which is the defect
+;;; 570849c fixed, and this is the check that it stays fixed.
+lvars encfg = lp_read_file(lp_audio_conf_path());
+lp_write_file(lp_audio_conf_path(),
+    '{"en": {"cmd": "cp %i %o", "voice": "af", "model": "stub-1"}}');
+lp_voices_load();
+"en" -> lp_lang;
+check_true('with an English voice, hearing is verifiable', lp_can_hear());
+lp_question("s_r_l", "hear") -> (hsh, hpr, hans, hopt);
+check('a contrast is still not a listening question -- it wants a pair',
+      hsh, "none");
+check_true('so nothing can gate on it', lp_ungateable("s_r_l"));
+check_true('and the English rung still has something ready',
+           lp_plan() /== []);
+
+;;; An English trap is a pick question, and listening keeps it one.
+lp_audio_make("t_mansion", "normal") -> (path, made, why);
+check_true('an English word renders', why == false);
+lp_question("t_mansion", "hear") -> (hsh, hpr, hans, hopt);
+check('a pick question heard is still a pick', hsh, "listen_pick");
+check_true('with its options intact', length(hopt) == 2);
+;;; NOT the same answer as a second call: a pick question flips its
+;;; options every time it is built, so the answer is 1 or 2 by turns.
+;;; (Which also means lp_drillable_on advances that flip, as
+;;; lp_drillable always did.)  What has to hold is that the listening
+;;; question is internally consistent.
+check_true('the answer is one of the two options it offered',
+           member(hd(hans), ['1' '2']) /== false);
+check_true('and the gloss pair is what it offers',
+           member(lp_gloss_of("t_mansion", "en") sys_>< '',
+                  [% lvars oo; for oo in hopt do oo sys_>< '' endfor %])
+           /== false);
+"ja" -> lp_lang;
+lp_write_file(lp_audio_conf_path(), encfg);
+lp_voices_load();
+
+;;; --- the queue remembers the channel
+;;; Without this a listening question put off came back as a reading
+;;; question, so the belief the student was working on never moved.
+lp_queue_reset();
+lp_later_on("w_neko", "hear");
+check('one waiting', length(lp_pending), 1);
+check('and it is waiting on hear', lp_due_ch("w_neko"), "hear");
+lp_queue_reset();
+lp_requeue("w_neko");
+check('a plain requeue is the gate channel', lp_due_ch("w_neko"), "read");
+lp_queue_reset();
+
+;;; --- the interleave is one rule, shared with the protocol
+check('one question in four is by ear', lp_hear_every(), 4);
+
 sysobey('rm -rf ' <> tmpdir);
 test_summary();

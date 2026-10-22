@@ -409,7 +409,7 @@ vars bq = result('langpop/next', jsonrpc_obj([% 'session_id', bsid %]));
 check_true('a question comes back', bq('item') /== false);
 
 ;;; Asked about the skill directly, since the plan starts on the kana.
-lvars (bsh, bpr, ban, bop) = lp_question("mora_count");
+lvars (bsh, bpr, ban, bop) = lp_question("mora_count", lp_primary("mora_count"));
 vars bw = result('langpop/answer',
                  jsonrpc_obj([% 'session_id', bsid, 'item', 'mora_count',
                                 'answer', hd(ban) %]));
@@ -655,7 +655,7 @@ repeat
     quitif(pq('done'));
     pq('item') -> pitem;
     ;;; answer it right, whatever it is
-    lvars (psh, ppr, pans, popt) = lp_question(consword(pitem));
+    lvars (psh, ppr, pans, popt) = lp_question(consword(pitem), lp_primary(consword(pitem)));
     result('langpop/answer',
            jsonrpc_obj([% 'session_id', psid, 'item', pitem,
                           'answer', hd(pans) %])).erase;
@@ -956,6 +956,75 @@ check('audio: an unknown rate is -32602',
 check('audio: a language with no voice of its own is -32005',
       errcode('langpop/audio.say', jsonrpc_obj([% 'item', 't_mansion' %])),
       -32005);
+
+;;; -------------------------------------------------- the listening question
+;;; Stage 0.5 over the wire.  A voice is configured above, so `hear` is
+;;; verifiable here -- and the two things a client needs are the channel
+;;; it was asked on and a path it can play, under their own names.
+lvars hearer = result('langpop/register',
+                      jsonrpc_obj([% 'student_id', 'hearer',
+                                     'display_name', 'Hearer' %]));
+lvars hsess = result('langpop/session.open',
+                     jsonrpc_obj([% 'student_id', 'hearer' %]))('session_id');
+
+;;; Read-mastered and rendered, which are the two conditions.
+MASTERY -> lp_beliefs(lp_bkey("hearer", "w_neko", "read"));
+lp_audio_make("w_neko", "normal") -> (, , );
+
+lvars hq = result('langpop/next',
+                  jsonrpc_obj([% 'session_id', hsess %]));
+;;; The interleave is one question in four, so the first question of a
+;;; session is a reading one -- which is itself worth asserting: a
+;;; student does not open a session and get asked to listen first.
+check('the first question is read', hq('channel'), 'read');
+
+;;; Answer three, so the fourth is by ear.
+define answer_one(sid);
+    lvars sid, q = result('langpop/next', jsonrpc_obj([% 'session_id', sid %]));
+    result('langpop/answer',
+           jsonrpc_obj([% 'session_id', sid, 'item', q('item'),
+                          'answer', '' %])).erase;
+    q;
+enddefine;
+
+answer_one(hsess).erase;
+answer_one(hsess).erase;
+answer_one(hsess).erase;
+lvars hq4 = result('langpop/next', jsonrpc_obj([% 'session_id', hsess %]));
+check('the fourth question is by ear', hq4('channel'), 'hear');
+check('and its shape says so', hq4('shape'), 'listen');
+check('the item is the word that was read-mastered', hq4('item'), 'w_neko');
+
+;;; A listening question has NOTHING TO READ.  prompt is null and the
+;;; sound is under its own key, so a client cannot accidentally render a
+;;; filename where the glyph would go -- and cannot show the answer.
+check_true('prompt is null, because there is nothing to read',
+           hq4('prompt') == json_null or hq4('prompt') == false);
+check_true('the sound is under its own name', isstring(hq4('audio')));
+check_true('and the file is there', sys_file_exists(hq4('audio')));
+check_true('the glyph is nowhere in the reply',
+           issubstring('ねこ', hq4('audio')) == false);
+
+;;; The answer is recorded against `hear`, not against reading.  An
+;;; answer filed on the wrong channel is the comfortable averaging that
+;;; channels exist to prevent -- and reading is already mastered here, so
+;;; a misfiled right answer would be invisible.
+lvars hbefore = lp_bel("w_neko", "hear");
+result('langpop/answer',
+       jsonrpc_obj([% 'session_id', hsess, 'item', 'w_neko',
+                      'answer', 'neko' %])).erase;
+check_true('the hear belief moved', lp_bel("w_neko", "hear") > hbefore);
+check('and the read belief did not', lp_bel("w_neko", "read"), MASTERY);
+
+;;; An item the session was never asked about falls back to the gate
+;;; channel, which is what this method did before listening existed.
+result('langpop/answer',
+       jsonrpc_obj([% 'session_id', hsess, 'item', 'hi_a',
+                      'answer', 'a' %])).erase;
+check_true('an unasked item is answered on its gate channel',
+           lp_bel("hi_a", "read") > 0.0);
+check('and not on the channel of the question before it',
+      lp_bel("hi_a", "hear"), 0.0);
 
 jsonrpc_close(client); jsonrpc_close(server);
 sysobey('rm -rf ' <> tmpdir);
