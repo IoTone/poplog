@@ -1061,6 +1061,43 @@ That is not a defect in the list, which was curated to be teachable on
 day one. It is a fact about what coverage measures, and it is the kind
 of thing a curator can only learn from a number.
 
+### The gap report, which turns that number into a queue
+
+"The graph is short 1,800 words" is true and useless. `--gap` inverts
+the frequency import: walk the list, drop every word the graph already
+teaches **at any level**, and print what is missing ranked by what each
+word buys — its share of the corpus, and the coverage the graph would
+reach if everything down to that row were added.
+
+```
+./poplog basepop11 examples/langpop/import.p --source frequency \
+     --gap --file <dir>/en_50k.txt --lang en [--top 40]
+```
+
+```
+gap: the graph answers 111 of the list's words, and they carry
+gap: 5.60% of the corpus
+
+   rank  share   if-added  word
+  1      3.97%   9.57%     you
+  3      3.14%   16.44%    the
+  6      1.97%   22.77%    's    (a tokeniser shard, not a word)
+```
+
+Each row is annotated with what the curator needs to judge it: English
+rows say when a token is probably an inflection of a word already taught
+(`drinking` → *may be a form of e_drink*) or a shard the tokeniser left;
+Japanese rows carry the price tag (`大丈夫` — *needs 2 kanji not in the
+graph*). **It is a report, not an import** — adding a word is curation
+(an id, a level, a gloss), and nothing here mints any of those. Nothing
+is written.
+
+The first run earned its keep on the spot: the entire English top-30 gap
+is **function words** — the coverage the A1 content list cannot reach —
+and the Japanese list shows the tokeniser splitting verbs from their
+endings, which is a fact about the corpus the report now states rather
+than hides.
+
 
 ## What about English
 

@@ -39,6 +39,14 @@
        --check     resolve and report, write nothing
        --out F     where to write (default graph/<lang>/generated/...)
 
+   And one REPORT, which writes nothing at all: the gap between what the
+   frequency list says people actually say and what the graph teaches,
+   ranked by what each missing word would buy.  Filling a level is
+   curation, so the output is a queue for a person, never facts:
+
+       ./poplog basepop11 examples/langpop/import.p --source frequency \
+            --gap --file <dir>/en_50k.txt --lang en [--top 40]
+
    tools/fetch-upstream.sh downloads and unpacks both files.  Neither is
    small (JMdict_e is 63MB of XML) and neither belongs in the repo.
 
@@ -58,7 +66,8 @@ uses utf8;                              ;;; consutf8, for numeric char refs
 ;;; ------------------------------------------------------------ arguments
 vars imp_source = false, imp_file = false, imp_level = false,
     imp_lang = "ja", imp_jlpt = false, imp_picks = false,
-    imp_outpath = false, imp_check = false;
+    imp_outpath = false, imp_check = false, imp_gap_want = false,
+    imp_top = 40;
 
 define imp_args();
     lvars a, rest = poparglist;
@@ -79,9 +88,13 @@ define imp_args();
         elseif a = '--out' and rest /== [] then
             hd(rest) -> imp_outpath; tl(rest) -> rest
         elseif a = '--check' then true -> imp_check
+        elseif a = '--gap' then true -> imp_gap_want
+        elseif a = '--top' and rest /== [] then
+            strnumber(hd(rest)) -> imp_top; tl(rest) -> rest
         else
             mishap(a, 1, 'import: unknown argument (--source S --file F '
-                         <> '--level L --lang L --jlpt N --picks F --out F --check)')
+                         <> '--level L --lang L --jlpt N --picks F --out F '
+                         <> '--check --gap --top N)')
         endif;
     enduntil;
 enddefine;
@@ -1162,6 +1175,19 @@ define imp_main();
                'import: --file needed (tools/fetch-upstream.sh downloads it)')
     endunless;
 
+    ;;; The gap report inverts the import and leaves nothing behind: it
+    ;;; needs the whole graph (every level -- a word taught at N4 is not
+    ;;; a gap) and no --level, no pick file, no output path.
+    if imp_gap_want then
+        unless imp_source == "frequency" then
+            mishap(imp_source, 1, 'import: --gap belongs to --source frequency')
+        endunless;
+        lp_load();
+        lp_index();
+        imp_gap_run(imp_file, imp_top);
+        return;
+    endif;
+
     ;;; The pick file is read BEFORE the graph, because it is what says
     ;;; which level is being imported, and that is what names the output
     ;;; file -- which in turn is the one file the graph must be loaded
@@ -1582,6 +1608,205 @@ enddefine;
 ;;; that.
 define imp_scale() -> s;
     lvars s = consword('opensubtitles_' <> (imp_lang sys_>< ''));
+enddefine;
+
+;;; ------------------------------------------------------- the gap report
+;;; The inverse of imp_frequency: instead of enriching the words the
+;;; graph holds, say which words it does NOT hold, ranked by how much of
+;;; running text each one accounts for.  "The graph is short 1,800 words"
+;;; is true and useless; "here are the forty words that buy the most
+;;; coverage per item added" is a queue a curator can work.
+;;;
+;;; A REPORT AND NOT AN IMPORT, deliberately.  Adding a word is curation
+;;; -- an identity, a level, a gloss, and (for Japanese) the kanji it
+;;; rests on -- and the one time this project tried to derive those
+;;; mechanically it got water -> 水分 (see graph/en/a1.pl's header).  So
+;;; nothing here mints an id and nothing here writes a file the engine
+;;; reads: the output is for a person.
+
+;;; Every form of every item in the language, at EVERY level.  The gap is
+;;; against the whole graph: a word taught two rungs up is not missing,
+;;; it is just not next.
+;;; WORDS ONLY, because the criteria this report feeds -- vocabulary/2,
+;;; coverage/2 -- count words.  The graph also teaches あ as a grapheme,
+;;; and letting hi_a answer for the interjection あ would inflate the
+;;; held figure with items that are not vocabulary at all.
+define imp_graph_words() -> gw;
+    lvars gw = newproperty([], 2048, false, "perm"), i, p, t;
+    for i in lp_items do
+        nextunless(lp_ilang(i) == imp_lang and lp_kind(i) == "word");
+        for p in lp_forms(i) do
+            hd(tl(p)) -> t;
+            nextunless(isstring(t) or isword(t));
+            consword(if imp_lang == "en" then uppertolower(t sys_>< '')
+                     else t sys_>< '' endif) -> t;
+            unless gw(t) then i -> gw(t) endunless;
+        endfor;
+    endfor;
+enddefine;
+
+;;; Is this token even a candidate word?  The lists are raw tokeniser
+;;; output: the Japanese one opens with 、 and 。, the English one has
+;;; digit runs.  Punctuation is counted in the denominator -- it is the
+;;; corpus -- but it is not a gap, because it is not a word.
+define imp_gap_wordish(word) -> yes;
+    lvars word, yes = false, c;
+    if imp_lang == "ja" then
+        utf8_appcodes(word sys_>< '', procedure(c);
+            lvars c;
+            if (c >= 16:3040 and c <= 16:30FF)          ;;; kana + ー
+            or (c >= 16:3400 and c <= 16:9FFF) then     ;;; ideographs
+                true -> yes;
+            endif;
+        endprocedure);
+    else
+        for c from 1 to length(word) do
+            if (word(c) >= `a` and word(c) <= `z`)
+            or (word(c) >= `A` and word(c) <= `Z`) then
+                true -> yes; return;
+            endif;
+        endfor;
+    endif;
+enddefine;
+
+;;; One pass.  Same reading discipline as imp_frequency: every line
+;;; counts toward the total, because the denominator is the corpus.
+;;; The missing list keeps arrival order, which IS frequency order --
+;;; the upstream file is sorted, and imp_frequency already relies on it
+;;; ("the first, which is the highest").
+define imp_gap_scan(path, topn) -> (nlines, total, held, nheld, missing);
+    lvars path, topn, nlines = 0, total = 0, held = 0, nheld = 0,
+          nmiss = 0, missing = [], gw = imp_graph_words();
+    imp_lines(path, procedure(line);
+        lvars line, k, n, word, w;
+        imp_trim(line) -> line;
+        returnif(line = '');
+        locchar(`\s`, 1, line) -> k;
+        returnunless(k);
+        strnumber(allbutfirst(k, line)) -> n;
+        returnunless(isinteger(n));
+        nlines + 1 -> nlines;
+        total + n -> total;
+        substring(1, k - 1, line) -> word;
+        consword(if imp_lang == "en" then uppertolower(word)
+                 else word endif) -> w;
+        if gw(w) then
+            held + n -> held; nheld + 1 -> nheld;
+        elseif nmiss < topn and imp_gap_wordish(word) then
+            missing <> [{% nlines, word, n %}] -> missing;
+            nmiss + 1 -> nmiss;
+        endif;
+    endprocedure);
+enddefine;
+
+;;; Basis points, printed as a percentage.  Integer arithmetic throughout
+;;; because the counts are large and exact and a float would print as
+;;; 0.414159... in a column meant to be read.
+define imp_pct(n, total) -> s;
+    lvars n, total, bp, s;
+    if total == 0 then '-' -> s; return endif;
+    ((n * 10000) + (total div 2)) div total -> bp;
+    ((bp div 100) sys_>< '.')
+        <> (if bp mod 100 < 10 then '0' else '' endif)
+        <> ((bp mod 100) sys_>< '%') -> s;
+enddefine;
+
+;;; A GUESS, and labelled as one in the report.  OpenSubtitles is raw
+;;; tokens, so `going` appears as itself; a curator deciding whether
+;;; `going` is a gap wants to know the graph already teaches `go`.
+;;; Surface morphology only -- strip a suffix, try the base, try the
+;;; base plus e (making -> make), try undoubling (running -> run) -- and
+;;; anything cleverer than that belongs to a lemmatiser, not here.
+lconstant GAP_SUFFIXES = ['\'s' '\'re' '\'ll' '\'ve' 'n\'t' 'ing' 'ed' 'es' 's'];
+
+define imp_gap_infl(word, gw) -> id;
+    lvars word, gw, id = false, suf, base, w, bl;
+    uppertolower(word sys_>< '') -> w;
+    for suf in GAP_SUFFIXES do
+        nextunless(length(w) > length(suf) + 1);
+        nextunless(substring(length(w) - length(suf) + 1, length(suf), w) = suf);
+        substring(1, length(w) - length(suf), w) -> base;
+        if gw(consword(base)) then gw(consword(base)) -> id; return endif;
+        if (suf = 'ing' or suf = 'ed' or suf = 'es')
+        and gw(consword(base <> 'e')) then
+            gw(consword(base <> 'e')) -> id; return;
+        endif;
+        length(base) -> bl;
+        if (suf = 'ing' or suf = 'ed') and bl >= 2
+        and base(bl) == base(bl - 1)
+        and gw(consword(substring(1, bl - 1, base))) then
+            gw(consword(substring(1, bl - 1, base))) -> id; return;
+        endif;
+    endfor;
+enddefine;
+
+;;; What a Japanese word costs beyond itself: the kanji it is written
+;;; with.  A word whose kanji are all in the graph is ready to pick; a
+;;; word that needs characters the graph has not imported is a bigger
+;;; purchase, and the curator should see the price on the ticket.
+define imp_gap_kanji(word) -> note;
+    lvars word, note = false, have = 0, lack = 0;
+    utf8_appcodes(word sys_>< '', procedure(code);
+        lvars code;
+        returnunless(code >= 16:3400 and code <= 16:9FFF);
+        if lp_ilang(consword('k_' <> imp_hex(code))) then have + 1 -> have
+        else lack + 1 -> lack
+        endif;
+    endprocedure);
+    if lack > 0 then
+        'needs ' <> (lack sys_>< ' kanji not in the graph') -> note
+    elseif have > 0 then
+        'kanji all in the graph' -> note
+    endif;
+enddefine;
+
+define imp_gap_run(path, topn);
+    lvars nlines, total, held, nheld, missing, m, cum, gw, id, note;
+    imp_gap_scan(path, topn) -> (nlines, total, held, nheld, missing);
+    printf('gap: %p -- %p entries, %p tokens\n',
+           [% imp_scale(), nlines, total %]);
+    if total == 0 then
+        printf('gap: nothing legible in %p\n', [^path]);
+        return;
+    endif;
+    printf('gap: the graph answers %p of the list\'s words, and they carry\n',
+           [^nheld]);
+    printf('gap: %p of the corpus\n', [% imp_pct(held, total) %]);
+    printf('\nmissing, ranked by what each word buys:\n\n');
+    printf('   rank  share   if-added  word\n');
+    held -> cum;
+    imp_graph_words() -> gw;
+    for m in missing do
+        cum + m(3) -> cum;
+        false -> note;
+        if imp_lang == "en" then
+            if m(2)(1) == `'` then
+                ;;; 's, 't, 'm: the tokeniser split a contraction, and
+                ;;; what is left is not a word anybody can teach.
+                'a tokeniser shard, not a word' -> note;
+            else
+                imp_gap_infl(m(2), gw) -> id;
+                if id then 'may be a form of ' <> (id sys_>< '') -> note endif;
+            endif;
+        elseif imp_lang == "ja" then
+            imp_gap_kanji(m(2)) -> note;
+        endif;
+        printf('  %p\t%p\t%p\t%p%p\n',
+               [% m(1), imp_pct(m(3), total), imp_pct(cum, total), m(2),
+                  if note then '    (' <> note <> ')' else '' endif %]);
+    endfor;
+    printf('\nwhat adding these moves: vocabulary(N, read)%p\n',
+           [% if imp_lang == "en" then ' and coverage(reading, _) together'
+              else '' endif %]);
+    if imp_lang == "ja" then
+        printf('the tokeniser splits verbs from their endings, so 言 here is\n');
+        printf('the stem of 言う -- read a bare stem as the verb it starts.\n');
+    endif;
+    printf('NOTE ON FIT: OpenSubtitles is DIALOGUE -- spoken, informal.  Its\n');
+    printf('ranks suit coverage(listening, _) and are a proxy for reading.\n');
+    printf('a token is not a word: names, contractions and inflections\n');
+    printf('appear as themselves, which is why this is a queue for a\n');
+    printf('curator and not an import.  Nothing was written.\n');
 enddefine;
 
 define imp_cmudict(path, want) -> (es, unresolved);

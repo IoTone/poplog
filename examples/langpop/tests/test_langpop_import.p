@@ -464,4 +464,101 @@ check_true('CMU\'s licence is in the file, and it is not the EDRDG one',
            issubstring('Carnegie', ctext) /== false
            and issubstring('ShareAlike', ctext) == false);
 
+
+;;; -------------------------------------------------------- the gap report
+;;; --gap inverts the import: which words does the frequency list carry
+;;; that the graph does not, and what would each buy.  A report, never
+;;; facts -- the one thing checked hardest here is that it minted nothing.
+
+;;; The graph's own words, every level and every form.
+lvars gw;
+procedure();
+    dlocal imp_lang = "en";
+    imp_graph_words() -> gw;
+endprocedure();
+check('a graph word is found by its latin form', gw("water"), "e_water");
+check_true('case does not matter -- the list is lowercase', gw("water") == gw("water"));
+check_true('and a word the graph does not teach is absent', not(gw("zorp")));
+
+;;; The scan: held and missing, with every line in the denominator.
+lvars gnl, gtot, gheld, gnheld, gmiss;
+procedure();
+    dlocal imp_lang = "en";
+    imp_gap_scan(FIX <> 'freq-sample.txt', 10)
+        -> (gnl, gtot, gheld, gnheld, gmiss);
+endprocedure();
+check('every legible line is read', gnl, 6);
+check('and every count is in the denominator', gtot, 215);
+check('the graph holds water and mother', gnheld, 2);
+check('and their counts are what the graph already covers', gheld, 60);
+check('the rest are the gap, in list order', length(gmiss), 4);
+check('the biggest purchase first', gmiss(1)(2), 'the');
+check('with its rank in the list', gmiss(1)(1), 1);
+check('and its count', gmiss(1)(3), 100);
+check('a nonsense token is still a token', gmiss(4)(2), 'zorp');
+
+;;; --top caps the queue, not the arithmetic.
+procedure();
+    dlocal imp_lang = "en";
+    imp_gap_scan(FIX <> 'freq-sample.txt', 2)
+        -> (gnl, gtot, gheld, gnheld, gmiss);
+endprocedure();
+check('the cap keeps the head of the queue', length(gmiss), 2);
+check('the denominator is still the whole corpus', gtot, 215);
+
+;;; Percentages are integer arithmetic, printed for a column.
+check('a round share prints round', imp_pct(50, 200), '25.00%');
+check('a small share keeps its leading zero', imp_pct(1, 300), '0.33%');
+check('an empty corpus is a dash, not a zero divide', imp_pct(5, 0), '-');
+
+;;; The inflection guess: a hedge, so it must only ever point at words
+;;; the graph really has.
+procedure();
+    dlocal imp_lang = "en";
+    imp_graph_words() -> gw;
+endprocedure();
+check('drinking points at drink', imp_gap_infl('drinking', gw), "e_drink");
+check('making points at make, through the dropped e',
+      imp_gap_infl('making', gw), "e_make");
+check_true('a word that is nobody\'s inflection points at nothing',
+           not(imp_gap_infl('zorp', gw)));
+check_true('a word the graph has outright is not reported as a form '
+           <> '-- the scan never asks',
+           gw("water") /== false);
+
+;;; The kanji price tag.  The suite loads no generated kanji, so every
+;;; character is "not in the graph" here -- which is itself the honest
+;;; answer on a fresh checkout.
+procedure();
+    dlocal imp_lang = "ja";
+    check_true('a kanji word names its price',
+               issubstring('kanji', imp_gap_kanji('水') or '') /== false);
+    check_true('a kana-only word has no kanji to price',
+               not(imp_gap_kanji('ひと')));
+endprocedure();
+
+;;; And the ja gap: the scan matches any form, so a kana token the graph
+;;; teaches is held.
+lp_write_file(FIX <> 'freq-ja-tmp.txt',
+    '、 99\nひと 40\n水 30\nぞるぷ 10\n');
+procedure();
+    dlocal imp_lang = "ja";
+    imp_gap_scan(FIX <> 'freq-ja-tmp.txt', 10)
+        -> (gnl, gtot, gheld, gnheld, gmiss);
+endprocedure();
+check('a kana word the graph teaches is held', gnheld >= 1, true);
+check_true('and a word it does not is the gap',
+           length(gmiss) >= 1);
+check('punctuation is in the denominator', gtot, 179);
+check_true('but it is not a gap, because it is not a word',
+           not(any(gmiss, procedure(m); lvars m; m(2) = '、' endprocedure)));
+;;; The graph teaches あ -- as a GRAPHEME.  The gap is about vocabulary,
+;;; so hi_a must not answer for the interjection.
+procedure();
+    dlocal imp_lang = "ja";
+    check_true('a grapheme does not answer for a word',
+               not(imp_graph_words()(consword('あ'))));
+endprocedure();
+sysdelete(FIX <> 'freq-ja-tmp.txt').erase;
+
 test_summary();

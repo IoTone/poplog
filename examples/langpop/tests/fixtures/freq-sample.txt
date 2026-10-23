@@ -1,0 +1,6 @@
+the 100
+water 50
+of 30
+drinking 20
+mother 10
+zorp 5

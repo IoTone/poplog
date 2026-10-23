@@ -66,6 +66,10 @@ curl -fsSL -o cmudict.LICENSE "$CMU/LICENSE"
 # cmudict's LICENSE is.
 echo "fetching en_50k.txt"
 curl -fsSL -o en_50k.txt "$FREQ/content/2018/en/en_50k.txt"
+# Japanese has no 50k cut upstream, only the full list -- the OpenSubtitles
+# Japanese corpus is small, so read the ranks there with extra salt.
+echo "fetching ja_full.txt"
+curl -fsSL -o ja_full.txt "$FREQ/content/2018/ja/ja_full.txt"
 curl -fsSL -o frequencywords.README.md "$FREQ/README.md"
 
 echo
