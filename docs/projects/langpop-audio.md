@@ -509,6 +509,33 @@ The separation is clean on a synthetic speaker and that is an upper
 bound. §4's Stage 3 is still the open question, and it is now the only
 thing between this and a verdict anyone should trust.
 
+### Stage 1.5 — the voice as its own first student — **shipped**
+
+Manual audio testing is slow, so the first pass has nobody in it:
+`--voicetest` has the **configured voice** say every scoreable word twice
+— once as written, once degeminated (きって → きて, mechanically, which is
+exactly the learner error the scorer exists to catch) — and feeds each
+render straight to the scorer. The word as written must come back
+`right`; the dropped beat must **never** come back `right`; っ before a
+fricative and words with no っ at all must be declined, end to end. No
+microphone is touched, so it runs anywhere the voice does — including CI
+with a stub voice, which is how the suite exercises it (and the suite
+also sabotages the voice to prove the test can fail).
+
+Three tallies, because the first run against a real voice showed they
+are three facts: **agree**, **DISAGREE** (the chain credited a dropped
+beat, or missed a held one — a failure), and **abstained** (the dropped
+beat came back `near`). Kyoko's first run: 19 checks, 15 agree, 0
+disagree, 4 abstained — her natural inter-mora gaps in degeminated words
+sit at 80–120 ms, right at the border of one beat. An abstention never
+moves a belief, so nothing is unsafe; those four words are where the
+threshold most wants human ears.
+
+**What a pass proves: the render command, the scorer, the request
+contract and the threshold agree with each other on this installation.**
+What it cannot prove: that the threshold holds for learner speech. The
+second pass needs experienced ears — this buys that pass its time back.
+
 ### Stage A — the original plan, for the record
 
 This was buried in §5 as a precondition. It is a stage, it is first, and

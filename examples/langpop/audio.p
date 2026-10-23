@@ -841,6 +841,184 @@ define lp_audio_show(level, rate);
     else printf('audio: listen at %p\n', [^path]) endif;
 enddefine;
 
+;;; ------------------------------------------------ the voice as student
+;;; First-pass validation with nobody in the loop.  The configured voice
+;;; says each scoreable word twice -- once as written, and once with the
+;;; small っ dropped, which is EXACTLY the learner error the scorer exists
+;;; to catch -- and the scorer must call the first `right` and the second
+;;; `wrong`.  A verdict chain that cannot tell きって from きて when a machine
+;;; says them has no business grading a person.
+;;;
+;;; What a pass proves: the render command, the scorer command, the
+;;; request contract and the threshold agree with each other ON THIS
+;;; INSTALLATION -- this voice, this python, this config.  What it cannot
+;;; prove: that the threshold holds for human speech.  A TTS voice is
+;;; nobody's student; the second pass needs ears.
+;;;
+;;; No microphone is involved anywhere below, deliberately: the renders
+;;; stand in for the recordings, so this runs on a machine with no input
+;;; device at all -- which is every machine in CI.
+
+;;; The learner error, built mechanically: remove every small っ and ッ.
+;;; The expectation handed to the scorer stays the FULL count, because
+;;; that is the drill situation -- asked きって, said きて.
+define lp_degeminate(text) -> (out, changed);
+    lvars text, out = text sys_>< '', changed = false, m, at;
+    for m in ['っ' 'ッ'] do
+        repeat
+            issubstring(m, out) -> at;
+            quitunless(at);
+            substring(1, at - 1, out)
+                <> substring(at + length(m),
+                             length(out) - at - length(m) + 1, out) -> out;
+            true -> changed;
+        endrepeat;
+    endfor;
+enddefine;
+
+;;; One case: a render scored AS the item the student would have been
+;;; asked, against the verdict the chain must produce.  The row says
+;;; which pronunciation was played, so a disagreement reads as a fact
+;;; about the chain and not a puzzle.
+;;; A dropped beat that comes back `near` is NOT a failure.  The first
+;;; run against a real voice showed why: Kyoko's natural gap between the
+;;; morae of a degeminated word sits at 80-120 ms, right at the border of
+;;; one beat, and the scorer abstaining there is the scorer doing what
+;;; abstention is for.  The disaster this test exists to catch is a
+;;; dropped beat CREDITED -- `right` -- and that stays a disagreement.
+define lp_vt_score(item, path, said, expect, want, note) -> got;
+    lvars item, path, said, expect, want, note, got = false,
+          outcome, confv, detail, why, label;
+    lp_pronounced(item, path, "sokuon", expect) -> (outcome, confv, detail, why);
+    if why then
+        printf('  %p  %p  (%p): no verdict -- %p\n', [% item, said, note, why %]);
+        return;
+    endif;
+    outcome -> got;
+    if outcome == want then 'ok'
+    elseif want == "wrong" and outcome == "near" then 'abstained -- borderline'
+    else '** DISAGREE **'
+    endif -> label;
+    printf('  %p  %p  (%p): want %p, got %p  %p\n',
+           [% item, said, note, want, outcome, label %]);
+    unless outcome == want then
+        if detail then printf('      the scorer said: %p\n', [^detail]) endif;
+    endunless;
+enddefine;
+
+define lp_voice_test(rate) -> (agree, disagree, abstain);
+    lvars rate, agree = 0, disagree = 0, abstain = 0, i, text, why, expect,
+          path, made, twin, changed, controls = 0, cfg, val, ok, got;
+    dlocal pop_file_versions = false;
+    unless lp_audio_ready(lp_lang) then
+        printf('voicetest: no voice for %p in %p\n',
+               [% lp_lang, lp_audio_conf_path() %]);
+        return;
+    endunless;
+    unless lp_scorer() then
+        printf('voicetest: no verdict command in %p, and the scorer is the\n',
+               [% lp_audio_conf_path() %]);
+        printf('voicetest: thing under test, so there is nothing to do.\n');
+        return;
+    endunless;
+    lp_audio_rate_value(lp_lang, lp_audio_rate_of(rate)) -> (val, ok);
+    unless ok then
+        printf('voicetest: no such rate %p -- see :rate\n', [^rate]);
+        return;
+    endunless;
+    lp_voice(lp_lang) -> cfg;
+    printf('voicetest: %p (%p) against the scorer, rate %p, %p\n',
+           [% cfg(2), cfg(3), lp_audio_rate_of(rate), lp_lang %]);
+    for i in lp_items do
+        nextunless(lp_ilang(i) == lp_lang);
+        nextunless(member("speak", lp_channels(i)));
+        lp_audio_text(i) -> (text, why);
+        nextif(why);
+        lp_morae(text) -> expect;
+        nextunless(expect >= 2);
+        if lp_sokuon_detectable(i) then
+            ;;; The word as written must come back RIGHT.
+            lp_audio_make(i, rate) -> (path, made, why);
+            if why then
+                printf('  %p  %p: could not render (%p)\n', [% i, text, why %]);
+                disagree + 1 -> disagree;
+            elseif lp_vt_score(i, path, text, expect, "right", 'as written')
+                   == "right"
+            then agree + 1 -> agree
+            else disagree + 1 -> disagree
+            endif;
+            ;;; And the learner error must come back WRONG.
+            lp_degeminate(text) -> (twin, changed);
+            lp_audio_make_of((i sys_>< '') <> '-vt', twin, lp_lang, rate, false)
+                -> (path, made, why);
+            if why then
+                printf('  %p  %p: could not render (%p)\n', [% i, twin, why %]);
+                disagree + 1 -> disagree;
+            else
+                lp_vt_score(i, path, twin, expect, "wrong", 'beat dropped')
+                    -> got;
+                if got == "wrong" then agree + 1 -> agree
+                elseif got == "near" then abstain + 1 -> abstain
+                else disagree + 1 -> disagree
+                endif;
+                ;;; A render of a WRONG pronunciation has no business in
+                ;;; the cache a student hears from.  It goes, and its
+                ;;; provenance note goes with it.
+                if sys_file_exists(path) then sysdelete(path) endif;
+                substring(1, length(path) - 4, path) <> '.json' -> path;
+                if sys_file_exists(path) then sysdelete(path) endif;
+            endif;
+        elseif issubstring('っ', text) or issubstring('ッ', text) then
+            ;;; っ before a fricative: the whole chain must DECLINE, end
+            ;;; to end, because a gap that is not there cannot be timed.
+            lp_audio_make(i, rate) -> (path, made, why);
+            if why then
+                printf('  %p  %p: could not render (%p)\n', [% i, text, why %]);
+                disagree + 1 -> disagree;
+            elseif lp_vt_score(i, path, text, expect, "near",
+                               'fricative: must decline') == "near"
+            then agree + 1 -> agree
+            else disagree + 1 -> disagree
+            endif;
+        elseif controls < 3 and lp_lang == "ja" then
+            ;;; A few words with no held beat at all.  The chain must
+            ;;; decline these too -- a regression here is a tutor asking
+            ;;; a question nobody can mark.
+            controls + 1 -> controls;
+            lp_audio_make(i, rate) -> (path, made, why);
+            if why then
+                printf('  %p  %p: could not render (%p)\n', [% i, text, why %]);
+                disagree + 1 -> disagree;
+            elseif lp_vt_score(i, path, text, expect, "near",
+                               'no beat: must decline') == "near"
+            then agree + 1 -> agree
+            else disagree + 1 -> disagree
+            endif;
+        endif;
+    endfor;
+    if agree + disagree + abstain == 0 then
+        printf('voicetest: nothing to test for %p -- the only machine-scored\n',
+               [% lp_lang %]);
+        printf('voicetest: production task so far is the Japanese held beat.\n');
+    elseif disagree == 0 then
+        printf('voicetest: %p checks, %p agree, nothing credited that should not be.\n',
+               [% agree + abstain, agree %]);
+        if abstain > 0 then
+            printf('voicetest: %p dropped-beat renders came back `near`: this voice\'s\n',
+                   [^abstain]);
+            printf('voicetest: natural gaps sit at the borderline.  An abstention never\n');
+            printf('voicetest: credits the beat, so nothing is unsafe -- but those words\n');
+            printf('voicetest: are where the threshold most wants human ears.\n');
+        endif;
+        printf('voicetest: this validates the machinery on this installation, not the\n');
+        printf('voicetest: threshold against learner speech -- a TTS voice is nobody\'s\n');
+        printf('voicetest: student.  The second pass needs ears.\n');
+    else
+        printf('voicetest: %p of %p checks DISAGREE.\n',
+               [% disagree, agree + disagree + abstain %]);
+    endif;
+enddefine;
+
 ;;; Set HERE and not only by lp_load_audio, because lp_can_hear reads it
 ;;; to decide whether a listening question is possible -- and server.p
 ;;; and the test suites reach this file with a plain `load`, which the

@@ -28,6 +28,7 @@ privileges a phone app would not have.
 ./poplog basepop11 examples/langpop/langpop.p --zine --user bob  # a booklet to fold
 ./poplog basepop11 examples/langpop/langpop.p --audio preschool  # make the sound files
 ./poplog basepop11 examples/langpop/langpop.p --audio preschool --rate slow
+./poplog basepop11 examples/langpop/langpop.p --voicetest        # the voice tests the scorer
 
 # B: the same session, over a protocol
 ./poplog basepop11 examples/langpop/server.p --port 7801 &

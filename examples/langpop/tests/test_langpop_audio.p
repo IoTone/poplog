@@ -868,5 +868,91 @@ check_true('and says nothing else, because there is nothing to measure',
 check_true('a missing recording is not a crash',
            not(lp_mic_meter(tmpdir <> 'nope.wav')));
 
+;;; ------------------------------------------------ the voice as student
+;;; --voicetest closes the loop with no human in it: the configured voice
+;;; says each scoreable word as written and degeminated, and the scorer
+;;; must call the first right and the second wrong.  Here the "voice" is
+;;; a script that copies a held-beat wav for text containing っ and a
+;;; flat one otherwise -- which is exactly what a real voice does to the
+;;; envelope, and the envelope is all the scorer sees.
+
+lvars dg, dgc;
+lp_degeminate('きって') -> (dg, dgc);
+check('the learner error is built by dropping the beat', dg, 'きて');
+check_true('and the drop is reported', dgc);
+lp_degeminate('ネット') -> (dg, dgc);
+check('katakana drops its beat too', dg, 'ネト');
+lp_degeminate('ねこ') -> (dg, dgc);
+check('a word with no beat is left alone', dg, 'ねこ');
+check_true('and says nothing changed', not(dgc));
+
+;;; A twin with a SHORT gap rather than none: a learner who drops the
+;;; beat still pauses a little between morae, and the chain must call
+;;; that wrong, not merely a literal zero.
+lvars vtflat = tmpdir <> 'vtflat.wav';
+wav_write(vtflat, 16000, [[130 8000] [40 0] [130 8000]]);
+lvars vtvoice = tmpdir <> 'vtvoice';
+lp_write_file(vtvoice,
+    'if grep -q っ "$1"; then cp ' <> held <> ' "$2"; else cp '
+    <> vtflat <> ' "$2"; fi\n');
+lp_write_file(lp_audio_conf_path(),
+    '{"ja": {"cmd": "sh ' <> vtvoice <> ' %i %o", "voice": "vt", "model": "vt-1"},'
+    <> ' "verdict": {"cmd": "python3 -I ' <> langpop_dir
+    <> 'tools/score-morae.py --request %q --out %v"}}');
+lp_voices_load();
+check_true('a voice and a scorer is enough -- no recorder is needed',
+           not(lp_can_speak()));
+
+lvars va, vd, vab;
+lp_voice_test(false) -> (va, vd, vab);
+check('a working chain has no disagreements', vd, 0);
+check('and with gaps this clear, no abstentions either', vab, 0);
+check_true('every geminate word was tried both ways, plus the fricative '
+           <> 'and the controls', va >= 12);
+
+;;; The degeminated render is a wrong pronunciation and must not stay in
+;;; the cache a student hears from; the word as written is ordinary
+;;; teaching material and does.
+lvars twname, twwhy;
+lp_degeminate('きって') -> (dg, dgc);
+lp_audio_name_of('w_kitte-vt', dg, "ja", false) -> (twname, twwhy);
+check_true('the wrong pronunciation does not survive in the cache',
+           twname /= false and not(sys_file_exists(twname)));
+lp_audio_path("w_kitte", false) -> (path, why);
+check_true('the word as written is kept -- the same render :say plays',
+           why == false);
+
+;;; A voice whose dropped-beat gap sits AT the border of one beat -- which
+;;; is what a real TTS does, Kyoko's first run showed it -- must come back
+;;; as an abstention, not a failure: `near` never credits the beat, and
+;;; the abstain count is the calibration signal the summary reports.
+;;; 90ms: against a four-mora expectation the mora is (260+90)/4 = 87ms,
+;;; so the ratio sits inside the near band; against three it stays wrong.
+lvars vtmid = tmpdir <> 'vtmid.wav';
+wav_write(vtmid, 16000, [[130 8000] [90 0] [130 8000]]);
+lp_write_file(vtvoice,
+    'if grep -q っ "$1"; then cp ' <> held <> ' "$2"; else cp '
+    <> vtmid <> ' "$2"; fi\n');
+lp_voice_test(false) -> (va, vd, vab);
+check('a borderline gap is never a disagreement', vd, 0);
+check_true('but it is counted, because it is where the threshold is soft',
+           vab > 0);
+
+;;; A chain that cannot tell きって from きて must be CAUGHT, or the test
+;;; is theatre.  Sabotage the voice: it says きって whatever text it is
+;;; handed, and the twin cases must disagree -- a dropped beat CREDITED
+;;; is the one verdict this test exists to make impossible.
+lp_write_file(vtvoice, 'cp ' <> held <> ' "$2"\n');
+lp_voice_test(false) -> (va, vd, vab);
+check_true('a voice that never drops the beat is caught', vd > 0);
+
+;;; And with no verdict command there is nothing under test, which is a
+;;; refusal rather than a vacuous pass.
+lp_write_file(lp_audio_conf_path(),
+    '{"ja": {"cmd": "sh ' <> vtvoice <> ' %i %o", "voice": "vt", "model": "vt-1"}}');
+lp_voices_load();
+lp_voice_test(false) -> (va, vd, vab);
+check('no scorer means no checks, not a pass', va, 0);
+
 sysobey('rm -rf ' <> tmpdir);
 test_summary();

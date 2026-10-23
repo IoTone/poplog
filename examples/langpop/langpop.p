@@ -4112,7 +4112,8 @@ enddefine;
 define lp_main();
     lvars args = poparglist, a, user = false, display = false,
           batch = false, checkonly = false, auditonly = false,
-          sheetonly = false, audioonly = false, rate = false, rest = [];
+          sheetonly = false, audioonly = false, rate = false,
+          voicetest = false, rest = [];
     find_dir() -> langpop_dir;
     until args == [] do
         hd(args) -> a;
@@ -4129,6 +4130,7 @@ define lp_main();
         elseif a = '--zine' then "zine" -> sheetonly; tl(args) -> args;
         elseif a = '--audio' then
             consword(hd(tl(args))) -> audioonly; tl(tl(args)) -> args;
+        elseif a = '--voicetest' then true -> voicetest; tl(args) -> args;
         elseif a = '--rate' then
             consword(hd(tl(args))) -> rate; tl(tl(args)) -> args;
         else conspair(a, rest) -> rest; tl(args) -> args;
@@ -4151,6 +4153,16 @@ define lp_main();
     if audioonly then
         lp_load_audio();
         lp_audio_show(audioonly, rate);
+        return;
+    endif;
+    ;;; The voice as its own first student: say each scoreable word as
+    ;;; written and with the beat dropped, and demand the scorer tell
+    ;;; them apart.  First-pass validation with nobody in the loop -- no
+    ;;; microphone is touched, so it runs anywhere the voice does.
+    if voicetest then
+        lp_load_audio();
+        lvars va, vd, vab;
+        lp_voice_test(rate) -> (va, vd, vab);
         return;
     endif;
     ;;; A chart needs no student; today's sheet needs one, and says so
