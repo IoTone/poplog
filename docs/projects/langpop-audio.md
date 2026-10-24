@@ -631,10 +631,29 @@ becomes decoration.
 
 Two substitutes, in order of preference:
 
-1. **A publicly scored corpus.** `speechocean762` is the obvious
-   candidate — open, phone-level human scores, L2 English. **Its licence
-   is unverified and that check comes before it enters the plan**, which
-   is the same discipline that rejected NGSL and the zine template.
+1. **A publicly scored corpus.** `speechocean762` — open, phone-level
+   human scores, L2 English. **Licence checked, 2026-10-23: CC BY 4.0**
+   (OpenSLR SLR101, 520 MB, one tarball), attribution only, and
+   explicitly free for commercial and non-commercial use. No
+   share-alike, which makes it a *cleaner* dependency than JMdict and
+   KANJIDIC2, the CC BY-SA 4.0 sources `graph/*/generated/.gitignore`
+   already keeps on upstream's layer. Attribution is the Interspeech
+   2021 paper (Zhang et al., arXiv:2104.01378), and this document is
+   where it goes, because the corpus is offline validation and nothing
+   derived from it ships.
+
+   It enters the plan. Two caveats on how far the agreement number will
+   travel, recorded now so the number is not read as more than it is:
+
+   - **The speakers are Mandarin L1, and about half are children.** The
+     confusions it scores overlap a Japanese speaker's only in part:
+     /r/–/l/ and /θ/ yes, the final-vowel epenthesis `s_final` exists
+     for no. Agreement here is evidence the scorer is not arbitrary, not
+     evidence it is calibrated for our learner.
+   - **It is English.** It can say nothing about the mora scorer, whose
+     whole job is Japanese geminates. For that, substitute 2 is not a
+     fallback — it is the only option, and the four words Kyoko
+     abstained on under `--voicetest` are where it should start.
 2. **Our own listening labels.** Smaller, slower, ours, and for Japanese
    mora it may be enough: a native speaker counting beats is not a
    difficult annotation task, and Stage 1's verdict is discrete.
@@ -678,7 +697,8 @@ either ordering.
 The two checks that gate work rather than planning:
 
 - **Kokoro's Japanese, by ear**, before Stage 0 ships;
-- **`speechocean762`'s licence**, before Stage 3 depends on it.
+- ~~**`speechocean762`'s licence**, before Stage 3 depends on it.~~
+  **Done, 2026-10-23: CC BY 4.0.** See §4.
 
 ## 7. What not to do
 
