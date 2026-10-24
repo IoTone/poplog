@@ -1,0 +1,10 @@
+# Fixtures are committed; the ones a test WRITES are not.
+#
+# tests/test_langpop_import.p builds freq-ja-tmp.txt in here, scans it,
+# and deletes it again, because a Japanese frequency sample has to carry
+# real punctuation and real kana and is easier to write than to read in a
+# diff.  It was committed once by accident, which meant every test run
+# deleted a tracked file and left the tree dirty.
+#
+# A fixture the suite can regenerate does not belong to the repository.
+*-tmp.txt
