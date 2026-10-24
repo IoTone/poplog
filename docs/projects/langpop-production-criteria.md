@@ -37,9 +37,19 @@ criterion is allowed to look at.
 **Lock 3: `MACHINE_CAP` is 0.77 and `MASTERY` is 0.80.** A counted
 criterion -- `vocabulary(N, speak)`, like every vocabulary criterion in
 both ladders -- asks how many items reached `MASTERY` on that channel.
-A machine verdict cannot take any item there, by arithmetic. Spoken
-mastery requires a human check per item, which at N=800 is not a
-criterion, it is a staffing plan.
+A machine verdict cannot take any item there, by arithmetic: the scorer
+can push an item to 0.77 and no further, and the only evidence that
+clears 0.80 is one tier-1 check, which means a person listened and said
+yes.
+
+Spell that out for `vocabulary(800, speak)` and the criterion is not
+asking whether the student can speak. It is asking whether somebody was
+available to listen to eight hundred utterances, at least one per word.
+The requirement it really states is a number of listening hours, and
+since nobody will spend them, the criterion sits unsatisfiable forever
+-- a rung with a door that does not open, which is the exact fault
+`--check` was taught to refuse after A1 and C1 each shipped without an
+exit at all.
 
 These were not accidents, and **Lock 3 is the one I would not touch.**
 It is the project's whole position on machine judgement, written down in
