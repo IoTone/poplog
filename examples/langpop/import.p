@@ -1678,8 +1678,66 @@ enddefine;
 ;;; coverage/2 -- count words.  The graph also teaches あ as a grapheme,
 ;;; and letting hi_a answer for the interjection あ would inflate the
 ;;; held figure with items that are not vocabulary at all.
+;;; Where the last character of a UTF-8 string begins.
+;;;
+;;; A continuation byte is 10xxxxxx, so 0x80..0xBF, so `div 64 == 2`.
+;;; Walking back from the end over those lands on the lead byte.  Written
+;;; with div rather than a mask because the arithmetic is obvious and the
+;;; strings here are short.
+define imp_utf8_last(s) -> k;
+    lvars s, k = length(s);
+    while k > 1 and (s(k) div 64) == 2 do k - 1 -> k endwhile;
+enddefine;
+
+;;; The STEM of a Japanese dictionary form, or false.
+;;;
+;;; This is not a nicety.  The Japanese frequency list is tokenised so
+;;; that a verb arrives without its ending: 話す appears as 話, 分かる as
+;;; 分か, 知る as 知.  The graph holds the dictionary form, so NOTHING
+;;; matched, and --gap reported the stem of every verb the graph already
+;;; teaches as a gap -- 5.16% of the corpus, against the 3.90% it
+;;; credited.  More than half of what the graph covers in Japanese was
+;;; invisible, and the top of the queue was words a curator would pick
+;;; and the importer would then refuse as already taken.
+;;;
+;;; The rule: strip the final character when the form ends in kana AND
+;;; contains something that is not kana.  Japanese inflects on the last
+;;; mora of the dictionary form -- godan, ichidan and i-adjectives alike
+;;; -- so the form minus that mora IS the token the corpus holds.
+;;;
+;;; THE SECOND CONDITION IS LOAD-BEARING.  Without it はなす would yield
+;;; はな, which is 花 and 鼻 -- a real and different word -- so a
+;;; kana-only form would start answering for its own truncations.  A stem
+;;; is only recognisable as one when a kanji anchors it.
+;;;
+;;; Surface morphology, like imp_gap_infl, and it collides the same way:
+;;; 行 is the stem of both 行く and 行う.  For a HELD figure that is
+;;; harmless -- the student knows a word whose token this is -- and the
+;;; first pick wins, which is the bargain imp_graph_words already makes
+;;; for forms.
+;;;
+;;; Used by the gap report.  A Japanese coverage criterion would want the
+;;; same rule in imp_frequency's `want` list; there is no ja frequency
+;;; import yet, and when there is, this is the procedure it needs.
+define imp_ja_stem(t) -> stem;
+    lvars t, s = (t sys_>< ''), k, c, nonkana = false, stem = false;
+    returnunless(imp_lang == "ja");
+    returnunless(length(s) > 3);            ;;; one character has no stem
+    utf8_appcodes(s, procedure(c);
+        lvars c;
+        unless (c >= 16:3040 and c <= 16:30FF) then true -> nonkana endunless;
+    endprocedure);
+    returnunless(nonkana);
+    imp_utf8_last(s) -> k;
+    returnunless(length(s) - k == 2);       ;;; kana is three bytes
+    ((s(k) - 16:E0) * 4096) + ((s(k + 1) - 16:80) * 64)
+        + (s(k + 2) - 16:80) -> c;
+    returnunless(c >= 16:3040 and c <= 16:30FF);
+    consword(substring(1, k - 1, s)) -> stem;
+enddefine;
+
 define imp_graph_words() -> gw;
-    lvars gw = newproperty([], 2048, false, "perm"), i, p, t;
+    lvars gw = newproperty([], 2048, false, "perm"), i, p, t, st;
     for i in lp_items do
         nextunless(lp_ilang(i) == imp_lang and lp_kind(i) == "word");
         for p in lp_forms(i) do
@@ -1688,6 +1746,9 @@ define imp_graph_words() -> gw;
             consword(if imp_lang == "en" then uppertolower(t sys_>< '')
                      else t sys_>< '' endif) -> t;
             unless gw(t) then i -> gw(t) endunless;
+            ;;; and its stem, because that is what the corpus holds
+            imp_ja_stem(t) -> st;
+            if st and not(gw(st)) then i -> gw(st) endif;
         endfor;
     endfor;
 enddefine;

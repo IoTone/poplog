@@ -628,6 +628,53 @@ check_true('and a word it does not is the gap',
 check('punctuation is in the denominator', gtot, 179);
 check_true('but it is not a gap, because it is not a word',
            not(any(gmiss, procedure(m); lvars m; m(2) = '、' endprocedure)));
+;;; The stem rule: the Japanese list is tokenised so a verb arrives
+;;; without its ending, and the graph holds the dictionary form.  Before
+;;; this, --gap called the stem of every verb the graph taught a gap --
+;;; 5.16% of the corpus against the 3.90% it credited.
+procedure();
+    dlocal imp_lang = "ja";
+    check('a godan verb gives up its ending',
+          imp_ja_stem(consword('話す')), consword('話'));
+    check('an ichidan verb keeps its okurigana',
+          imp_ja_stem(consword('分かる')), consword('分か'));
+    check('a one-kanji stem is a stem',
+          imp_ja_stem(consword('知る')), consword('知'));
+    check_true('an i-adjective inflects the same way',
+               imp_ja_stem(consword('長い')) == consword('長'));
+    ;;; The guard that matters: はなす must not yield はな, which is a
+    ;;; real and different word (花, 鼻).  A stem needs a kanji to
+    ;;; anchor it or a reading starts answering for its own truncations.
+    check_true('a kana-only reading has no stem',
+               not(imp_ja_stem(consword('はなす'))));
+    check_true('and a single character has none either',
+               not(imp_ja_stem(consword('水'))));
+    check_true('a noun not ending in kana has none',
+               not(imp_ja_stem(consword('学校'))));
+endprocedure();
+;;; English never takes the rule, whatever the form looks like.
+procedure();
+    dlocal imp_lang = "en";
+    check_true('the rule is about one language',
+               not(imp_ja_stem(consword('water'))));
+endprocedure();
+
+;;; And end to end: a corpus token that is the stem of a taught verb is
+;;; held, not queued.
+lp_write_file(FIX <> 'freq-stem-tmp.txt',
+    '話 50\n知 30\nぞるぷ 20\n');
+procedure();
+    dlocal imp_lang = "ja";
+    imp_gap_scan(FIX <> 'freq-stem-tmp.txt', 10)
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
+endprocedure();
+check('both stems are credited to their verbs', gnheld, 2);
+check('and carry their tokens', gheld, 80);
+check('so only the nonsense word is a gap', length(gmiss), 1);
+check('which is the one no verb in the graph ends with',
+      gmiss(1)(2), 'ぞるぷ');
+sysdelete(FIX <> 'freq-stem-tmp.txt').erase;
+
 ;;; The graph teaches あ -- as a GRAPHEME.  The gap is about vocabulary,
 ;;; so hi_a must not answer for the interjection.
 procedure();
