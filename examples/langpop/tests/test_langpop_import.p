@@ -201,6 +201,13 @@ check_true('a foreign-language meaning does not',
            issubstring('jour', imp_e_gloss(hi)) == false);
 check('every kanji needs the kana', imp_e_reqs(hi), [hiragana_all]);
 
+;;; The difficulty scales, which placement samples along.  The fixture
+;;; gives 日 a freq of 1, a grade of 1 and four strokes.
+check('the frequency rank is carried', imp_e_ranks(hi), [[freq 1] [grade 1] [strokes 4]]);
+check_true('a character with no freq carries only what it has',
+           not(any(imp_e_ranks(an), procedure(r); lvars r;
+               hd(r) == "freq" endprocedure)));
+
 check('the second rmgroup is ignored', imp_e_forms(an)(2), [hiragana 'やす']);
 check_true('and its meaning with it',
            issubstring('must not be mixed', imp_e_gloss(an)) == false);
@@ -353,9 +360,13 @@ check('a fresh id is not', length(imp_collisions(ws)), 0);
 ;;; level whose content was never built.  Both have no items.
 check_true('content_built answers for a level that was imported',
            not(lp_gens == []) == not(lp_gens == []));
-check_true('pre-school was never imported and says so',
+;;; n4 rather than pre-school, which was the original example and
+;;; stopped being true the day the loanword traps were enriched from
+;;; CMUdict -- a test that asserts "nobody has imported this yet" has a
+;;; shelf life, and the fix is to name a level nobody is about to.
+check_true('a level nobody has imported says so',
            not(any(lp_gens, procedure(g); lvars g;
-               hd(tl(tl(g))) == "preschool" endprocedure)));
+               hd(tl(tl(g))) == "n4" endprocedure)));
 
 
 ;;; -------------------------------------------------------------- CMUdict
@@ -452,5 +463,225 @@ check_true('no empty gloss fact is written',
 check_true('CMU\'s licence is in the file, and it is not the EDRDG one',
            issubstring('Carnegie', ctext) /== false
            and issubstring('ShareAlike', ctext) == false);
+
+
+;;; -------------------------------------------------------- the gap report
+;;; --gap inverts the import: which words does the frequency list carry
+;;; that the graph does not, and what would each buy.  A report, never
+;;; facts -- the one thing checked hardest here is that it minted nothing.
+
+;;; The graph's own words, every level and every form.
+lvars gw;
+procedure();
+    dlocal imp_lang = "en";
+    imp_graph_words() -> gw;
+endprocedure();
+check('a graph word is found by its latin form', gw("water"), "e_water");
+check_true('case does not matter -- the list is lowercase', gw("water") == gw("water"));
+check_true('and a word the graph does not teach is absent', not(gw("zorp")));
+
+;;; The scan: held and missing, with every line in the denominator.
+lvars gnl, gtot, gheld, gnheld, gmiss, gshard, gshards;
+procedure();
+    dlocal imp_lang = "en";
+    imp_gap_scan(FIX <> 'freq-sample.txt', 10)
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
+endprocedure();
+check('every legible line is read', gnl, 6);
+check('and every count is in the denominator', gtot, 215);
+check('the graph holds water and mother', gnheld, 2);
+check('and their counts are what the graph already covers', gheld, 60);
+check('the rest are the gap, in list order', length(gmiss), 4);
+check('the biggest purchase first', gmiss(1)(2), 'the');
+check('with its rank in the list', gmiss(1)(1), 1);
+check('and its count', gmiss(1)(3), 100);
+check('a nonsense token is still a token', gmiss(4)(2), 'zorp');
+check('and a corpus with no contractions has no shards', gshard, 0);
+check_true('so nothing is listed under the table', gshards == []);
+
+;;; --top caps the queue, not the arithmetic.
+procedure();
+    dlocal imp_lang = "en";
+    imp_gap_scan(FIX <> 'freq-sample.txt', 2)
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
+endprocedure();
+check('the cap keeps the head of the queue', length(gmiss), 2);
+check('the denominator is still the whole corpus', gtot, 215);
+
+;;; Tokeniser shards: half a word, so never a queue row -- and still in
+;;; the denominator, because dropping them would raise every coverage
+;;; figure for free.
+check_true('a leading apostrophe is a shard',
+           procedure(); dlocal imp_lang = "en"; imp_gap_shard('\'s') endprocedure());
+check_true('and so is a contraction stem we named',
+           procedure(); dlocal imp_lang = "en"; imp_gap_shard('didn') endprocedure());
+check_true('a real word is not',
+           procedure();
+               dlocal imp_lang = "en"; not(imp_gap_shard('water'))
+           endprocedure());
+;;; Japanese has no apostrophes and no contraction halves, and `don` is
+;;; not a Japanese token at all.  The rule is about one tokeniser.
+check_true('and nothing is a shard in Japanese',
+           procedure(); dlocal imp_lang = "ja"; not(imp_gap_shard('don')) endprocedure());
+
+lp_write_file(FIX <> 'freq-shard-tmp.txt',
+    '\'s 40\nwater 30\ndidn 20\nzorp 10\n');
+procedure();
+    dlocal imp_lang = "en";
+    imp_gap_scan(FIX <> 'freq-shard-tmp.txt', 10)
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
+endprocedure();
+check('both shards are counted apart', length(gshards), 2);
+check('and their tokens summed', gshard, 60);
+check('the denominator is untouched by the split', gtot, 100);
+check('so the queue holds only the word', length(gmiss), 1);
+check('which is the one that is not half of something', gmiss(1)(2), 'zorp');
+sysdelete(FIX <> 'freq-shard-tmp.txt').erase;
+
+;;; One item, several spellings, one frequency.
+;;;
+;;; is/are/was/be is one verb and four tokens, and imp_frequency used to
+;;; take lp_form_of -- the FIRST latin form -- so an item carrying all
+;;; four would have collected the count of one and dropped the rest.
+;;; Coverage counts tokens on the page, and all four are on the page.
+lvars fes, funres;
+procedure();
+    dlocal imp_lang = "en";
+    ;;; `want` is a parameter, so the sum can be checked without
+    ;;; doctoring the graph: two forms of one invented item.
+    imp_frequency(FIX <> 'freq-sample.txt', [[e_be 'the'] [e_be 'of']])
+        -> (fes, funres);
+endprocedure();
+check('two forms of one item make one entry', length(fes), 1);
+check('under the item id, not a form', imp_e_id(hd(fes)), "e_be");
+check('and the counts are summed',
+      hd(tl(tl(hd(imp_e_ranks(hd(fes)))))), 130);
+check('at the best rank of the forms',
+      hd(tl(hd(imp_e_ranks(hd(fes))))), 1);
+check_true('and nothing is unresolved', funres == []);
+
+;;; A form that is absent does not sink the item: `be` is in the list
+;;; even when `beest` is not.
+procedure();
+    dlocal imp_lang = "en";
+    imp_frequency(FIX <> 'freq-sample.txt', [[e_be 'the'] [e_be 'zzqq']])
+        -> (fes, funres);
+endprocedure();
+check('a missing form is simply not added', length(fes), 1);
+check('so the count is the forms that were there',
+      hd(tl(tl(hd(imp_e_ranks(hd(fes)))))), 100);
+check_true('and the item is not reported unresolved', funres == []);
+
+;;; Every form absent IS unresolved -- absent from the top fifty
+;;; thousand is a fact about the corpus, not a frequency of nought.
+procedure();
+    dlocal imp_lang = "en";
+    imp_frequency(FIX <> 'freq-sample.txt', [[e_zz 'zzqq'] [e_zz 'xxpp']])
+        -> (fes, funres);
+endprocedure();
+check('no form in the list means no entry', length(fes), 0);
+check('and the item is reported once, not per form', length(funres), 1);
+
+;;; Percentages are integer arithmetic, printed for a column.
+check('a round share prints round', imp_pct(50, 200), '25.00%');
+check('a small share keeps its leading zero', imp_pct(1, 300), '0.33%');
+check('an empty corpus is a dash, not a zero divide', imp_pct(5, 0), '-');
+
+;;; The inflection guess: a hedge, so it must only ever point at words
+;;; the graph really has.
+procedure();
+    dlocal imp_lang = "en";
+    imp_graph_words() -> gw;
+endprocedure();
+check('drinking points at drink', imp_gap_infl('drinking', gw), "e_drink");
+check('making points at make, through the dropped e',
+      imp_gap_infl('making', gw), "e_make");
+check_true('a word that is nobody\'s inflection points at nothing',
+           not(imp_gap_infl('zorp', gw)));
+check_true('a word the graph has outright is not reported as a form '
+           <> '-- the scan never asks',
+           gw("water") /== false);
+
+;;; The kanji price tag.  The suite loads no generated kanji, so every
+;;; character is "not in the graph" here -- which is itself the honest
+;;; answer on a fresh checkout.
+procedure();
+    dlocal imp_lang = "ja";
+    check_true('a kanji word names its price',
+               issubstring('kanji', imp_gap_kanji('水') or '') /== false);
+    check_true('a kana-only word has no kanji to price',
+               not(imp_gap_kanji('ひと')));
+endprocedure();
+
+;;; And the ja gap: the scan matches any form, so a kana token the graph
+;;; teaches is held.
+lp_write_file(FIX <> 'freq-ja-tmp.txt',
+    '、 99\nひと 40\n水 30\nぞるぷ 10\n');
+procedure();
+    dlocal imp_lang = "ja";
+    imp_gap_scan(FIX <> 'freq-ja-tmp.txt', 10)
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
+endprocedure();
+check('a kana word the graph teaches is held', gnheld >= 1, true);
+check_true('and a word it does not is the gap',
+           length(gmiss) >= 1);
+check('punctuation is in the denominator', gtot, 179);
+check_true('but it is not a gap, because it is not a word',
+           not(any(gmiss, procedure(m); lvars m; m(2) = '、' endprocedure)));
+;;; The stem rule: the Japanese list is tokenised so a verb arrives
+;;; without its ending, and the graph holds the dictionary form.  Before
+;;; this, --gap called the stem of every verb the graph taught a gap --
+;;; 5.16% of the corpus against the 3.90% it credited.
+procedure();
+    dlocal imp_lang = "ja";
+    check('a godan verb gives up its ending',
+          imp_ja_stem(consword('話す')), consword('話'));
+    check('an ichidan verb keeps its okurigana',
+          imp_ja_stem(consword('分かる')), consword('分か'));
+    check('a one-kanji stem is a stem',
+          imp_ja_stem(consword('知る')), consword('知'));
+    check_true('an i-adjective inflects the same way',
+               imp_ja_stem(consword('長い')) == consword('長'));
+    ;;; The guard that matters: はなす must not yield はな, which is a
+    ;;; real and different word (花, 鼻).  A stem needs a kanji to
+    ;;; anchor it or a reading starts answering for its own truncations.
+    check_true('a kana-only reading has no stem',
+               not(imp_ja_stem(consword('はなす'))));
+    check_true('and a single character has none either',
+               not(imp_ja_stem(consword('水'))));
+    check_true('a noun not ending in kana has none',
+               not(imp_ja_stem(consword('学校'))));
+endprocedure();
+;;; English never takes the rule, whatever the form looks like.
+procedure();
+    dlocal imp_lang = "en";
+    check_true('the rule is about one language',
+               not(imp_ja_stem(consword('water'))));
+endprocedure();
+
+;;; And end to end: a corpus token that is the stem of a taught verb is
+;;; held, not queued.
+lp_write_file(FIX <> 'freq-stem-tmp.txt',
+    '話 50\n知 30\nぞるぷ 20\n');
+procedure();
+    dlocal imp_lang = "ja";
+    imp_gap_scan(FIX <> 'freq-stem-tmp.txt', 10)
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
+endprocedure();
+check('both stems are credited to their verbs', gnheld, 2);
+check('and carry their tokens', gheld, 80);
+check('so only the nonsense word is a gap', length(gmiss), 1);
+check('which is the one no verb in the graph ends with',
+      gmiss(1)(2), 'ぞるぷ');
+sysdelete(FIX <> 'freq-stem-tmp.txt').erase;
+
+;;; The graph teaches あ -- as a GRAPHEME.  The gap is about vocabulary,
+;;; so hi_a must not answer for the interjection.
+procedure();
+    dlocal imp_lang = "ja";
+    check_true('a grapheme does not answer for a word',
+               not(imp_graph_words()(consword('あ'))));
+endprocedure();
+sysdelete(FIX <> 'freq-ja-tmp.txt').erase;
 
 test_summary();

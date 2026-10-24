@@ -19,6 +19,21 @@
 %   requires(Id, Pre)             the prerequisite DAG, within one language
 %   confusable(A, B, Why)         declared one way, read both ways
 %
+%   rank(Id, Scale, N)            an ordinal difficulty proxy, lower first
+%       Scale   freq | grade | strokes
+%
+%       NOT provenance, and not a property of the item's meaning: it is
+%       how hard or how common the item is, on a named scale that
+%       somebody else published.  Optional -- English carries none,
+%       because no source we can use publishes one.
+%
+%       Placement is what wants it.  Probing 103 kanji one at a time to
+%       find out whether somebody reads kanji is absurd; four probes
+%       spread along a frequency rank locate them.  A criterion stated as
+%       a bare count has the same weakness from the other side --
+%       kanji(2230) is satisfied by any 2,230 characters, including
+%       2,230 obscure ones -- which is the argument for ranking one.
+%
 %   ladder(Lang, Index, Level)    the levels of a language, in order
 %   exit(Lang, Level, Criterion, Threshold, LatencyMs)
 %
@@ -62,6 +77,11 @@ confused_with(A, B, Why) :- confusable(B, A, Why).
 % content_built/2 would have failed in the one case it exists to report.
 generated(none, none, none, 0, none).
 
+% Same reason: with no imported content there is not a single rank/3 in
+% the graph, and a predicate with no clauses RAISES under the
+% unknown(_, error) above rather than failing.  This one matches nothing.
+rank(none, none, 0).
+
 content_built(Lang, Level) :- generated(_, Lang, Level, N, _), N > 0.
 
 % A level that declares an exit criterion but holds no items.  Not a
@@ -77,10 +97,17 @@ level_empty(Lang, Level) :-
 % it requires.  This is the whole of the tutor's choice, and it is one
 % clause because the prerequisite edges carry the pedagogy.
 
+% A prerequisite the tutor has no way to check does not hold the door
+% shut -- lp_unverifiable/1, and see its comment in langpop.p.  Every
+% English sound contrast is on the `hear` channel, so without this
+% clause the whole English pre-school rung had nothing ready, ever.
+gate_ok(S, Pre) :- lp_known(S, Pre).
+gate_ok(_, Pre) :- lp_unverifiable(Pre).
+
 ready(S, Lang, Level, I) :-
     item(I, _, Lang, Level, _),
     \+ lp_known(S, I),
-    all_hold(requires(I, Pre), lp_known(S, Pre)).
+    all_hold(requires(I, Pre), gate_ok(S, Pre)).
 
 % Everything ready at the student's current level, for the Pop-11 driver.
 plan(S, Lang, Level) :- ready(S, Lang, Level, I), lp_take(I), fail.
@@ -118,6 +145,14 @@ violation(item_without_form(I)) :-
     item(I, Kind, _, _, _), Kind \== skill, \+ form(I, _, _).
 
 violation(item_without_source(I)) :- item(I, _, _, _, _), \+ provenance_ok(I).
+
+% A rung with no exit criterion is a room with no door: a student who
+% reaches it can never leave, and :status has nothing to measure.  It
+% has happened twice -- en/a1 and en/c1 -- and both times it was found
+% by hand, because a rung that declares nothing produces no rows in
+% --audit's table and so is invisible there.
+violation(level_without_exit(Lang, Level)) :-
+    ladder(Lang, _, Level), \+ exit(Lang, Level, _, _, _).
 provenance_ok(I) :- item(I, _, _, _, S), nonvar(S), S \== unknown.
 
 % Reachability that terminates on a graph which is NOT yet known to be a
@@ -151,6 +186,7 @@ index :- resource(R, Lang, Kind, Target, Url, Checked),
          lp_resource(R, Lang, Kind, Target, Url, Checked), fail.
 index :- generated(S, Lang, Level, N, Date), N > 0,
          lp_generated(S, Lang, Level, N, Date), fail.
+index :- rank(I, Scale, N), I \== none, lp_rank(I, Scale, N), fail.
 index.
 
 % The prerequisite edges, which index/0 deliberately does not collect: the
@@ -163,9 +199,50 @@ edges.
 % Which items a level's exit criterion is measured over.  A criterion that
 % is a count (vocabulary(N), coverage(Axis, Fraction)) has no item set and
 % is answered by the driver instead.
+%
+% A skill is measured over WHAT IT ROLLS UP OVER, not over itself.  It
+% used to answer with the skill item, which has no written form and so no
+% probe -- so skill(dakuten) was measured over a set of one unaskable
+% thing, reported 0% over 0 answers for ever, and could never be met.
+% Three of the five Japanese pre-school criteria were in that state and
+% nothing said so until --audit asked.
+%
+% Transitively, and skipping skills on the way down, because a skill may
+% require another: mora_sokuon requires mora_count, so one level of
+% expansion would have replaced one unaskable item with another.  The
+% graph is a DAG -- check/1 proves it -- so the recursion terminates.
+skill_leaf(S, I) :- requires(S, I), \+ item(I, skill, _, _, _).
+skill_leaf(S, I) :- requires(S, X), item(X, skill, _, _, _), skill_leaf(X, I).
+
+% A skill with a PROBE of its own is measured over ITSELF, and a skill
+% without one over what it rolls up over.
+%
+% The difference is which thing the question is about.  skill(dakuten)
+% is "read the voiced kana", so reading them is the evidence and the
+% criterion is measured over the 46 of them.  skill(mora_count) is
+% "count the beats", and reading あ is no evidence of that whatever --
+% which is why it sat at `thin` in --audit over a set of one item that
+% could not demonstrate it.  Its question is generated: a word is drawn
+% from the graph, its beats are counted from its kana, and the student
+% is asked for the number.  So the answers accumulate against the skill,
+% the material varies every time, and the skill is the item.
+%
+% probe(Skill, morae(Feature)) says so, and names the material the
+% feature picks out.  See lp_morae/1 and lp_kana_feature/2.
 criterion_item(recognise(Script), I) :- kana(I, Script, _, _, _).
-criterion_item(skill(S), S).
-criterion_item(Named, I) :- atom(Named), requires(Named, I).
+criterion_item(skill(S), S) :- probe(S, _).
+criterion_item(skill(S), I) :- \+ probe(S, _), skill_leaf(S, I).
+
+% A criterion named by a bare atom -- sound_contrasts, final_consonants
+% -- takes the same bargain.  It is a separate pair of clauses and not a
+% special case of the ones above because the Japanese ladder writes
+% skill(mora_count) and the English one writes final_consonants, two
+% spellings of one idea that nobody has reconciled; the probe should
+% work under either, and did not under the second, which is why
+% final_consonants stayed at needs_audio after it was given one.
+criterion_item(Named, Named) :- atom(Named), probe(Named, _).
+criterion_item(Named, I) :-
+    atom(Named), \+ probe(Named, _), requires(Named, I).
 
 % The ladder rungs that hold nothing, for the --check report.
 empties :- level_empty(Lang, Level), lp_take(empty(Lang, Level)), fail.
@@ -176,3 +253,48 @@ criteria(_, _).
 
 criterion_items(C) :- criterion_item(C, I), lp_take(I), fail.
 criterion_items(_).
+
+% The syllabary table, whole.  index/0 does not collect the ROW -- the
+% tutor has never needed it -- and a printed chart is laid out by row, so
+% the sheet asks for the facts rather than reassembling them from the
+% overlay.  Same bargain as edges/0: not in the index, available on ask.
+kana_table :- kana(I, Script, Glyph, Romaji, Row),
+              lp_take(k(I, Script, Glyph, Romaji, Row)), fail.
+kana_table.
+
+% The skills that carry a generated question.  Guarded, like rank/3, so
+% that a graph holding none of them still answers rather than raising.
+probe(none, none).
+
+% The confusion pairs that make a sound contrast askable.  Guarded for
+% the same reason as probe/2 -- the Japanese graph declares none, and an
+% undefined predicate raises under :- unknown(_, error).
+pair(none, '', '').
+
+pairs :- pair(C, A, B), C \== none, lp_take(pr(C, A, B)), fail.
+pairs.
+
+% The characters a written form may hold that are not kana in their own
+% right.  Guarded for the same reason -- the English graph declares none.
+modifier(none, none, none).
+
+modifiers :- modifier(G, S, W), G \== none, lp_take(m(G, S, W)), fail.
+modifiers.
+
+% How much running text a word accounts for, and the corpus that is a
+% count out of.  rank/3 says WHERE a word sits; freq/3 says how much of
+% the text it is, which is what coverage/2 needs and a rank cannot give:
+% `the` and the fifty-thousandth word are one rank apart from their
+% neighbours and four orders of magnitude apart in how much text they
+% cover.  Both guarded, like rank/3, since neither is committed.
+freq(none, none, 0).
+corpus(none, 0, 0).
+
+freqs :- freq(I, S, N), I \== none, lp_take(f(I, S, N)), fail.
+freqs.
+
+corpora :- corpus(S, E, T), S \== none, lp_take(c(S, E, T)), fail.
+corpora.
+
+probes :- probe(S, F), S \== none, lp_take(p(S, F)), fail.
+probes.

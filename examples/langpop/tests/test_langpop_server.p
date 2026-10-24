@@ -68,7 +68,7 @@ enddefine;
 ;;; ------------------------------------------------------------- the door
 check('ping', result('ping', false), 'pong');
 check_true('methods are listable',
-           length(result('langpop/methods', false)) == 12);
+           length(result('langpop/methods', false)) == 18);
 check_true('and the list names them, not just counts them',
            member('langpop/card.render',
                   [% explode(result('langpop/methods', false)) %]) /== false);
@@ -300,6 +300,388 @@ else
     printf(';;; imported content not built -- import answers not checked\n');
 endif;
 
+
+
+;;; ------------------------------------------------------ typing slips
+;;; The first near miss on an item is not recorded at all: the reply
+;;; says so and the client asks again.  Recorded as wrong it would cost
+;;; a belief and teach the tutor something false.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'typist',
+                                          'language', 'ja' %])).erase;
+vars tsid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'typist' %]))('session_id');
+
+;;; w_neko answers to "neko", so "nek" is one deletion away.
+vars sl = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', tsid, 'item', 'w_neko',
+                                'answer', 'nek' %]));
+check('a slip is named as one', sl('outcome'), 'slip');
+check('and is explicitly not recorded', sl('recorded'), false);
+check('nothing is revealed by it', sl('expected'), json_null);
+check('the belief did not move', sl('belief'), 0.0);
+
+;;; Sending the same near miss again records it -- the retry is offered
+;;; once, not forever.
+vars sl2 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', tsid, 'item', 'w_neko',
+                                 'answer', 'nek' %]));
+check('the second time it counts', sl2('recorded'), true);
+check('as a plain wrong answer', sl2('outcome'), 'wrong');
+
+;;; A short answer is never treated as a slip, so nothing hints that it
+;;; was close.
+vars sl3 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', tsid, 'item', 'hi_ka',
+                                 'answer', 'ke' %]));
+check('ke for ka is a mistake, not a slip', sl3('outcome'), 'wrong');
+check('and it is recorded', sl3('recorded'), true);
+
+;;; An ordinary correct answer still says it was recorded.
+vars sl4 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', tsid, 'item', 'hi_a',
+                                 'answer', 'a' %]));
+check('a right answer is recorded', sl4('recorded'), true);
+check('and named right', sl4('outcome'), 'right');
+
+;;; ------------------------------------------------------------ audit
+;;; Which rungs are hollow.  No session: this is a property of the
+;;; graph and not of anybody's progress, so requiring one would be a
+;;; privilege check protecting nothing.
+vars au = result('langpop/audit', false);
+check('every criterion is reported', length(au('criteria')),
+      length(lp_exits));
+
+define aurow(name) -> r;
+    lvars name, i, c;
+    false -> r;
+    for i from 1 to length(au('criteria')) do
+        au('criteria')(i) -> c;
+        if c('criterion') = name then c -> r; return endif;
+    endfor;
+enddefine;
+
+vars ac = aurow('kanji(2230, read)');
+check('N1 kanji is short', ac('verdict'), 'short');
+check('it says what was wanted', ac('wanted'), 2230);
+check_true('and how short, so a client need not subtract',
+           ac('short_by') > 2000);
+check('on the right rung', ac('level'), 'n1');
+
+vars ah = aurow('vocabulary(50, hear)');
+check('a listening criterion needs audio', ah('verdict'), 'needs_audio');
+check('nothing on it is askable', ah('askable'), 0);
+check('and it is not short of anything', ah('short_by'), json_null);
+
+;;; A criterion that is not a count has no target, and a 0 there would
+;;; read as one that wants nothing.
+vars ar = aurow('recognise(hiragana)');
+check('an item-set criterion wants no number', ar('wanted'), json_null);
+check('and is reachable', ar('verdict'), 'ok');
+
+vars av = aurow('coverage(reading, 0.95)');
+;;; Measured once the frequency list is imported, and honestly
+;;; unmeasured before that.
+check_true('coverage is measured or honestly says it is not',
+           av('verdict') = 'short' or av('verdict') = 'ok'
+           or av('verdict') = 'unmeasured');
+
+;;; One language at a time, for a client drawing one ladder.
+vars auja = result('langpop/audit', jsonrpc_obj([% 'language', 'ja' %]));
+check_true('filtering by language returns fewer',
+           length(auja('criteria')) < length(au('criteria')));
+check_true('and only that language',
+           [% lvars i; for i from 1 to length(auja('criteria')) do
+                  unless auja('criteria')(i)('language') = 'ja'
+                  then 1 endunless endfor %] == []);
+
+
+;;; -------------------------------------------------- counting beats
+;;; A third question shape, over the wire unchanged: the protocol
+;;; carries whatever lp_question returns, so a client that can render
+;;; `type` and `pick` gets `count` for free -- it is a prompt and a
+;;; text box like any other.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'beater',
+                                          'language', 'ja' %])).erase;
+vars bsid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'beater' %]))('session_id');
+
+vars bq = result('langpop/next', jsonrpc_obj([% 'session_id', bsid %]));
+check_true('a question comes back', bq('item') /== false);
+
+;;; Asked about the skill directly, since the plan starts on the kana.
+lvars (bsh, bpr, ban, bop) = lp_question("mora_count", lp_primary("mora_count"));
+vars bw = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', bsid, 'item', 'mora_count',
+                                'answer', hd(ban) %]));
+check('the right number is right', bw('correct'), true);
+check('and recorded against the skill', bw('item'), 'mora_count');
+check('on the read channel', bw('outcome'), 'right');
+
+;;; A wrong count is an ordinary wrong answer and says what it should
+;;; have been -- the number, not the word.
+vars bx = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', bsid, 'item', 'mora_count',
+                                'answer', '99' %]));
+check('a wrong count is wrong', bx('outcome'), 'wrong');
+check_true('and the expected answer is a number',
+           strnumber(bx('expected')) /== false);
+
+;;; ------------------------------------------------------- the sheets
+;;; A chart is a picture of the GRAPH and needs no session; a zine is a
+;;; picture of one student's standing and needs one.  This is the only
+;;; method that requires a session conditionally, and refusing a kana
+;;; chart to someone not logged in would protect a table anybody can buy
+;;; on a poster.
+vars ch = result('langpop/sheet.render',
+                 jsonrpc_obj([% 'style', 'hiragana' %]));
+check('a chart needs no session', ch('style'), 'hiragana');
+check('it is A4', ch('page'), 'A4');
+check('portrait', ch('orientation'), 'portrait');
+check('one page', ch('pages'), 1);
+check('210mm across', ch('width_mm'), 210);
+
+check_true('an unknown sheet is an error',
+           call('langpop/sheet.render',
+                jsonrpc_obj([% 'style', 'klingon' %]))('error') /== false);
+check_true('and a missing style is a different error',
+           call('langpop/sheet.render', false)('error') /== false);
+
+;;; The zine is landscape, eight pages, and refused without a session --
+;;; it is somebody's own standing on it.
+check_true('a zine without a session is refused',
+           call('langpop/sheet.render',
+                jsonrpc_obj([% 'style', 'zine' %]))('error') /== false);
+
+result('langpop/register', jsonrpc_obj([% 'student_id', 'folder',
+                                          'language', 'ja' %])).erase;
+vars fsid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'folder' %]))('session_id');
+vars zn = result('langpop/sheet.render',
+                 jsonrpc_obj([% 'session_id', fsid, 'style', 'zine' %]));
+check('with one it draws', zn('style'), 'zine');
+check('landscape, so it folds', zn('orientation'), 'landscape');
+check('eight pages on one sheet', zn('pages'), 8);
+check('297mm across', zn('width_mm'), 297);
+check('and 210 down', zn('height_mm'), 210);
+check_true('the path is on the server, not the bytes',
+           issubstring('.svg', zn('path')) /== false);
+
+;;; ------------------------------------------------ later, oops, aids
+;;; The two halves of one admission: `later` before answering, `oops`
+;;; after.  Neither is a wrong answer, so neither moves a belief -- and
+;;; both put the question back in this session's queue, because the
+;;; student was told it would come round again.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'deferrer',
+                                          'language', 'ja' %])).erase;
+vars dsid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'deferrer' %]))('session_id');
+
+vars la = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', dsid, 'item', 'hi_a',
+                                'action', 'later' %]));
+check('later is accepted', la('accepted'), true);
+check('and named', la('outcome'), 'later');
+check('nothing is recorded', la('recorded'), false);
+check('it is requeued', la('requeued'), true);
+check('and the belief did not move', la('belief'), 0.0);
+check('no answer is needed to defer one', la('item'), 'hi_a');
+
+;;; Twice, and then it has to be answered.  Refused with a reply rather
+;;; than an error: the client asked, and the answer is no.
+result('langpop/answer', jsonrpc_obj([% 'session_id', dsid, 'item', 'hi_a',
+                                        'action', 'later' %])).erase;
+vars la3 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', dsid, 'item', 'hi_a',
+                                 'action', 'later' %]));
+check('a third deferral is refused', la3('accepted'), false);
+check('and not requeued again', la3('requeued'), false);
+check('still nothing recorded', la3('recorded'), false);
+
+;;; The gap, over the wire.  The deferred question comes back ahead of
+;;; anything new, and is flagged, so a client can say so rather than
+;;; showing it as a fresh question.
+;;;
+;;; The three intervening answers are named rather than taken from
+;;; langpop/next, because next is entitled to choose the deferred item
+;;; itself -- it has the lowest belief of anything ready -- and an answer
+;;; to it settles the debt rather than deferring it.
+vars dq, di;
+for di in ['hi_i' 'hi_u'] do
+    result('langpop/answer', jsonrpc_obj([% 'session_id', dsid, 'item', di,
+                                            'answer', allbutfirst(3, di) %])).erase;
+endfor;
+result('langpop/next', jsonrpc_obj([% 'session_id', dsid %])) -> dq;
+check('two answers in, nothing is owed yet', dq('requeued'), false);
+result('langpop/answer', jsonrpc_obj([% 'session_id', dsid, 'item', 'hi_e',
+                                        'answer', 'e' %])).erase;
+result('langpop/next', jsonrpc_obj([% 'session_id', dsid %])) -> dq;
+check('the third brings it back', dq('requeued'), true);
+check('and it is the one that was put off', dq('item'), 'hi_a');
+
+;;; oops takes back the last answer and requeues it.  It must restore
+;;; every belief that answer moved, and it must NOT re-ask straight away:
+;;; the previous reply carried `expected`, so the client has already
+;;; shown the answer.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'oopser',
+                                          'language', 'ja' %])).erase;
+vars osid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'oopser' %]))('session_id');
+vars ow = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', osid, 'item', 'hi_ka',
+                                'answer', 'ke' %]));
+check('a wrong answer is recorded', ow('recorded'), true);
+check_true('and it told the client the answer', ow('expected') /== json_null);
+
+vars oo = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', osid, 'action', 'oops' %]));
+check('oops is accepted', oo('accepted'), true);
+check('and names the item to ask again', oo('item'), 'hi_ka');
+check('it is requeued, not re-asked', oo('requeued'), true);
+check('nothing is recorded for it', oo('recorded'), false);
+check('and the belief is back where it was', oo('belief'), 0.0);
+
+;;; One answer deep.  A second oops has nothing to take back, which is
+;;; said rather than raised.
+vars oo2 = result('langpop/answer',
+                  jsonrpc_obj([% 'session_id', osid, 'action', 'oops' %]));
+check('a second oops is refused', oo2('accepted'), false);
+check('with no item', oo2('item'), json_null);
+
+;;; A correct answer credits what the item contains, so undoing it has
+;;; to undo those too -- the same requirement the TUI has.
+if lp_ilang("k_65e5") then
+    result('langpop/answer',
+           jsonrpc_obj([% 'session_id', osid, 'item', 'w_tanjoubi',
+                          'answer', 'tanjoubi' %])).erase;
+    check_true('reading the word credited the kanji in it',
+               lp_bel("k_65e5", "read") > 0.0);
+    result('langpop/answer',
+           jsonrpc_obj([% 'session_id', osid, 'action', 'oops' %])).erase;
+    check('and oops took the inference back too',
+          lp_bel("k_65e5", "read"), 0.0);
+else
+    printf(';;; imported content not built -- inferred undo not checked\n');
+endif;
+
+;;; The switches.  Names rather than booleans, because an absent JSON
+;;; field and a field set to false arrive here identically.
+vars ai = result('langpop/aids', jsonrpc_obj([% 'session_id', osid %]));
+check('slip is on', ai('aids')('slip'), true);
+check('oops is on', ai('aids')('oops'), true);
+check('later is on', ai('aids')('later'), true);
+check('nothing changed by reading', length(ai('changed')), 0);
+
+vars ai2 = result('langpop/aids',
+                  jsonrpc_obj([% 'session_id', osid,
+                                 'off', lp_vec(['slip' 'later']) %]));
+check('two switched off', length(ai2('changed')), 2);
+check('slip is off', ai2('aids')('slip'), false);
+check('later is off', ai2('aids')('later'), false);
+check('oops is untouched', ai2('aids')('oops'), true);
+check('and both changes are logged', ai2('changes_logged'), 2);
+
+;;; Switched off, it is refused rather than hidden -- otherwise a client
+;;; could offer the button and the student would never know which
+;;; standard they were being held to.
+vars lo = call('langpop/answer',
+               jsonrpc_obj([% 'session_id', osid, 'item', 'hi_a',
+                              'action', 'later' %]));
+check_true('later off means the call is refused', lo('error') /== false);
+
+;;; And with slip off, a near miss is an ordinary wrong answer, recorded
+;;; the first time.
+vars so = result('langpop/answer',
+                 jsonrpc_obj([% 'session_id', osid, 'item', 'w_neko',
+                                'answer', 'nek' %]));
+check('with slip off a near miss is recorded at once', so('recorded'), true);
+check('and called wrong', so('outcome'), 'wrong');
+
+result('langpop/aids', jsonrpc_obj([% 'session_id', osid,
+                                      'on', lp_vec(['slip' 'later']) %])).erase;
+
+check_true('an unknown aid is an error',
+           call('langpop/aids',
+                jsonrpc_obj([% 'session_id', osid,
+                               'off', lp_vec(['cheat']) %]))('error') /== false);
+
+;;; An action nobody implements is an error, not a silently recorded
+;;; wrong answer.
+check_true('an unknown action is refused',
+           call('langpop/answer',
+                jsonrpc_obj([% 'session_id', osid, 'item', 'hi_a',
+                               'answer', 'a', 'action', 'pass' %]))('error')
+           /== false);
+
+;;; The queue dies with the session: "it comes back in the same session"
+;;; cannot mean the session before last.  A session of its own, so the
+;;; count is of these two deferrals and not of everything oopser has
+;;; taken back above.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'closer',
+                                          'language', 'ja' %])).erase;
+vars csid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'closer' %]))('session_id');
+result('langpop/answer', jsonrpc_obj([% 'session_id', csid, 'item', 'hi_i',
+                                        'action', 'later' %])).erase;
+result('langpop/answer', jsonrpc_obj([% 'session_id', csid, 'item', 'hi_u',
+                                        'action', 'later' %])).erase;
+vars cl = result('langpop/session.close', jsonrpc_obj([% 'session_id', csid %]));
+check('the close says what was still owed', cl('put_off_unanswered'), 2);
+vars csid2 = result('langpop/session.open',
+                    jsonrpc_obj([% 'student_id', 'closer' %]))('session_id');
+vars nq = result('langpop/next', jsonrpc_obj([% 'session_id', csid2 %]));
+check('a new session owes nothing', nq('requeued'), false);
+
+
+;;; ------------------------------------------------------- placement
+;;; Deliberately not a stateful test.  There is no placement session and
+;;; nothing to resume, because lp_place_next is a pure function of the
+;;; beliefs already recorded -- so a dropped connection costs the one
+;;; question in flight and nothing else.
+result('langpop/register', jsonrpc_obj([% 'student_id', 'placed',
+                                          'language', 'ja' %])).erase;
+vars psid = result('langpop/session.open',
+                   jsonrpc_obj([% 'student_id', 'placed' %]))('session_id');
+
+vars pq = result('langpop/placement.next', jsonrpc_obj([% 'session_id', psid %]));
+check('a fresh student has somewhere to start', pq('done'), false);
+check_true('and is told which axis it is about', pq('axis') /== false);
+check_true('with a level', pq('level') /== false);
+check_true('and a question to ask', pq('shape') /== 'none');
+
+;;; The whole descent, answered correctly, ends.
+vars pn = 0, pitem;
+repeat
+    result('langpop/placement.next', jsonrpc_obj([% 'session_id', psid %])) -> pq;
+    quitif(pq('done'));
+    pq('item') -> pitem;
+    ;;; answer it right, whatever it is
+    lvars (psh, ppr, pans, popt) = lp_question(consword(pitem), lp_primary(consword(pitem)));
+    result('langpop/answer',
+           jsonrpc_obj([% 'session_id', psid, 'item', pitem,
+                          'answer', hd(pans) %])).erase;
+    pn + 1 -> pn;
+    quitif(pn > 60);
+endrepeat;
+check_true('a placement terminates', pn < 60);
+check_true('and does not take all day', pn < 40);
+
+vars prep = result('langpop/placement.report', jsonrpc_obj([% 'session_id', psid %]));
+check_true('every axis is reported', length(prep('axes')) > 3);
+check_true('with a level to teach at', prep('level') /== false);
+
+;;; An axis with nothing askable says so, rather than being reported as
+;;; a failure -- three different things used to look like one.
+vars pwhy = [% lvars x;
+               for x in [% explode(prep('axes')) %] do x('why') endfor %];
+check_true('the reasons are named', member('askable', pwhy) /== false);
+
+;;; Placement needs a session, because it writes beliefs against a
+;;; student.
+check('placement.next needs a session',
+      errcode('langpop/placement.next', false), -32001);
+check('and so does the report',
+      errcode('langpop/placement.report', false), -32001);
+
 ;;; ----------------------------------------------------------- recognition
 ;;; The one thing the TUI could do that the protocol could not, which made
 ;;; Proposal B's premise -- the TUI is just a client -- false for exactly
@@ -460,6 +842,199 @@ check('card: an unknown style is a params error',
 check('card: a designed but unbuilt style is -32005',
       errcode('langpop/card.render',
               jsonrpc_obj([% 'item', 'hi_a', 'style', 'stroke' %])), -32005);
+
+;;; ------------------------------------------------------------ audio.say
+;;; Stage 0.  Like card.render, no session: the sound of an item is a
+;;; property of the graph.  Unlike card.render, the renderer may not be
+;;; installed at all -- and that is the case this suite runs in, because
+;;; nothing configured a voice.
+check('audio: no item is a params error',
+      errcode('langpop/audio.say', jsonrpc_obj([])), -32602);
+check('audio: an unknown item is an item error',
+      errcode('langpop/audio.say', jsonrpc_obj([% 'item', 'nonesuch' %])),
+      -32003);
+
+;;; A skill and a pattern are ITEM errors: the item is fine, there is
+;;; simply nothing to say.  A missing voice is -32005, the unbuilt code,
+;;; because the item could be said on a machine that had one.  A client
+;;; has to be able to tell "install a voice" from "this will never have
+;;; a sound".
+check('audio: a skill has nothing to say',
+      errcode('langpop/audio.say', jsonrpc_obj([% 'item', 'mora_count' %])),
+      -32003);
+check('audio: a pattern with a blank has nothing to say',
+      errcode('langpop/audio.say',
+              jsonrpc_obj([% 'item', 'p_kore_wa_desu' %])), -32003);
+check('audio: no voice installed is -32005, not an item error',
+      errcode('langpop/audio.say', jsonrpc_obj([% 'item', 'hi_a' %])),
+      -32005);
+
+;;; cached_only is a POSITIVE flag, and it has to be, because lp_param
+;;; cannot tell an absent key from a JSON false -- a `render: false`
+;;; would read every client that omitted it as one switching off the
+;;; render.  With no voice it reaches the same -32005 either way.
+check('audio: cached_only reaches the same answer with no voice',
+      errcode('langpop/audio.say',
+              jsonrpc_obj([% 'item', 'hi_a', 'cached_only', true %])),
+      -32005);
+
+;;; Now give the server a voice, and the method stops being a stub.  The
+;;; voice is `cp`, so the wav is the text -- which is what lets this
+;;; check that the Japanese reached the command intact over the wire.
+lp_write_file(lp_audio_conf_path(),
+    '{"ja": {"cmd": "cp %i %o", "voice": "jf_test", "model": "rpc-stub",'
+    <> ' "rates": {"slow": "0.7", "normal": "1.0"}}}');
+lp_voices_load();
+
+lvars sayv = result('langpop/audio.say', jsonrpc_obj([% 'item', 'hi_a' %]));
+check('audio: the item it said', sayv('item'), 'hi_a');
+check('audio: the language', sayv('lang'), 'ja');
+check('audio: the format', sayv('format'), 'wav');
+check('audio: the text it was given', sayv('text'), 'あ');
+check('audio: the voice is named, because the student hears it',
+      sayv('voice'), 'jf_test');
+check('audio: and the model, which the engine records rather than detects',
+      sayv('model'), 'rpc-stub');
+check_true('audio: it rendered just now', sayv('rendered_now'));
+check_true('audio: a path came back, not bytes', isstring(sayv('path')));
+check_true('audio: and the file is there', sys_file_exists(sayv('path')));
+check('audio: the glyph survived the round trip to the command',
+      lp_read_file(sayv('path')), 'あ');
+
+;;; A second call is a cache hit, and says so: a client showing a spinner
+;;; wants to know which it got.
+lvars say2 = result('langpop/audio.say', jsonrpc_obj([% 'item', 'hi_a' %]));
+check_true('audio: the second call did not render', not(say2('rendered_now')));
+check('audio: and gave the same file', say2('path'), sayv('path'));
+
+;;; cached_only never runs a model.  This is the call the question path
+;;; makes, so the one thing it must not do is wait on one.
+lvars say3 = result('langpop/audio.say',
+                    jsonrpc_obj([% 'item', 'hi_i', 'cached_only', true %]));
+check_true('audio: nothing cached for an item never asked for',
+           not(say3('generated')));
+check_true('audio: and no path is invented', say3('path') == false);
+check_true('audio: and it is NOT an error -- the answer is simply "not yet"',
+           call('langpop/audio.say',
+                jsonrpc_obj([% 'item', 'hi_i',
+                               'cached_only', true %]))('error') == false);
+check_true('audio: and the model was not run',
+           not(sys_file_exists(lp_audio_lang_dir("ja") <> 'hi_i-jf_test')));
+
+;;; The rate the student hears, over the wire.  A client with a speed
+;;; control needs three things: the rate it got, the rates it may ask
+;;; for, and whether slowing THIS item down misleads.
+check('audio: the rate it was said at', sayv('rate'), 'normal');
+check_true('audio: and the rates this voice offers, so a client can offer them',
+           member('slow', [% explode(sayv('rates')) %]) /== false);
+check_true('audio: あ is not timing sensitive',
+           not(sayv('timing_sensitive')));
+
+lvars slowv = result('langpop/audio.say',
+                     jsonrpc_obj([% 'item', 'hi_a', 'rate', 'slow' %]));
+check('audio: a rate asked for is the rate reported', slowv('rate'), 'slow');
+check_true('audio: and a different file', slowv('path') /= sayv('path'));
+check_true('audio: with the rate in its name',
+           issubstring('-slow-', slowv('path')) /== false);
+
+;;; An item where length is contrastive says so, because a slowed voice
+;;; stretches the beats and not always evenly -- a client offering a
+;;; speed control has to be able to warn.
+lvars gem = result('langpop/audio.say',
+                   jsonrpc_obj([% 'item', 'w_gakkou' %]));
+check_true('audio: a geminate is flagged as timing sensitive',
+           gem('timing_sensitive'));
+
+;;; An unknown rate is a PARAMS error, not an unbuilt one: the name came
+;;; from the client, and the message names the ones that exist.
+check('audio: an unknown rate is -32602',
+      errcode('langpop/audio.say',
+              jsonrpc_obj([% 'item', 'hi_a', 'rate', 'glacial' %])), -32602);
+
+;;; An English item with no voice for English: the per-language table
+;;; means one installed voice does not imply the other.
+check('audio: a language with no voice of its own is -32005',
+      errcode('langpop/audio.say', jsonrpc_obj([% 'item', 't_mansion' %])),
+      -32005);
+
+;;; -------------------------------------------------- the listening question
+;;; Stage 0.5 over the wire.  A voice is configured above, so `hear` is
+;;; verifiable here -- and the two things a client needs are the channel
+;;; it was asked on and a path it can play, under their own names.
+lvars hearer = result('langpop/register',
+                      jsonrpc_obj([% 'student_id', 'hearer',
+                                     'display_name', 'Hearer' %]));
+lvars hsess = result('langpop/session.open',
+                     jsonrpc_obj([% 'student_id', 'hearer' %]))('session_id');
+
+;;; Read-mastered and rendered, which are the two conditions.
+MASTERY -> lp_beliefs(lp_bkey("hearer", "w_neko", "read"));
+lp_audio_make("w_neko", "normal") -> (, , );
+
+lvars hq = result('langpop/next',
+                  jsonrpc_obj([% 'session_id', hsess %]));
+;;; The interleave is one question in four, so the first question of a
+;;; session is a reading one -- which is itself worth asserting: a
+;;; student does not open a session and get asked to listen first.
+check('the first question is read', hq('channel'), 'read');
+
+;;; Answer three, so the fourth is by ear.
+define answer_one(sid);
+    lvars sid, q = result('langpop/next', jsonrpc_obj([% 'session_id', sid %]));
+    result('langpop/answer',
+           jsonrpc_obj([% 'session_id', sid, 'item', q('item'),
+                          'answer', '' %])).erase;
+    q;
+enddefine;
+
+answer_one(hsess).erase;
+answer_one(hsess).erase;
+answer_one(hsess).erase;
+lvars hq4 = result('langpop/next', jsonrpc_obj([% 'session_id', hsess %]));
+check('the fourth question is by ear', hq4('channel'), 'hear');
+check('and its shape says so', hq4('shape'), 'listen');
+check('the item is the word that was read-mastered', hq4('item'), 'w_neko');
+
+;;; A listening question has NOTHING TO READ.  prompt is null and the
+;;; sound is under its own key, so a client cannot accidentally render a
+;;; filename where the glyph would go -- and cannot show the answer.
+check_true('prompt is null, because there is nothing to read',
+           hq4('prompt') == json_null or hq4('prompt') == false);
+check_true('the sound is under its own name', isstring(hq4('audio')));
+check_true('and the file is there', sys_file_exists(hq4('audio')));
+check_true('the glyph is nowhere in the reply',
+           issubstring('ねこ', hq4('audio')) == false);
+
+;;; The answer is recorded against `hear`, not against reading.  An
+;;; answer filed on the wrong channel is the comfortable averaging that
+;;; channels exist to prevent -- and reading is already mastered here, so
+;;; a misfiled right answer would be invisible.
+lvars hbefore = lp_bel("w_neko", "hear");
+result('langpop/answer',
+       jsonrpc_obj([% 'session_id', hsess, 'item', 'w_neko',
+                      'answer', 'neko' %])).erase;
+check_true('the hear belief moved', lp_bel("w_neko", "hear") > hbefore);
+check('and the read belief did not', lp_bel("w_neko", "read"), MASTERY);
+
+;;; An item the session was never asked about falls back to the gate
+;;; channel, which is what this method did before listening existed.
+result('langpop/answer',
+       jsonrpc_obj([% 'session_id', hsess, 'item', 'hi_a',
+                      'answer', 'a' %])).erase;
+check_true('an unasked item is answered on its gate channel',
+           lp_bel("hi_a", "read") > 0.0);
+check('and not on the channel of the question before it',
+      lp_bel("hi_a", "hear"), 0.0);
+
+;;; `expected` for a question answered by NUMBER is the option, not the
+;;; number: "2" is not something a client can show a learner, and for a
+;;; confusion pair the word is the whole lesson.
+lvars trapq = result('langpop/answer',
+                     jsonrpc_obj([% 'session_id', hsess, 'item', 't_mansion',
+                                    'answer', '9' %]));
+check_true('a wrong pick is wrong', not(trapq('correct')));
+check_true('and expected names the option, not its index',
+           trapq('expected') /= '1' and trapq('expected') /= '2');
 
 jsonrpc_close(client); jsonrpc_close(server);
 sysobey('rm -rf ' <> tmpdir);

@@ -22,6 +22,42 @@ ROWS = [
     ("w",       [("wa",0x308F),("wo",0x3092)]),
     ("moraic",  [("n",0x3093)]),
 ]
+
+# The voiced kana, from the SAME codepoints: dakuten is the base + 1 and
+# handakuten the base + 2, which is the second systematic thing about the
+# syllabaries and the reason these are generated and not typed.
+#
+# ぢ and づ are deliberately absent, and this is the only judgement in
+# this file.  They are not a third and fourth sound: they are alternative
+# spellings of じ and ず, used where a base kana is reduplicated or
+# compounded (つづく, ちぢむ), and Hepburn spells each pair identically
+# BECAUSE they are the same sound.  Two consequences, and both matter
+# here:
+#
+#   * skill(dakuten) is "one mark changes the sound", and these are the
+#     one place where it does not -- so they are not instances of the
+#     skill the criterion names.
+#   * kana.pl joins katakana to hiragana on the ROMAJI, so two kana with
+#     the romaji "ji" would make ヂ require both じ and ぢ, and ジ require
+#     ぢ -- gating a common kana behind a vanishingly rare one.  The
+#     importer refuses to guess at an ambiguous JMdict key for the same
+#     reason; so does this.
+#
+# 23 per script, 46 in all.  The pairing itself is emitted as voiced/3 so
+# that the prerequisite (が after か) and the confusable pair (か/が, one
+# mark apart) are both derived from it rather than listed again.
+VOICED = [
+    ("g", "k",  1, [("ga","ka"),("gi","ki"),("gu","ku"),("ge","ke"),("go","ko")]),
+    ("z", "s",  1, [("za","sa"),("ji","shi"),("zu","su"),("ze","se"),("zo","so")]),
+    ("d", "t",  1, [("da","ta"),("de","te"),("do","to")]),
+    ("b", "h",  1, [("ba","ha"),("bi","hi"),("bu","fu"),("be","he"),("bo","ho")]),
+    ("p", "h",  2, [("pa","ha"),("pi","hi"),("pu","fu"),("pe","he"),("po","ho")]),
+]
+BASE_CP = {}
+for _row, _cells in ROWS:
+    for _r, _cp in _cells:
+        BASE_CP[_r] = _cp
+
 out = []
 for script, pfx, delta in (("hiragana","hi",0), ("katakana","ka",0x60)):
     for row, cells in ROWS:
@@ -30,4 +66,25 @@ for script, pfx, delta in (("hiragana","hi",0), ("katakana","ka",0x60)):
             line.append("kana(%s_%s, %s, '%s', %s, %s)." % (pfx, romaji, script, chr(cp+delta), romaji, row))
         out.append("\n".join(line))
     out.append("")
+
+for script, pfx, delta in (("hiragana","hi",0), ("katakana","ka",0x60)):
+    for row, _base_row, mark, cells in VOICED:
+        line = []
+        for romaji, base in cells:
+            cp = BASE_CP[base] + mark
+            line.append("kana(%s_%s, %s, '%s', %s, %s)." % (pfx, romaji, script, chr(cp+delta), romaji, row))
+        out.append("\n".join(line))
+    out.append("")
+
+# voiced(VoicedId, BaseId, Mark) -- stated once per pair, per script.
+for pfx in ("hi", "ka"):
+    for row, _base_row, mark, cells in VOICED:
+        line = []
+        for romaji, base in cells:
+            line.append("voiced(%s_%s, %s_%s, %s)."
+                        % (pfx, romaji, pfx, base,
+                           "dakuten" if mark == 1 else "handakuten"))
+        out.append("\n".join(line))
+    out.append("")
+
 print("\n".join(out))

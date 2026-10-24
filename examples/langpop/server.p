@@ -24,6 +24,8 @@
 vars langpop_lib = true;                ;;; no TUI session from langpop.p
 load 'examples/langpop/langpop.p';
 load 'examples/langpop/card.p';         ;;; langpop/card.render
+load 'examples/langpop/sheet.p';        ;;; langpop/sheet.render
+load 'examples/langpop/audio.p';        ;;; langpop/audio.say
 
 uses jsonrpc;
 
@@ -37,12 +39,42 @@ vars
     lp_session_seq = 0,
 ;
 
-;;; {student, opened_ms, asked_item, asked_ms}
 define lp_new_session(student) -> sid;
     lvars student, sid;
     lp_session_seq + 1 -> lp_session_seq;
     'sess-' <> (lp_session_seq sys_>< '') -> sid;
-    {% student, lp_now_ms(), false, 0 %} -> lp_sessions(consword(sid));
+    ;;; student, opened, item asked, when it was asked, the item a typing
+    ;;; slip has already been offered a retry on, and then the three
+    ;;; pieces of queue state.
+    ;;;
+    ;;; The queue is HERE and not in the engine's globals, although the
+    ;;; engine owns it, because "comes back in the same session" has to
+    ;;; mean this connection's session.  lp_bind returns early when the
+    ;;; student has not changed, so a global queue would survive a close
+    ;;; and reopen and bring yesterday's deferred questions back as
+    ;;; though they had just been put off.
+    ;;; Slot 9 is the channel the question in flight was asked on.  It
+    ;;; has to be remembered rather than recomputed, because the same
+    ;;; item is now asked two ways -- read it, hear it -- and an answer
+    ;;; filed against the wrong channel is the comfortable averaging that
+    ;;; channels exist to prevent.
+    {% student, lp_now_ms(), false, 0, false,
+       [], 0, newproperty([], 32, 0, "perm"), false %}
+        -> lp_sessions(consword(sid));
+enddefine;
+
+;;; The engine reads and writes the queue through its own globals, so a
+;;; method that touches it swaps this session's copy in on the way past.
+;;; lp_need_session does the loading; a method that changes anything says
+;;; so with lp_q_out.
+define lp_q_in(s);
+    lvars s;
+    s(6) -> lp_pending; s(7) -> lp_asked_n; s(8) -> lp_laters;
+enddefine;
+
+define lp_q_out(s);
+    lvars s;
+    lp_pending -> s(6); lp_asked_n -> s(7); lp_laters -> s(8);
 enddefine;
 
 define lp_session(sid) -> s;
@@ -287,7 +319,9 @@ define lp_need_session(msg) -> s;
     endunless;
     unless lp_bind(s(1)) then
         lp_err(LP_E_STUDENT, 'session: that student is gone') -> s;
+        return;
     endunless;
+    lp_q_in(s);
 enddefine;
 
 define lp_m_plan(msg) -> res;
@@ -307,14 +341,44 @@ enddefine;
 define lp_m_next(msg) -> res;
     lvars msg, res, s = lp_need_session(msg), item, shape, prompt, answer, options;
     returnif(lp_is_err(s))(s -> res);
-    lp_choose(lp_plan()) -> item;
+    ;;; Anything put off, or taken back with oops, is owed: the student
+    ;;; was told it would come round again, so it comes before anything
+    ;;; new.  Reported as `requeued` so a client can say so rather than
+    ;;; showing it as a fresh question.
+    lvars requeued = lp_due(), ch = false;
+    (requeued or lp_choose(lp_plan())) -> item;
+    if requeued then lp_due_ch(item) -> ch endif;
+    ;;; Every fourth question by ear, exactly as the TUI interleaves --
+    ;;; the rule lives in the engine so both doors ask the same way.
+    unless requeued then
+        if (lp_asked_n + 1) mod lp_hear_every() == 0 then
+            lvars hitem = lp_choose_hear();
+            if hitem then hitem -> item; "hear" -> ch endif;
+        endif;
+    endunless;
+    ;;; Everything ready is deferred and nothing else can be asked: the
+    ;;; gap gives way rather than handing the client an empty reply.
+    if not(item) and lp_pending /== [] then
+        hd(lp_pending)(1) -> item; true -> requeued;
+    endif;
+    ;;; Everything ready is deferred and nothing else can be asked: the
+    ;;; gap gives way rather than handing the client an empty reply.
+    if not(item) and lp_pending /== [] then
+        hd(lp_pending)(1) -> item; true -> requeued;
+    endif;
+    ;;; Nothing left to read here, but something left to hear.
+    unless item then
+        lvars hitem2 = lp_choose_hear();
+        if hitem2 then hitem2 -> item; "hear" -> ch endif;
+    endunless;
     unless item then
         jsonrpc_obj([% 'item', json_null,
                        'note', 'nothing here can be checked by typing -- try assign' %])
             -> res;
         return;
     endunless;
-    lp_question(item) -> (shape, prompt, answer, options);
+    unless ch then lp_primary(item) -> ch endunless;
+    lp_question(item, ch) -> (shape, prompt, answer, options);
     ;;; Remember what was asked and when, so the latency is OURS.  A
     ;;; client's own figure is a claim: the speed half of every pre-school
     ;;; exit criterion would be worth nothing if a client could send
@@ -322,12 +386,23 @@ define lp_m_next(msg) -> res;
     ;;; cannot reach.
     item -> s(3);
     lp_now_ms() -> s(4);
+    ch -> s(9);
+    ;;; A listening question's `prompt` is a PATH and not something to
+    ;;; print: showing it would not give the answer away, but a client
+    ;;; that rendered it as a glyph would be showing the student a
+    ;;; filename.  So it goes in `audio` under its own name, and `prompt`
+    ;;; is null -- there is nothing to read, which is the whole point of
+    ;;; the question.
     jsonrpc_obj([% 'item', lp_jkey(item),
                    'shape', lp_jkey(shape),
-                   'prompt', lp_jkey(prompt),
+                   'prompt', if ch == "hear" then json_null
+                             else lp_jkey(prompt) endif,
+                   'audio', if ch == "hear" then prompt else json_null endif,
+                   'channel', lp_jkey(ch),
                    'options', lp_vec([% lvars o; for o in options do lp_jkey(o) endfor %]),
                    'kind', lp_jkey(lp_kind(item)),
-                   'belief', lp_bel(item, lp_primary(item)) %]) -> res;
+                   'requeued', requeued and true,
+                   'belief', lp_bel(item, ch) %]) -> res;
 enddefine;
 
 ;;; The judging, which stays here for the same reason the answer does.
@@ -338,41 +413,195 @@ define lp_m_answer(msg) -> res;
           latency = lp_param(msg, 'latency_ms'),
           shape, prompt, answer, options, typed, correct, other = false;
     returnif(lp_is_err(s))(s -> res);
-    unless item and given then
+
+    ;;; An ACTION instead of an answer.  Both of these say "do not record
+    ;;; what I just did", and they are the two halves of one admission:
+    ;;; `later` before answering, `oops` after.  Neither is a wrong
+    ;;; answer and neither moves a belief.
+    lvars act = lp_param(msg, 'action');
+    if act then (act sys_>< '') -> act endif;
+
+    if act = 'oops' then
+        unless lp_aid("oops") then
+            lp_err(LP_E_PARAMS, 'oops is switched off for this student') -> res;
+            return;
+        endunless;
+        lvars took = lp_undo_last();
+        ;;; Requeued, not re-asked: the previous reply carried `expected`,
+        ;;; so the client has already shown the answer, and asking again
+        ;;; straight away would hand over a free correct one.
+        if took then lp_requeue(took); lp_q_out(s); lp_save() endif;
+        jsonrpc_obj([% 'outcome', 'oops',
+                       'accepted', took and true,
+                       'item', if took then lp_jkey(took) else json_null endif,
+                       'recorded', false,
+                       'requeued', took and true,
+                       'reply', if took then 'Taken back. It will come round again.'
+                                else 'nothing to take back' endif,
+                       'belief', if took then lp_bel(took, lp_primary(took))
+                                 else json_null endif %]) -> res;
+        return;
+    endif;
+
+    ;;; `given` may be the empty string: that is a client saying "I do
+    ;;; not know", which is an answer and not a missing parameter.  An
+    ;;; action does not need one at all.
+    unless item and (isstring(given) or act) then
         lp_err(LP_E_PARAMS, 'answer: item and answer needed') -> res; return
     endunless;
     consword(item sys_>< '') -> item;
     unless lp_kind(item) then
         lp_err(LP_E_ITEM, 'no such item: ' <> (item sys_>< '')) -> res; return
     endunless;
+
+    if act = 'later' then
+        unless lp_aid("later") then
+            lp_err(LP_E_PARAMS, 'later is switched off for this student') -> res;
+            return;
+        endunless;
+        ;;; Twice, and then it has to be answered -- see lp_can_later.
+        ;;; Refused with a reply rather than an error, because the client
+        ;;; did nothing wrong: it asked, and the answer is no.
+        lvars may = lp_can_later(item);
+        if may then
+            lp_later_on(item, (if s(3) == item then s(9) else false endif)
+                              or lp_primary(item));
+            lp_q_out(s);
+        endif;
+        ;;; s(3) and s(4) are left alone.  A deferred question is asked
+        ;;; again from scratch, so there is no clock to stop, and the
+        ;;; item in flight stays in flight until something is recorded.
+        jsonrpc_obj([% 'item', lp_jkey(item),
+                       'outcome', 'later',
+                       'accepted', may,
+                       'recorded', false,
+                       'requeued', may,
+                       'reply', if may then lp_line('later')
+                                else 'that one has been put off twice -- it needs an answer'
+                                endif,
+                       'belief', lp_bel(item, lp_primary(item)) %]) -> res;
+        return;
+    endif;
+    unless act == false or act = '' or act = 'answer' then
+        lp_err(LP_E_PARAMS, 'answer: action must be later, oops or answer') -> res;
+        return;
+    endunless;
+    unless isstring(given) then
+        lp_err(LP_E_PARAMS, 'answer: item and answer needed') -> res; return
+    endunless;
     ;;; Server-side timing wins whenever this is the item we asked about;
     ;;; the client's figure is kept only as a fallback for a caller that
     ;;; drives the graph without going through next (a batch import, a
     ;;; test), and it is reported separately so the two never blur.
     unless isinteger(latency) and latency >= 0 then false -> latency endunless;
-    lvars timed = false;
+    lvars timed = false, asked = s(3) == item;
     if s(3) == item and s(4) > 0 then
         lp_now_ms() - s(4) -> timed;
         false -> s(3);
     endif;
     lvars used = timed or latency or 0;
-    lp_question(item) -> (shape, prompt, answer, options);
+    ;;; The channel the question IN FLIGHT was asked on -- and only when
+    ;;; the item matches.  The first version read s(9) whenever it was
+    ;;; set, so a client answering some other item inherited the last
+    ;;; question's channel: answer `hi_a` after a listening question and
+    ;;; it was graded on `hear`, which a grapheme does not have, so the
+    ;;; question came back empty and the reply builder did hd([]).
+    ;;;
+    ;;; s(3) is cleared by the clock above, so this is computed from
+    ;;; `asked`, captured before it.
+    lvars ach = (if asked then s(9) else false endif) or lp_primary(item);
+    ;;; And a belt: a channel this item cannot be asked on falls back to
+    ;;; the gate channel rather than producing a question with no answer
+    ;;; in it.  Nothing should reach here now, which is the point of
+    ;;; putting it where a stale session would.
+    unless lp_drillable_on(item, ach) then lp_primary(item) -> ach endunless;
+    lp_question(item, ach) -> (shape, prompt, answer, options);
     lp_norm(given sys_>< '') -> typed;
     member(typed, answer) and true -> correct;
-    lp_record(item, lp_primary(item), 1, correct, used);
+    ;;; Which of the four this was.  A client says "I do not know" by
+    ;;; sending an empty answer, which is the same gesture the TUI reads
+    ;;; as an empty line -- and it is worth more than a guess, so it gets
+    ;;; its own outcome rather than being filed as wrong.
+    lvars outcome;
     unless correct then lp_mistook(item, typed) -> other endunless;
+
+    ;;; A TYPING SLIP IS NOT AN ANSWER.  A learner typing romaji, or
+    ;;; fighting an input method they do not know well, makes mistakes
+    ;;; that are not gaps in their knowledge -- and recorded as wrong
+    ;;; they cost a belief and teach the tutor something false.  So the
+    ;;; first one on an item is not recorded at all: the reply says so
+    ;;; and the client asks again.  The clock keeps running (s(3) and
+    ;;; s(4) are left alone) so that a deliberate slip cannot buy time.
+    ;;;
+    ;;; Once per item, which is what s(5) remembers -- a client that
+    ;;; sends the same near-miss twice gets it recorded the second time.
+    if lp_aid("slip") and not(correct) and not(other)
+    and typed /= '' and typed /= '?'
+    and lp_slip(typed, answer) and s(5) /== item then
+        item -> s(5);
+        jsonrpc_obj([% 'item', lp_jkey(item),
+                       'correct', false,
+                       'outcome', 'slip',
+                       'recorded', false,
+                       'reply', lp_line('slip'),
+                       'expected', json_null,
+                       'belief', lp_bel(item, lp_primary(item)) %]) -> res;
+        return;
+    endif;
+    false -> s(5);
+
+    ;;; A count that is the katakana's and not the English word's is a
+    ;;; near miss and not a wrong answer -- it is the katakana box,
+    ;;; answered honestly, and the reply names which count they gave.
+    lvars kslip = false;
+    if shape == "count" and not(correct) then
+        lp_count_near(item, typed) -> kslip
+    endif;
+    if     correct              then "right" -> outcome
+    elseif typed = '' or typed = '?' then "skip" -> outcome; false -> other
+    elseif other or kslip       then "near"  -> outcome
+    else                             "wrong" -> outcome
+    endif;
+    ;;; Wrapped, so that action:oops has something to take back.
+    ;;; lp_undo_last restores every belief this moved, which is more than
+    ;;; one whenever a correct answer inferred a prerequisite from what
+    ;;; the item contains.
+    lp_undo_start(item);
+    lp_record(item, ach, 1, outcome, used);
+    lp_undo_stop();
+    lp_answered(item);
+    lp_q_out(s);
     lp_save();
     jsonrpc_obj([% 'item', lp_jkey(item),
                    'correct', correct,
+                   ;;; correct stays a plain boolean for a client that
+                   ;;; only wants to know whether to move on; outcome is
+                   ;;; what the belief was actually moved by.
+                   'outcome', lp_jkey(outcome),
+                   'recorded', true,
                    'reply', if correct then lp_line('praise')
+                            elseif outcome == "skip" then lp_line('skip')
                             elseif other then lp_line('almost')
                             else lp_line('wrong') endif,
                    ;;; The canonical spelling only.  A client does not
                    ;;; need the whole accepted set, and showing it would
                    ;;; tell a learner that gakko would have done.
+                   ;;;
+                   ;;; For a question answered by NUMBER this is the
+                   ;;; option itself and not the number: `expected: "2"`
+                   ;;; is not something a client can show a learner, and
+                   ;;; for a confusion pair the word IS the lesson.
                    'expected', if correct then json_null
+                               elseif (shape == "pick" or shape == "listen_pick")
+                               and strnumber(hd(answer))
+                               and strnumber(hd(answer)) <= length(options)
+                               then lp_jkey(options(strnumber(hd(answer))))
                                else lp_jkey(hd(answer)) endif,
                    'mistook_for', if other then lp_jkey(other) else json_null endif,
+                   ;;; the katakana whose beats they counted, so a client
+                   ;;; can show the two side by side
+                   'counted_instead', if kslip then lp_jkey(kslip)
+                                      else json_null endif,
                    'mistook_form', if other then lp_jkey(lp_any_form(other))
                                    else json_null endif,
                    'belief', lp_bel(item, lp_primary(item)),
@@ -528,13 +757,14 @@ define lp_m_report(msg) -> res;
         endunless;
         (got * 1.0) / tot -> frac;
         2 -> tier;
-        lp_record(a(2), lp_primary(a(2)), 2, frac >= 0.7, 0);
+        lp_record(a(2), lp_primary(a(2)), 2,
+                  if frac >= 0.7 then "right" else "wrong" endif, 0);
         'a reported result carries an item to just below mastery; '
             <> 'the next check here settles it' -> note;
     elseif member(lp_norm(outcome sys_>< ''),
                   ['ok' 'done' 'yes' 'finished' 'complete']) then
         false -> frac; 3 -> tier;
-        lp_record(a(2), lp_primary(a(2)), 3, true, 0);
+        lp_record(a(2), lp_primary(a(2)), 3, "right", 0);
         'compliance alone cannot reach mastery -- report a result, '
             <> 'or let the tutor check you' -> note;
     else
@@ -565,8 +795,16 @@ define lp_m_session_close(msg) -> res;
     lvars msg, res, s = lp_need_session(msg), sid = lp_param(msg, 'session_id');
     returnif(lp_is_err(s))(s -> res);
     lp_save();
+    ;;; Counted BEFORE the reset, which is the whole of what it reports:
+    ;;; questions the student put off and the session ended before it
+    ;;; could come back to.
+    lvars owed = length(lp_pending);
+    ;;; The queue dies with the session, by definition -- and so does the
+    ;;; count of how often each item was put off.
+    lp_queue_reset();
     false -> lp_sessions(consword(sid sys_>< ''));
     jsonrpc_obj([% 'saved', true,
+                   'put_off_unanswered', owed,
                    'signoff', lp_line('signoff'),
                    'answers_recorded', length(lp_journal) %]) -> res;
 enddefine;
@@ -611,6 +849,274 @@ define lp_m_card_render(msg) -> res;
 enddefine;
 
 ;;; ------------------------------------------------------------ dispatch
+
+;;; --------------------------------------------------------- placement
+;;; The descent, over the wire.  Deliberately not a stateful test: there
+;;; is no placement session, no cursor and nothing to resume, because
+;;; lp_place_next is a pure function of the beliefs already recorded.  A
+;;; client asks what to ask, answers it through the ordinary
+;;; langpop/answer, and asks again -- so a dropped connection costs the
+;;; one question in flight and nothing else.
+;;;
+;;; One question at a time, for the same reason the TUI does it: a
+;;; second freeze has to end that axis immediately, and a client handed
+;;; a whole batch would keep asking past it.
+;;;
+;;; action:later needs no special case here, although the TUI refuses it
+;;; during a placement.  Nothing is recorded, and this is a function of
+;;; the record, so the same question simply comes back -- and lp_can_later
+;;; refuses the third attempt, so it cannot be used to stall a descent.
+define lp_m_place_next(msg) -> res;
+    lvars msg, res, s = lp_need_session(msg),
+          axis, level, items, item, shape, prompt, answer, options;
+    returnif(lp_is_err(s))(s -> res);
+    lp_place_next() -> (axis, level, items);
+    unless axis and items /== [] then
+        jsonrpc_obj([% 'done', true,
+                       'level', lp_jkey(lp_place_level() or lp_level) %]) -> res;
+        return;
+    endunless;
+    hd(items) -> item;
+    lp_question(item, lp_primary(item)) -> (shape, prompt, answer, options);
+    ;;; the clock is ours, exactly as in langpop/next -- the speed half
+    ;;; of a pre-school criterion is worth nothing if a client can send
+    ;;; latency_ms: 1
+    item -> s(3);
+    lp_now_ms() -> s(4);
+    jsonrpc_obj([% 'done', false,
+                   'axis', axis(1),
+                   'level', lp_jkey(level),
+                   'item', lp_jkey(item),
+                   'shape', lp_jkey(shape),
+                   'prompt', lp_jkey(prompt),
+                   'options', lp_vec([% lvars o;
+                                        for o in options do lp_jkey(o) endfor %]),
+                   'kind', lp_jkey(lp_kind(item)) %]) -> res;
+enddefine;
+
+;;; Where the student stands on each axis.  Read-only, and callable at
+;;; any point -- halfway through a placement it reports what is settled
+;;; so far, which is what a client showing progress wants.
+define lp_m_place_report(msg) -> res;
+    lvars msg, res, s = lp_need_session(msg), r;
+    returnif(lp_is_err(s))(s -> res);
+    jsonrpc_obj([% 'axes', lp_vec([% for r in lp_place_report() do
+                       jsonrpc_obj([% 'axis', r(1),
+                                      'placed', if r(2) then lp_jkey(r(2))
+                                                else json_null endif,
+                                      ;;; why there is no placement, which
+                                      ;;; is three different things: not
+                                      ;;; passed, not reached, or nothing
+                                      ;;; askable at all
+                                      'why', lp_jkey(r(3)) %]);
+                   endfor %]),
+                   'level', lp_jkey(lp_place_level() or lp_level) %]) -> res;
+enddefine;
+
+;;; --------------------------------------------------------------- aids
+;;; Read, and switch.  A client that offers "I typed it wrong" and a skip
+;;; button has to be able to offer the settings too, or the student can
+;;; only refuse the help by not pressing the button -- which is not the
+;;; same thing, because the point of switching one off is to stop having
+;;; to decide each time.
+;;;
+;;; NAMES rather than a map of booleans, for the reason given in lp_save:
+;;; an absent JSON field and a field set to false arrive here
+;;; indistinguishable, so {"slip": false} could not be told from a client
+;;; that simply did not mention slip.  {"off": ["slip"]} can.
+define lp_m_aids(msg) -> res;
+    lvars msg, res, s = lp_need_session(msg), a, i, pair, changed = [];
+    returnif(lp_is_err(s))(s -> res);
+    for pair in [% {% lp_param(msg, 'on'),  true  %},
+                   {% lp_param(msg, 'off'), false %} %] do
+        nextunless(pair(1) and isvector(pair(1)));
+        for i from 1 to length(pair(1)) do
+            consword(pair(1)(i) sys_>< '') -> a;
+            unless lp_aid_set(a, pair(2)) then
+                lp_err(LP_E_PARAMS, 'no such aid: ' <> (a sys_>< '')) -> res;
+                return;
+            endunless;
+            changed <> [^a] -> changed;
+        endfor;
+    endfor;
+    ;;; Saved immediately.  A switch that did not survive a crash would be
+    ;;; the one setting a student had to remember to set again, and the
+    ;;; log of changes is part of the record, not a session nicety.
+    if changed /== [] then lp_save() endif;
+    jsonrpc_obj([% 'aids', jsonrpc_obj([% for a in lp_aid_names() do
+                                             a sys_>< '', lp_aid(a) endfor %]),
+                   'changed', lp_vec([% for a in changed do lp_jkey(a) endfor %]),
+                   'changes_logged', length(lp_aid_log),
+                   'note', 'every change is logged with its time, so what was '
+                           <> 'available at any answer stays recoverable' %]) -> res;
+enddefine;
+
+;;; -------------------------------------------------------------- sheets
+;;; A page to print.  A chart is a picture of the GRAPH and needs no
+;;; session, exactly like card.render; today's sheet is a picture of one
+;;; student's session and needs one, because it is their answers on it.
+;;; So the session is required conditionally, which is the only method
+;;; here that does that -- and it is the honest shape, since refusing a
+;;; kana chart to someone who has not logged in would be a privilege
+;;; check protecting a table anybody can buy on a poster.
+define lp_m_sheet_render(msg) -> res;
+    lvars msg, res, style = lp_param(msg, 'style'), s, path, why, who = false;
+    unless style then
+        lp_err(LP_E_PARAMS,
+               'sheet.render: style needed '
+               <> '(hiragana, katakana, youon, today, zine)')
+            -> res;
+        return;
+    endunless;
+    consword(style sys_>< '') -> style;
+    ;;; The two that are a picture of one STUDENT rather than of the
+    ;;; graph.  A chart needs no session; these do.
+    if style == "today" or style == "zine" then
+        lp_need_session(msg) -> s;
+        returnif(lp_is_err(s))(s -> res);
+        lp_user -> who;
+    endif;
+    lp_sheet_render(style, who) -> (path, why);
+    if why = 'no_such_style' then
+        lp_err(LP_E_PARAMS, 'no such sheet: ' <> (style sys_>< '')) -> res
+    elseif why then
+        lp_err(LP_E_PARAMS, 'sheet.render: ' <> why) -> res
+    else
+        ;;; The path, not the bytes -- the same bargain card.render makes.
+        jsonrpc_obj([% 'style', lp_jkey(style),
+                       'path', path,
+                       'format', 'svg',
+                       'page', 'A4',
+                       ;;; the zine is the one landscape sheet, and a
+                       ;;; client that printed it portrait would get a
+                       ;;; booklet nobody can fold
+                       'orientation', if style == "zine" then 'landscape'
+                                      else 'portrait' endif,
+                       'pages', if style == "zine" then 8 else 1 endif,
+                       ;;; printable is the whole point, so say so in the
+                       ;;; units a print dialog uses
+                       'width_mm', if style == "zine" then 297 else 210 endif,
+                       'height_mm', if style == "zine" then 210 else 297 endif
+                       %]) -> res
+    endif;
+enddefine;
+
+;;; -------------------------------------------------------------- audit
+;;; Which rungs of the ladder are hollow.  No session, for the same
+;;; reason card.render needs none: this is a property of the GRAPH, not
+;;; of anybody's progress, and requiring a session would be a privilege
+;;; check protecting nothing.
+;;;
+;;; A client that draws a ladder wants this. Showing a student
+;;; `kanji(2230)` as a goal they are 0.05% of the way to, when the graph
+;;; holds 103 kanji, reports the tool's emptiness as the student's
+;;; failure -- the same mistake `"verifiable": false` exists to prevent
+;;; on langpop/status.
+define lp_m_audit(msg) -> res;
+    lvars msg, res, r, lang = lp_param(msg, 'language'), rows;
+    if lang then consword(lang sys_>< '') -> lang endif;
+    lp_audit() -> rows;
+    jsonrpc_obj([% 'criteria',
+        lp_vec([% for r in rows do
+            nextif(lang and r(1) /== lang);
+            jsonrpc_obj([% 'language', lp_jkey(r(1)),
+                           'level', lp_jkey(r(2)),
+                           'criterion', lp_term_str(r(3)),
+                           'verdict', lp_jkey(r(4)),
+                           'in_graph', r(5),
+                           'askable', r(6),
+                           ;;; null, not 0: a criterion that is not a
+                           ;;; count has no target, and a 0 there would
+                           ;;; read as one that wants nothing.
+                           'wanted', if r(7) then r(7) else json_null endif,
+                           'short_by', if r(4) == "short" then r(7) - r(6)
+                                       else json_null endif %]);
+        endfor %]) %]) -> res;
+enddefine;
+
+;;; ---------------------------------------------------------------- audio
+;;; Stage 0 of docs/projects/langpop-audio.md: the student hears a correct
+;;; model of the item.  No verdict, no session, nothing recorded -- the
+;;; sound of an item is a property of the GRAPH, like a card, so this
+;;; method is as stateless as langpop/card.render and for the same reason.
+;;;
+;;; A PATH, NOT BYTES, again like card.render: the audio is a file on
+;;; disk cached by item, and putting a wav down a JSON-RPC line would
+;;; make every caller pay for it in base64.
+;;;
+;;; Synthesising is the DEFAULT, and the opt-out is a positive flag:
+;;; `cached_only: true`.  It is not a `render: false`, because lp_param
+;;; cannot tell a JSON false from an absent key -- both arrive as the
+;;; Pop-11 false -- so a `render` parameter would read every client that
+;;; omitted it as one that had switched rendering off.  The question path
+;;; passes cached_only and so never waits on a model load.
+define lp_m_audio_say(msg) -> res;
+    lvars msg, res, item = lp_param(msg, 'item'),
+          cached = lp_param(msg, 'cached_only'),
+          rate = lp_param(msg, 'rate'),
+          path, made, why, cfg, text, twhy;
+    unless item then
+        lp_err(LP_E_PARAMS, 'audio.say: item needed') -> res; return
+    endunless;
+    consword(item sys_>< '') -> item;
+    unless lp_kind(item) then
+        lp_err(LP_E_ITEM, 'no such item: ' <> (item sys_>< '')) -> res; return
+    endunless;
+    ;;; An absent rate is the server's own default, not an error: a client
+    ;;; that does not care about rate should not have to name one.
+    if rate then consword(rate sys_>< '') -> rate endif;
+
+    if cached then lp_audio_path(item, rate) -> (path, why); false -> made;
+    else lp_audio_make(item, rate) -> (path, made, why);
+    endif;
+
+    if why = 'no_spoken_form' then
+        lp_err(LP_E_ITEM, 'nothing to say: ' <> (item sys_>< '')
+                          <> ' has no spoken form') -> res
+    elseif why = 'has_blank' then
+        lp_err(LP_E_ITEM, 'nothing to say: ' <> (item sys_>< '')
+                          <> ' is a pattern with a blank in it') -> res
+    elseif why = 'no_voice' then
+        lp_err(LP_E_UNBUILT, 'no voice for ' <> (lp_ilang(item) sys_>< '')
+                             <> ': name one in ' <> lp_audio_conf_path()) -> res
+    elseif why = 'voice_failed' then
+        lp_err(LP_E_UNBUILT, 'the voice command wrote nothing') -> res
+    elseif why = 'no_such_rate' then
+        ;;; A params error and not -32005: the rate is a name the CLIENT
+        ;;; chose, and the reply names the ones this voice has so the
+        ;;; client can offer them rather than guess again.
+        lp_err(LP_E_PARAMS, 'no such rate: ' <> (rate sys_>< '')
+                            <> ' (this voice has: '
+                            <> (lp_audio_rates(lp_ilang(item)) sys_>< '')
+                            <> ')') -> res
+    elseif why = 'not_generated' then
+        ;;; Not an error: the caller asked what was cached and nothing is.
+        jsonrpc_obj([% 'item', lp_jkey(item), 'generated', false,
+                       'path', false %]) -> res
+    elseif why then
+        lp_err(LP_E_UNBUILT, 'audio.say: ' <> why) -> res
+    else
+        lp_voice(lp_ilang(item)) -> cfg;
+        lp_audio_text(item) -> (text, twhy);
+        jsonrpc_obj([% 'item', lp_jkey(item),
+                       'lang', (lp_ilang(item) sys_>< ''),
+                       'generated', true,
+                       'rendered_now', made,
+                       'path', path, 'format', 'wav',
+                       'text', text,
+                       'voice', cfg(2), 'model', cfg(3),
+                       'rate', (lp_audio_rate_of(rate) sys_>< ''),
+                       'rates', lp_vec([% lvars r;
+                                          for r in lp_audio_rates(lp_ilang(item))
+                                          do r sys_>< '' endfor %]),
+                       ;;; Said, not enforced: length is contrastive in
+                       ;;; this item, so a client offering a rate control
+                       ;;; can warn that the RHYTHM is only trustworthy at
+                       ;;; the normal rate.
+                       'timing_sensitive', lp_audio_timing(item) %]) -> res
+    endif;
+enddefine;
+
 lconstant METHODS = [
     ['langpop/recognise'     ^lp_m_recognise]
     ['langpop/register'      ^lp_m_register]
@@ -621,9 +1127,15 @@ lconstant METHODS = [
     ['langpop/answer'        ^lp_m_answer]
     ['langpop/explain'       ^lp_m_explain]
     ['langpop/status'        ^lp_m_status]
+    ['langpop/aids'          ^lp_m_aids]
+    ['langpop/audit'         ^lp_m_audit]
+    ['langpop/placement.next'   ^lp_m_place_next]
+    ['langpop/placement.report' ^lp_m_place_report]
     ['langpop/assign'        ^lp_m_assign]
     ['langpop/report'        ^lp_m_report]
     ['langpop/card.render'   ^lp_m_card_render]
+    ['langpop/sheet.render'  ^lp_m_sheet_render]
+    ['langpop/audio.say'     ^lp_m_audio_say]
 ];
 
 define lp_method(name) -> p;
