@@ -481,11 +481,11 @@ check_true('case does not matter -- the list is lowercase', gw("water") == gw("w
 check_true('and a word the graph does not teach is absent', not(gw("zorp")));
 
 ;;; The scan: held and missing, with every line in the denominator.
-lvars gnl, gtot, gheld, gnheld, gmiss;
+lvars gnl, gtot, gheld, gnheld, gmiss, gshard, gshards;
 procedure();
     dlocal imp_lang = "en";
     imp_gap_scan(FIX <> 'freq-sample.txt', 10)
-        -> (gnl, gtot, gheld, gnheld, gmiss);
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
 endprocedure();
 check('every legible line is read', gnl, 6);
 check('and every count is in the denominator', gtot, 215);
@@ -496,15 +496,91 @@ check('the biggest purchase first', gmiss(1)(2), 'the');
 check('with its rank in the list', gmiss(1)(1), 1);
 check('and its count', gmiss(1)(3), 100);
 check('a nonsense token is still a token', gmiss(4)(2), 'zorp');
+check('and a corpus with no contractions has no shards', gshard, 0);
+check_true('so nothing is listed under the table', gshards == []);
 
 ;;; --top caps the queue, not the arithmetic.
 procedure();
     dlocal imp_lang = "en";
     imp_gap_scan(FIX <> 'freq-sample.txt', 2)
-        -> (gnl, gtot, gheld, gnheld, gmiss);
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
 endprocedure();
 check('the cap keeps the head of the queue', length(gmiss), 2);
 check('the denominator is still the whole corpus', gtot, 215);
+
+;;; Tokeniser shards: half a word, so never a queue row -- and still in
+;;; the denominator, because dropping them would raise every coverage
+;;; figure for free.
+check_true('a leading apostrophe is a shard',
+           procedure(); dlocal imp_lang = "en"; imp_gap_shard('\'s') endprocedure());
+check_true('and so is a contraction stem we named',
+           procedure(); dlocal imp_lang = "en"; imp_gap_shard('didn') endprocedure());
+check_true('a real word is not',
+           procedure();
+               dlocal imp_lang = "en"; not(imp_gap_shard('water'))
+           endprocedure());
+;;; Japanese has no apostrophes and no contraction halves, and `don` is
+;;; not a Japanese token at all.  The rule is about one tokeniser.
+check_true('and nothing is a shard in Japanese',
+           procedure(); dlocal imp_lang = "ja"; not(imp_gap_shard('don')) endprocedure());
+
+lp_write_file(FIX <> 'freq-shard-tmp.txt',
+    '\'s 40\nwater 30\ndidn 20\nzorp 10\n');
+procedure();
+    dlocal imp_lang = "en";
+    imp_gap_scan(FIX <> 'freq-shard-tmp.txt', 10)
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
+endprocedure();
+check('both shards are counted apart', length(gshards), 2);
+check('and their tokens summed', gshard, 60);
+check('the denominator is untouched by the split', gtot, 100);
+check('so the queue holds only the word', length(gmiss), 1);
+check('which is the one that is not half of something', gmiss(1)(2), 'zorp');
+sysdelete(FIX <> 'freq-shard-tmp.txt').erase;
+
+;;; One item, several spellings, one frequency.
+;;;
+;;; is/are/was/be is one verb and four tokens, and imp_frequency used to
+;;; take lp_form_of -- the FIRST latin form -- so an item carrying all
+;;; four would have collected the count of one and dropped the rest.
+;;; Coverage counts tokens on the page, and all four are on the page.
+lvars fes, funres;
+procedure();
+    dlocal imp_lang = "en";
+    ;;; `want` is a parameter, so the sum can be checked without
+    ;;; doctoring the graph: two forms of one invented item.
+    imp_frequency(FIX <> 'freq-sample.txt', [[e_be 'the'] [e_be 'of']])
+        -> (fes, funres);
+endprocedure();
+check('two forms of one item make one entry', length(fes), 1);
+check('under the item id, not a form', imp_e_id(hd(fes)), "e_be");
+check('and the counts are summed',
+      hd(tl(tl(hd(imp_e_ranks(hd(fes)))))), 130);
+check('at the best rank of the forms',
+      hd(tl(hd(imp_e_ranks(hd(fes))))), 1);
+check_true('and nothing is unresolved', funres == []);
+
+;;; A form that is absent does not sink the item: `be` is in the list
+;;; even when `beest` is not.
+procedure();
+    dlocal imp_lang = "en";
+    imp_frequency(FIX <> 'freq-sample.txt', [[e_be 'the'] [e_be 'zzqq']])
+        -> (fes, funres);
+endprocedure();
+check('a missing form is simply not added', length(fes), 1);
+check('so the count is the forms that were there',
+      hd(tl(tl(hd(imp_e_ranks(hd(fes)))))), 100);
+check_true('and the item is not reported unresolved', funres == []);
+
+;;; Every form absent IS unresolved -- absent from the top fifty
+;;; thousand is a fact about the corpus, not a frequency of nought.
+procedure();
+    dlocal imp_lang = "en";
+    imp_frequency(FIX <> 'freq-sample.txt', [[e_zz 'zzqq'] [e_zz 'xxpp']])
+        -> (fes, funres);
+endprocedure();
+check('no form in the list means no entry', length(fes), 0);
+check('and the item is reported once, not per form', length(funres), 1);
 
 ;;; Percentages are integer arithmetic, printed for a column.
 check('a round share prints round', imp_pct(50, 200), '25.00%');
@@ -544,7 +620,7 @@ lp_write_file(FIX <> 'freq-ja-tmp.txt',
 procedure();
     dlocal imp_lang = "ja";
     imp_gap_scan(FIX <> 'freq-ja-tmp.txt', 10)
-        -> (gnl, gtot, gheld, gnheld, gmiss);
+        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
 endprocedure();
 check('a kana word the graph teaches is held', gnheld >= 1, true);
 check_true('and a word it does not is the gap',

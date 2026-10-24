@@ -1227,7 +1227,7 @@ define imp_main();
         imp_jmdict(imp_file, picks, imp_load_pick_reqs()) -> (es, unresolved);
     elseif imp_source == "frequency" then
         'FrequencyWords' -> srcname;
-        lvars fwant = imp_en_words();
+        lvars fwant = imp_en_forms();
         if fwant == [] then
             mishap(imp_level, 1, 'import: no items with a latin form at that '
                                  <> 'level (frequency enriches items the '
@@ -1467,6 +1467,33 @@ define imp_en_words() -> ws;
     endfor;
 enddefine;
 
+;;; EVERY latin form, and not the first one.
+;;;
+;;; imp_en_words takes lp_form_of, which is one form per item, and that
+;;; is right for cmudict -- a pronunciation belongs to a spelling, so
+;;; `be` and `was` want separate entries or neither is correct.
+;;;
+;;; It is wrong for frequency, and the English function-word tranche is
+;;; where it shows: is/are/was/be is ONE verb and four tokens.  An item
+;;; `e_be` carrying all four forms would have collected the count of
+;;; `be` alone and silently dropped the 2.21% of the corpus the other
+;;; three carry -- a coverage figure quietly short by a third of what
+;;; the tranche was worth.  See docs/projects/langpop-function-words.md.
+;;;
+;;; So frequency reads every form and imp_frequency sums them, because
+;;; coverage is a count of TOKENS on the page and all four tokens are on
+;;; the page.  The item count is unaffected: one item, one vocabulary
+;;; entry, four spellings of it.
+define imp_en_forms() -> ws;
+    lvars i, pr, ws = [];
+    for i in lp_items do
+        nextunless(lp_ilang(i) == imp_lang and lp_ilevel(i) == imp_level);
+        for pr in lp_forms(i) do
+            if hd(pr) == "latin" then ws <> [[% i, hd(tl(pr)) %]] -> ws endif;
+        endfor;
+    endfor;
+enddefine;
+
 ;;; Which pre-school contrasts nothing at this level exercises.  This is
 ;;; curation feedback and not an error: it says what the word list is
 ;;; missing, which is the question a curator filling a level actually has.
@@ -1583,15 +1610,35 @@ define imp_frequency(path, want) -> (es, unresolved);
         nlines -> place(word);
     endprocedure);
 
+    ;;; Sum across the forms of one item, and take the BEST rank of them,
+    ;;; because a rank is a position in the list and the highest-placed
+    ;;; form is where the item first appears.  One entry per item, so
+    ;;; lp_freqs -- a property, last write wins -- cannot end up holding
+    ;;; whichever form happened to come last.
+    lvars sum = newproperty([], 512, false, "perm"),
+          best = newproperty([], 512, false, "perm"),
+          ids  = [];
     for pair in want do
         hd(pair) -> id; hd(tl(pair)) -> w;
         consword(uppertolower(w sys_>< '')) -> word;
-        unless count(word) then
+        unless member(id, ids) then ids <> [^id] -> ids endunless;
+        nextunless(count(word));
+        (sum(id) or 0) + count(word) -> sum(id);
+        unless best(id) and best(id) <= place(word) then
+            place(word) -> best(id);
+        endunless;
+    endfor;
+
+    for id in ids do
+        unless sum(id) then
+            ;;; Not one of its forms is in the list.  Absent from the top
+            ;;; fifty thousand is a fact about the corpus, not a
+            ;;; frequency of nought -- see the header.
             unresolved <> [[^id not_in_list]] -> unresolved;
             nextloop;
         endunless;
         es <> [% imp_entry_ranked(id, false, false, [], false, [],
-                                  [[% imp_scale(), place(word), count(word) %]])
+                                  [[% imp_scale(), best(id), sum(id) %]])
                %] -> es;
     endfor;
 
@@ -1669,14 +1716,75 @@ define imp_gap_wordish(word) -> yes;
     endif;
 enddefine;
 
+;;; A token that is half of a word, and so can never be curated.
+;;;
+;;; OpenSubtitles is tokenised, and the tokeniser splits contractions.
+;;; So `don't` arrives as `don` + `'t`, and the English list's top fifty
+;;; contains six fragments carrying 5.43% of the corpus between them.
+;;; They sat at the top of every gap report, above the real queue,
+;;; permanently: there is nothing to teach, so nothing can ever move
+;;; them, so they are noise with a high rank.
+;;;
+;;; CLOSED LISTS, both halves, and the first attempt at this was wrong
+;;; in a way worth recording.  The rule was "a leading apostrophe", on
+;;; the reasoning that no English word starts with one.  It found 315
+;;; tokens and 6.47% of the corpus, and the list it printed was:
+;;;
+;;;     'brien  'neill  'malley  'connor     -- Irish names, split
+;;;     'cause  'em  'bout  'til  'scuse     -- clipped words, which are
+;;;                                             real spoken English
+;;;     'etat  'amour  'est-ce               -- French
+;;;     'ight  'ciock  'aii                  -- OCR damage
+;;;
+;;; None of those is half of a contraction.  `'em` and `'cause` are
+;;; words a curator might well want, at a rank a curator should see, and
+;;; hiding them under "nothing to teach" would have been the report
+;;; deciding a curation question by itself -- the one thing --gap exists
+;;; not to do.  A structural rule looked cheaper than a list and was
+;;; simply a different, wronger claim.
+;;;
+;;; So: enumerate.  Seven tails and sixteen stems, closed, and anything
+;;; else with an apostrophe stays in the queue where a person sees it.
+;;;
+;;; The stems are a judgement and the report says so.  `don` and `haven`
+;;; are real English words; their rank in film dialogue is not about
+;;; dons or havens.  That is a claim about THIS corpus, which is why the
+;;; list is short enough to read and the note is printed under it.
+;;;
+;;; consword and not a word literal: `'s` in Pop-11 source opens a
+;;; string, so the list is built at compile time from strings.
+lconstant SHARD_TAILS = [% consword('\'s'), consword('\'t'),
+                            consword('\'m'), consword('\'re'),
+                            consword('\'ll'), consword('\'ve'),
+                            consword('\'d') %],
+          SHARD_STEMS = [doesn didn isn wasn aren weren couldn wouldn
+                         shouldn hasn hadn haven mustn needn ain don];
+
+define imp_gap_shard(word) -> yes;
+    lvars word, w, yes = false;
+    returnunless(imp_lang == "en");
+    consword(uppertolower(word)) -> w;
+    if member(w, SHARD_TAILS) or member(w, SHARD_STEMS) then
+        true -> yes
+    endif;
+enddefine;
+
 ;;; One pass.  Same reading discipline as imp_frequency: every line
 ;;; counts toward the total, because the denominator is the corpus.
 ;;; The missing list keeps arrival order, which IS frequency order --
 ;;; the upstream file is sorted, and imp_frequency already relies on it
 ;;; ("the first, which is the highest").
-define imp_gap_scan(path, topn) -> (nlines, total, held, nheld, missing);
+;;;
+;;; Shards are counted apart and reported under the table.  They stay in
+;;; `total`, because the denominator is the corpus whatever the corpus
+;;; happens to contain -- dropping them would raise every coverage
+;;; figure by five points for free, which is the one thing a coverage
+;;; denominator must never do.
+define imp_gap_scan(path, topn)
+        -> (nlines, total, held, nheld, missing, shard, shards);
     lvars path, topn, nlines = 0, total = 0, held = 0, nheld = 0,
-          nmiss = 0, missing = [], gw = imp_graph_words();
+          nmiss = 0, missing = [], shard = 0, shards = [],
+          gw = imp_graph_words();
     imp_lines(path, procedure(line);
         lvars line, k, n, word, w;
         imp_trim(line) -> line;
@@ -1692,6 +1800,9 @@ define imp_gap_scan(path, topn) -> (nlines, total, held, nheld, missing);
                  else word endif) -> w;
         if gw(w) then
             held + n -> held; nheld + 1 -> nheld;
+        elseif imp_gap_shard(word) then
+            shard + n -> shard;
+            shards <> [{% nlines, word, n %}] -> shards;
         elseif nmiss < topn and imp_gap_wordish(word) then
             missing <> [{% nlines, word, n %}] -> missing;
             nmiss + 1 -> nmiss;
@@ -1761,8 +1872,10 @@ define imp_gap_kanji(word) -> note;
 enddefine;
 
 define imp_gap_run(path, topn);
-    lvars nlines, total, held, nheld, missing, m, cum, gw, id, note;
-    imp_gap_scan(path, topn) -> (nlines, total, held, nheld, missing);
+    lvars nlines, total, held, nheld, missing, m, cum, gw, id, note,
+          shard, shards;
+    imp_gap_scan(path, topn)
+        -> (nlines, total, held, nheld, missing, shard, shards);
     printf('gap: %p -- %p entries, %p tokens\n',
            [% imp_scale(), nlines, total %]);
     if total == 0 then
@@ -1780,14 +1893,10 @@ define imp_gap_run(path, topn);
         cum + m(3) -> cum;
         false -> note;
         if imp_lang == "en" then
-            if m(2)(1) == `'` then
-                ;;; 's, 't, 'm: the tokeniser split a contraction, and
-                ;;; what is left is not a word anybody can teach.
-                'a tokeniser shard, not a word' -> note;
-            else
-                imp_gap_infl(m(2), gw) -> id;
-                if id then 'may be a form of ' <> (id sys_>< '') -> note endif;
-            endif;
+            ;;; No shard branch here: imp_gap_scan takes them out before
+            ;;; the queue, so a row that reaches this point is a word.
+            imp_gap_infl(m(2), gw) -> id;
+            if id then 'may be a form of ' <> (id sys_>< '') -> note endif;
         elseif imp_lang == "ja" then
             imp_gap_kanji(m(2)) -> note;
         endif;
@@ -1795,6 +1904,16 @@ define imp_gap_run(path, topn);
                [% m(1), imp_pct(m(3), total), imp_pct(cum, total), m(2),
                   if note then '    (' <> note <> ')' else '' endif %]);
     endfor;
+    unless shards == [] then
+        printf('\nnot in the queue, because there is nothing to teach:\n');
+        printf('  %p tokeniser shards, %p of the corpus --',
+               [% length(shards), imp_pct(shard, total) %]);
+        for m in shards do printf(' %p', [% m(2) %]) endfor;
+        printf('\n  the tokeniser split a contraction and these are the\n');
+        printf('  halves.  Counted in the denominator, never curatable.\n');
+        printf('  A clipped word (\'em, \'cause) is NOT one of these and\n');
+        printf('  stays in the queue -- that is a curation question.\n');
+    endunless;
     printf('\nwhat adding these moves: vocabulary(N, read)%p\n',
            [% if imp_lang == "en" then ' and coverage(reading, _) together'
               else '' endif %]);

@@ -1081,14 +1081,27 @@ gap: 5.60% of the corpus
    rank  share   if-added  word
   1      3.97%   9.57%     you
   3      3.14%   16.44%    the
-  6      1.97%   22.77%    's    (a tokeniser shard, not a word)
+  4      2.36%   18.80%    to
+
+not in the queue, because there is nothing to teach:
+  23 tokeniser shards, 6.39% of the corpus -- 's 't 'm don 're 'll ...
 ```
 
 Each row is annotated with what the curator needs to judge it: English
 rows say when a token is probably an inflection of a word already taught
-(`drinking` → *may be a form of e_drink*) or a shard the tokeniser left;
-Japanese rows carry the price tag (`大丈夫` — *needs 2 kanji not in the
-graph*). **It is a report, not an import** — adding a word is curation
+(`drinking` → *may be a form of e_drink*), and Japanese rows carry the
+price tag (`大丈夫` — *needs 2 kanji not in the graph*).
+
+Contraction halves are taken out of the queue and counted under the
+table, because *don't* tokenised into `don` and `'t` is two things
+nobody can teach, and they would otherwise hold the top of the report
+forever. The rule is two closed lists and not "has an apostrophe": that
+broader rule caught 315 tokens, among them `'em`, `'cause` and `'bout`,
+which are real spoken words at a rank a curator should see. Filing those
+under *nothing to teach* would be the report answering a curation
+question by itself.
+
+**It is a report, not an import** — adding a word is curation
 (an id, a level, a gloss), and nothing here mints any of those. Nothing
 is written.
 

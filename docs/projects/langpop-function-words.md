@@ -245,19 +245,42 @@ Deferring all three costs 1.27 points and keeps three bad glosses out of
 the graph. They are the rows where a frequency list is most clearly
 measuring something other than a word.
 
-## And six rows that are not words at all
+## And the rows that are not words at all -- **done**
 
-`'s`, `'t`, `'m`, `'re`, `'ll` and `don` are tokeniser shards -- the gap
-report flags the first five by their leading apostrophe and misses
-`don`, which is the left half of *don't*. Together they are 5.43% of the
-corpus that no curation can ever claim, because there is nothing to
-teach.
+`'s`, `'t`, `'m`, `'re`, `'ll` and `don` were sitting at the top of the
+queue, and would have sat there forever: the tokeniser split *don't*,
+and neither half is something anybody can teach.
 
-They will sit at the top of every English gap report forever. I would add
-a short known-shards list to `--gap` so they are reported once, under the
-table, as *"5.43% of this corpus is tokeniser shards and not vocabulary"*
--- which is a fact about the data worth printing, and better than six
-rows of noise above the real queue. Small change, happy to fold it in.
+`--gap` now takes them out and reports them under the table instead:
+
+```
+not in the queue, because there is nothing to teach:
+  23 tokeniser shards, 6.39% of the corpus -- 's 't 'm don 're 'll 've
+  'd didn doesn isn wasn wouldn haven couldn aren ain shouldn weren
+  hasn hadn mustn needn
+```
+
+Twenty-three, not six, and 6.39% rather than the 5.43% the top forty-six
+showed -- the rest were further down the list than the queue reached.
+
+**The first attempt at this was wrong and the way it was wrong matters
+here.** The rule was structural -- a leading apostrophe, since no English
+word starts with one -- and it found 315 tokens: Irish names split at
+the apostrophe (*'brien*, *'neill*, *'connor*), French (*'etat*,
+*'amour*), OCR damage (*'ciock*, *'aii*), and clipped words that are
+real spoken English: *'em*, *'cause*, *'bout*, *'til*, *'scuse*.
+
+That last group is the problem. `'em` and `'cause` are words a curator
+might well want, at a rank a curator should see. Filing them under
+"nothing to teach" would have been the report deciding a curation
+question on its own, which is the one thing `--gap` exists not to do. So
+the rule is now two closed lists, seven tails and sixteen stems, and
+anything else carrying an apostrophe stays in the queue where a person
+looks at it. The report says so in a line.
+
+The stems are still a judgement, and the report says that too: `don` and
+`haven` are real English words whose rank in film dialogue is not about
+dons or havens.
 
 ---
 
