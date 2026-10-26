@@ -1816,6 +1816,45 @@ had been swallowed. That is fixed in `pop/plog/src/prolog_compile.p`
 (commands now apply only in query mode, i.e. at the prompt), with
 `tools/tests/test_prolog_consult.p` to keep it fixed.
 
+### Editing the file a Poplog program is running from
+
+Worth its own line, because it cost a session and the trace it leaves
+blames the wrong thing.
+
+**Poplog compiles a `.p` file incrementally**: it reads, compiles and
+runs as it goes, so by the time the last statement of `langpop.p` --
+
+```pop11
+unless isdefined("langpop_lib") then lp_main() endunless;
+```
+
+-- is executing, the whole tutoring session is running *inside* the
+compiler's read of the file, which is still open at a byte offset.
+Rewrite the file while that session is up, and when `lp_main` returns
+the reader resumes **at its old offset in the new text**. Whatever
+happens to be there is compiled as Pop-11.
+
+The resulting trace reads as though the tutor crashed on the way out:
+
+```
+また今度。
+;;; DECLARING VARIABLE bad
+;;; FILE : .../langpop.p   LINE NUMBER: 12482
+;;; DOING : Comp_expr_seq trycompile
+;;; MISHAP - NUMBER(S) NEEDED ... Arith_> > trycompile
+```
+
+**The impossible line number is the tell.** `langpop.p` is about 4,300
+lines; a mishap reported past that is not a mishap in the program, it is
+the reader somewhere in a file that changed underneath it. A
+segmentation fault in the compiler can follow, which looks far worse
+than it is.
+
+The window closes by not returning at all: all three front ends
+`sysexit()` after their main rather than letting control fall back to
+the reader. Nothing was ever at risk in the student's profile either
+way -- `lp_save` runs *before* the signoff, not after it.
+
 ## And four more the importer found
 
 Three where Pop-11 does something reasonable that is not what the code
