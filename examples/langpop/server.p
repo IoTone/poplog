@@ -1194,4 +1194,10 @@ define lp_server_main();
     endif;
 enddefine;
 
-unless isdefined("langpop_server_lib") then lp_server_main() endunless;
+unless isdefined("langpop_server_lib") then
+    lp_server_main();
+    ;;; AND STOP, for the reason langpop.p gives at the same place:
+    ;;; returning here drops whoever is at the terminal into the
+    ;;; Pop-11 top level, which compiles what they type next.
+    sysexit();
+endunless;

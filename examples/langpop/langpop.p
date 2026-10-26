@@ -4313,4 +4313,23 @@ enddefine;
 ;;; Loaded as a library (the test suite does this) there is no session:
 ;;;     vars langpop_lib = true;
 ;;;     load 'examples/langpop/langpop.p';
-unless isdefined("langpop_lib") then lp_main() endunless;
+unless isdefined("langpop_lib") then
+    lp_main();
+    ;;; AND STOP, rather than letting lp_main RETURN.
+    ;;;
+    ;;; Run the documented way -- ./poplog basepop11 langpop.p -- it
+    ;;; makes no difference: the engine exits when the file has been
+    ;;; compiled, and a pty session confirms it.  It matters when
+    ;;; langpop.p is LOADED INTO A LIVE POP-11, which is a thing
+    ;;; people do and which `langpop_lib` only covers if they
+    ;;; remember to set it.  There, returning drops whoever just
+    ;;; said goodbye at a `: ` prompt that COMPILES WHAT THEY TYPE,
+    ;;; and a session was reported ending that way -- a stray line
+    ;;; compiled after the signoff, then a segmentation fault at a
+    ;;; line number the file does not have.
+    ;;;
+    ;;; Nothing is lost either way: lp_save runs BEFORE the signoff,
+    ;;; not after it, so by the time any of that can happen the
+    ;;; profile is already on disk.
+    sysexit();
+endunless;
