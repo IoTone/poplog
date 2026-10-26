@@ -42,6 +42,53 @@ lconstant
     PAGE_W = 2100, PAGE_H = 2970, PAGE_M = 150,
     SHEET_STYLES = [hiragana katakana youon];
 
+;;; The day's glyph, and the same argument as the booklet's: 48 tenths
+;;; is 13.6pt, which is fine for ひ and closes up 語.  Here it costs
+;;; nothing at all -- the hint is already in a column of its own at
+;;; PAGE_M + 520, so the only constraint is the 72-unit row pitch, and
+;;; 0.88 * 70 is 62.  Kana stay where they were, because they were never
+;;; the problem.
+lconstant S_GLYPH = 48, S_KANJI = 70;
+
+;;; IS THIS GLYPH ONE OF THE DETAILED ONES?  Both pages ask it, so it is
+;;; here rather than in either of them.
+define sheet_ideographic(g) -> yes;
+    lvars g, cp, yes = false;
+    for cp in [% utf8_explode(g sys_>< '') %] do
+        ;;; CJK proper, which deliberately starts above the kana block
+        ;;; at 16:3040-16:30FF: a kana is not what this is for.
+        if cp >= 16:3400 and cp <= 16:9FFF then true -> yes; return endif;
+    endfor;
+enddefine;
+
+;;; Is the term a GLYPH rather than a word?  Kana and kanji both are:
+;;; they are square, they leave the width of the panel empty, and that
+;;; is where the hint goes.  Latin is not, which is the case
+;;; zine_plan_page's original comment was looking at when it put every
+;;; hint underneath.
+;;;
+;;; THE MIXED ROW IS WHY THIS IS NOT THE SAME TEST AS THE SIZE.  A kana
+;;; row with its hint 62 units under the baseline, followed by a kanji
+;;; row set at 170, puts the kanji's top at 35 units below that baseline
+;;; and the hint at 62 -- so `neko` printed inside 日.  Both of them
+;;; beside, and the only constraint left on either is 0.88 * size < 185,
+;;; which 170 clears with room.
+define sheet_cjk(g) -> yes;
+    lvars g, cp, yes = false;
+    for cp in [% utf8_explode(g sys_>< '') %] do
+        if cp >= 16:2E80 then true -> yes; return endif;
+    endfor;
+enddefine;
+
+;;; Ideographs are one em each and everything else is narrower.  Used to
+;;; place a hint beside a glyph, so erring wide is erring safe.
+define sheet_em(g) -> em;
+    lvars g, cp, em = 0.0;
+    for cp in [% utf8_explode(g sys_>< '') %] do
+        if cp >= 16:2E80 then em + 1.0 -> em else em + 0.55 -> em endif;
+    endfor;
+enddefine;
+
 ;;; Where in a list, or 0.  Defined here because the grid builder and the
 ;;; youon sheet both want it and Pop-11 wants it defined first.
 define lp_pos_in(x, l) -> n;
@@ -408,8 +455,10 @@ define sheet_day_svg(display, rows, plan) -> svg;
         unless rd then lp_gloss_of(item, "en") -> rd endunless;
         svg <> sheet_text(PAGE_M, y, 44, '#8a8275', 'start',
                           sheet_mark(r(2)))
-            <> sheet_text(PAGE_M + 90, y, 48, '#1b1a17', 'start',
-                          g sys_>< '')
+            <> sheet_text(PAGE_M + 90, y,
+                          if sheet_ideographic(g) then S_KANJI
+                          else S_GLYPH endif,
+                          '#1b1a17', 'start', g sys_>< '')
             <> sheet_text(PAGE_M + 520, y, 34, '#6b6457', 'start',
                           if rd then rd sys_>< '' else '' endif)
             <> sheet_text(PAGE_W - PAGE_M, y, 30, '#8a8275', 'end',
@@ -536,7 +585,55 @@ lconstant
     Z_BODY  = 64,                      ;;; 9pt
     Z_SMALL = 50,                      ;;; 7pt
     Z_TINY  = 42,                      ;;; 6pt
-    Z_GLYPH = 130;                     ;;; 18pt, for a kana or a kanji
+    Z_GLYPH = 130,                     ;;; 18pt, for a kana
+    Z_KANJI = 170,                     ;;; 24pt, for an ideograph
+    Z_BESIDE = 40;                     ;;; gap between a kanji and its hint
+
+;;; ONE SIZE FOR BOTH SCRIPTS WAS THE SAME MISTAKE THE TERMINAL MAKES.
+;;; A kana is a handful of strokes in the em box and 18pt renders it
+;;; cleanly; 聞 and 語 are fourteen strokes in the same box, so at 18pt
+;;; the inner gaps are about a fifth of a millimetre and the print
+;;; closes them up.  Mixed-script house styles set the CJK above the
+;;; Latin for exactly this reason, and a booklet whose whole purpose is
+;;; to be read by a learner has less excuse than most for setting it
+;;; small.
+;;;
+;;; 24pt and not more BECAUSE THE PITCH IS FIXED AT 185 AND THE PAGE
+;;; HOLDS 8.  The constraint is 1.36 * size + 10 < 185 while the hint
+;;; sits UNDER the glyph -- which is where 130 came from, and 130 is
+;;; already two units off the limit.  Moving the hint BESIDE the glyph
+;;; lifts it to 0.88 * size < 185, so 170 fits with room to spare and
+;;; the page still holds eight rows.  Going further costs rows, and a
+;;; plan page that shows four items is a different page.
+;;;
+;;; Beside is also simply better for a glyph: kana and kanji are both
+;;; square and leave the width of the panel empty, which is where the
+;;; reading goes on every flashcard ever printed.  The hint stays UNDER
+;;; a LATIN term, because that is a word rather than a glyph and the two
+;;; would collide -- which is what zine_plan_page's own comment argued
+;;; for, and it was right about the case it was looking at.
+;;; The glyph's size, and where its hint goes: (size, x, y) relative to
+;;; the row's own left edge and baseline.  One place, because the plan
+;;; page and the what-to-do-again page lay out the same row and had
+;;; already drifted apart by 110 units of indent.
+define zine_glyph_box(g, x0, y) -> (size, hx, hy);
+    lvars g, x0, y, size, hx, hy;
+    if sheet_ideographic(g) then Z_KANJI else Z_GLYPH endif -> size;
+    if sheet_cjk(g) then
+        (x0 + intof(sheet_em(g) * size) + Z_BESIDE, y) -> (hx, hy);
+    else
+        (x0, y + 62) -> (hx, hy);
+    endif;
+enddefine;
+
+;;; How much hint fits beside it, in characters.  0.52 em is about right
+;;; for a mixed romaji-and-English gloss at this size; the hint is
+;;; truncated with an ellipsis either way, so a character out is a
+;;; character shorter and not a layout fault.
+define zine_hint_cols(hx) -> cols;
+    lvars hx, cols = intof((PW - ZPAD - hx) / (Z_TINY * 0.52));
+    if cols < 10 then 10 -> cols endif;
+enddefine;
 
 ;;; ------------------------------------------- the booklet's own words
 ;;; A study booklet has to be readable by the person studying, and the
@@ -893,22 +990,23 @@ define zine_hint(i, cols) -> h;
 enddefine;
 
 define zine_plan_page(items, skip, page, title) -> out;
-    lvars items, skip, page, title, i, out, y = 520, n = 0, g, rd;
+    lvars items, skip, page, title, i, out, y = 520, n = 0, g, rd,
+          size, hx, hy;
     zine_title(title, false) -> out;
     for i in items do
         n + 1 -> n;
         nextif(n <= skip);
         quitif(n > skip + 8);
         lp_any_form(i) -> g;
-        zine_hint(i, 34) -> rd;
-        ;;; the term, then the hint UNDER it rather than beside it: an
-        ;;; English item's term is a word and not a glyph, so the two
-        ;;; would collide in the middle of the panel
-        out <> sheet_text(ZPAD, y, Z_GLYPH, '#1b1a17', 'start', g sys_>< '')
-            -> out;
+        g sys_>< '' -> g;
+        ;;; An ideograph gets 24pt and its hint beside it; anything else
+        ;;; keeps 18pt with the hint under.  zine_glyph_box decides, and
+        ;;; the hint is measured against the room that leaves.
+        zine_glyph_box(g, ZPAD, y) -> (size, hx, hy);
+        zine_hint(i, if hy == y then zine_hint_cols(hx) else 34 endif) -> rd;
+        out <> sheet_text(ZPAD, y, size, '#1b1a17', 'start', g) -> out;
         if rd then
-            out <> sheet_text(ZPAD, y + 62, Z_TINY, '#6b6457', 'start', rd)
-                -> out;
+            out <> sheet_text(hx, hy, Z_TINY, '#6b6457', 'start', rd) -> out;
         endif;
         y + 185 -> y;
     endfor;
@@ -919,20 +1017,20 @@ define zine_plan_page(items, skip, page, title) -> out;
 enddefine;
 
 define zine_again(rows) -> out;
-    lvars rows, r, out, y = 520, n = 0, g, rd;
+    lvars rows, r, out, y = 520, n = 0, g, rd, size, hx, hy;
     zine_title(zine_say("again"), false) -> out;
     for r in rows do
         nextif(r(2) == "right");
         n + 1 -> n; quitif(n > 9);
         lp_any_form(r(1)) -> g;
-        zine_hint(r(1), 30) -> rd;
+        g sys_>< '' -> g;
+        zine_glyph_box(g, ZPAD + 110, y) -> (size, hx, hy);
+        zine_hint(r(1), if hy == y then zine_hint_cols(hx) else 30 endif) -> rd;
         out <> sheet_text(ZPAD, y, Z_BODY, '#8a8275', 'start',
                           sheet_mark(r(2)))
-            <> sheet_text(ZPAD + 110, y, Z_GLYPH, '#2f4a7a', 'start',
-                          g sys_>< '') -> out;
+            <> sheet_text(ZPAD + 110, y, size, '#2f4a7a', 'start', g) -> out;
         if rd then
-            out <> sheet_text(ZPAD + 110, y + 62, Z_TINY, '#8a8275', 'start',
-                              rd) -> out;
+            out <> sheet_text(hx, hy, Z_TINY, '#8a8275', 'start', rd) -> out;
         endif;
         y + 185 -> y;
     endfor;

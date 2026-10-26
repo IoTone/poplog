@@ -229,6 +229,71 @@ check_true('an empty day is said, not drawn',
            /== false);
 
 
+;;; ------------------------------------------------- kanji are bigger
+;;; ONE SIZE FOR BOTH SCRIPTS IS THE MISTAKE THE TERMINAL MAKES, and the
+;;; booklet was making it too: a kana is a few strokes in the em box and
+;;; 18pt renders it, while 語 is fourteen strokes in the same box and the
+;;; print closes the gaps up.
+check_true('a kanji is ideographic', sheet_ideographic('国'));
+check_true('and so is a word made of them', sheet_ideographic('電話'));
+check_false('a kana is not -- it was never the problem',
+            sheet_ideographic('あ'));
+check_false('nor is katakana', sheet_ideographic('マン'));
+check_false('nor a latin word', sheet_ideographic('water'));
+
+;;; Mixed is ideographic, because the hard character is the one that
+;;; decides: 高い is 高 plus a kana tail.
+check_true('a kanji with a kana tail counts',
+           sheet_ideographic('高い'));
+
+check('an ideograph is one em', sheet_em('国'), 1.0);
+check('two are two', sheet_em('電話'), 2.0);
+check_true('latin is narrower', sheet_em('ab') < 2.0);
+
+;;; THE HINT MOVES, which is what pays for the bigger size.  Under the
+;;; glyph the pitch has to carry 1.36 * size; beside it, only 0.88 --
+;;; so the page keeps its eight rows at 24pt instead of losing four of
+;;; them.
+lvars gsize, ghx, ghy;
+zine_glyph_box('国', 120, 1000) -> (gsize, ghx, ghy);
+check('an ideograph is set at 24pt', gsize, 170);
+check('with its hint on the same baseline', ghy, 1000);
+check_true('and beside it rather than under', ghx > 120);
+
+zine_glyph_box('あ', 120, 1000) -> (gsize, ghx, ghy);
+check('a kana keeps 18pt', gsize, 130);
+
+;;; BUT ITS HINT MOVES BESIDE ANYWAY, which is not about the kana.  A
+;;; kana row with the hint 62 under, followed by a kanji row at 24pt,
+;;; put the kanji's top above the hint's baseline -- `neko` printed
+;;; inside 日.  A page mixes the two freely, so both go beside.
+check('and its hint goes beside it too', ghy, 1000);
+check_true('clear of the glyph', ghx > 120);
+
+;;; A latin term is a word and not a glyph: the hint stays underneath,
+;;; which is the arrangement the page was built with and is right for
+;;; the case it was built for.
+zine_glyph_box('water', 120, 1000) -> (gsize, ghx, ghy);
+check('a latin term keeps 18pt', gsize, 130);
+check('with its hint under', ghy, 1062);
+check('at the same left edge', ghx, 120);
+
+;;; The hint is measured against the room the glyph leaves, rather than
+;;; truncated at a number that was right for the old layout.
+check_true('a hint beside a glyph gets fewer characters',
+           zine_hint_cols(600) < zine_hint_cols(200));
+
+;;; END TO END, on the page itself, because the two checks above would
+;;; both pass with the constant wired to nothing.
+lvars kpage = zine_plan_page([% "w_denwa", "hi_a" %], 0, 3, 'Next');
+check_true('the page sets the kanji word at 24pt',
+           issubstring('font-size="170"', kpage) /== false);
+check_true('and the kana beside it at 18pt',
+           issubstring('font-size="130"', kpage) /== false);
+check_true('both glyphs are on it',
+           issubstring('電話', kpage) /== false
+           and issubstring('あ', kpage) /== false);
+
 ;;; --------------------------------------------------------- the zine
 ;;; Eight pages from one sheet.  The imposition is not a creative work
 ;;; and is not copied from anywhere: it is what folding a sheet in half

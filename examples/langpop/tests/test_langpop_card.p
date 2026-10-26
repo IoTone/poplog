@@ -138,6 +138,51 @@ lvars first = lp_read_file(path);
 lp_card_render("w_neko", "word") -> (path, w, h, why);
 check('the same item renders byte for byte the same', lp_read_file(path), first);
 
+;;; ------------------------------------------------------ the glyph card
+;;; The second canvas, and the reason it exists: this one is shown WHILE
+;;; the question is being asked, so the two things the word card carries
+;;; above and below the term -- the reading and the gloss -- are the two
+;;; things it must not carry.  A bigger glyph that gives the answer away
+;;; is not a bigger glyph, it is the answer.
+lvars gpath, gw, gh, gwhy;
+lp_card_render("k_56fd", "glyph") -> (gpath, gw, gh, gwhy);
+check('the glyph style is built', gwhy, false);
+check('and is square, because a kanji is', gw, gh);
+
+lvars gsvg = lp_read_file(gpath);
+check_true('the glyph is on it', has('国', gsvg));
+check_false('its reading is NOT', has('くに', gsvg));
+check_false('nor its gloss', has('country', gsvg));
+
+;;; The contrast, stated rather than assumed: the word card carries both,
+;;; which is exactly why it cannot be the one shown at a prompt.
+lvars wpath, ww, wh, wwhy;
+lp_card_render("k_56fd", "word") -> (wpath, ww, wh, wwhy);
+lvars wsvg = lp_read_file(wpath);
+check_true('the word card does carry the reading', has('くに', wsvg));
+check_true('and the gloss', has('country', wsvg));
+
+;;; Provenance survives, because it names the source and not the answer.
+check_true('the glyph card still says where the item came from',
+           has('kanjidic2', gsvg));
+
+;;; Both canvases are reported, because term-image.py needs the aspect to
+;;; claim the right number of terminal rows and a client needs it to lay
+;;; the picture out at all.
+lvars dw, dh;
+lp_card_dims("glyph") -> (dw, dh);
+check('the glyph canvas is square', dw, dh);
+lp_card_dims("word") -> (dw, dh);
+check_true('the word canvas is wider than tall', dw > dh);
+
+;;; A two-kanji word on one square: the fitter is the word card's, so it
+;;; shrinks to fit rather than running off the edge.
+lp_card_render("w_denwa", "glyph") -> (gpath, gw, gh, gwhy);
+check('a two-kanji word draws', gwhy, false);
+check_true('with both characters', has('電話', lp_read_file(gpath)));
+check_false('and still no reading', has('でんわ',
+                                        lp_read_file(gpath)));
+
 ;;; ----------------------------------------------------------- refusals
 lp_card_render("nonesuch", "word") -> (path, w, h, why);
 check('an unknown item', why, 'no_such_item');

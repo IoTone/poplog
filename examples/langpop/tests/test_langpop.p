@@ -533,9 +533,10 @@ check_true('offered again afterwards', lp_can_later("hi_a"));
 ;;; tutor: an aid that cannot be refused is indistinguishable from a
 ;;; lower standard.
 lp_aids_reset();
-check('three of them', length(lp_aid_names()), 3);
+check('four of them', length(lp_aid_names()), 4);
 check_true('all on to begin with',
-           lp_aid("slip") and lp_aid("oops") and lp_aid("later"));
+           lp_aid("slip") and lp_aid("oops") and lp_aid("later")
+           and lp_aid("glyph"));
 check('nothing logged yet', length(lp_aid_log), 0);
 
 check_true('later goes off', lp_aid_set("later", false));
@@ -561,6 +562,45 @@ lp_aid_set("later", false).erase;
 lp_queue_reset();
 check_false('off means off, not hidden', lp_can_later("hi_a"));
 lp_aids_reset();
+
+;;; ------------------------------------------------- the big glyph
+;;; A terminal cell gives a kanji about twenty pixels of height for all
+;;; of its strokes, so the detailed ones are drawn as a picture the
+;;; first time they are met.  WHICH ONES IS DECIDED FROM THE GRAPH:
+;;; kanjidic2's stroke count is already imported, so nothing new is
+;;; curated to answer the question.
+lvars glyphuser = lp_user, glyphjournal = lp_journal;
+"glypher" -> lp_user; [] -> lp_journal;
+
+check('a kanji carries its own stroke count', lp_strokes("k_56fd"), 8);
+check('a simple one is simple', lp_strokes("k_65e5"), 4);
+check('a kana has none at all', lp_strokes("hi_a"), 0);
+
+;;; A WORD HAS NO STROKE COUNT OF ITS OWN, so it takes the worst of the
+;;; characters written inside it -- the hardest glyph on the card is
+;;; what decides whether the card is legible.
+check('a word takes the worst character in it', lp_strokes("w_denwa"), 13);
+
+check_true('a detailed kanji is worth drawing', lp_glyph_wanted("k_56fd"));
+check_false('a simple one is not', lp_glyph_wanted("k_65e5"));
+check_false('and a kana never is', lp_glyph_wanted("hi_a"));
+
+;;; FIRST MEETING ONLY.  Reading 聞 at terminal size is itself a skill,
+;;; and a tutor that draws it big every time is one the student never
+;;; has to learn it from.
+lp_journal <> [[% "k_56fd", "read", 1, "wrong", 900, lp_now_ms() %]]
+    -> lp_journal;
+check_false('but only the first time it is met', lp_glyph_wanted("k_56fd"));
+[] -> lp_journal;
+check_true('met again on a clean journal', lp_glyph_wanted("k_56fd"));
+
+;;; It is an aid, which means it can be refused.
+lp_aid_set("glyph", false).erase;
+check_false('and the student can turn it off', lp_glyph_wanted("k_56fd"));
+lp_aids_reset();
+check_true('and back on', lp_glyph_wanted("k_56fd"));
+
+glyphuser -> lp_user; glyphjournal -> lp_journal;
 
 ;;; ------------------------------------------------------- placement
 ;;; "Go ahead and introduce yourself."  A beginner freezes; one who

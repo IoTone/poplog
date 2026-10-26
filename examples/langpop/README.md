@@ -1560,6 +1560,43 @@ sheets use, so that a quarter of A4's width is an integer: 74.25 mm is
 unreadable at about five point because of it. The sizes are now named
 constants with the point size in the comment.
 
+### And one size for both scripts was the same mistake again
+
+`Z_GLYPH = 130` — 18pt — was used for *either a kana or a kanji*, which
+is the terminal's assumption on paper. 18pt renders あ cleanly and closes
+up the inside of 語. Mixed-script house styles set CJK **above** the
+Latin beside it for exactly this reason: a Latin lowercase letter fills
+about half the em box vertically and a third of it across, while a kanji
+fills the box and then subdivides it.
+
+Kanji are now 24pt and kana stay at 18. The interesting part is what paid
+for it, because the booklet panel is 74.25 x 105 mm and the plan page
+holds eight rows at a fixed pitch of 185 units:
+
+- with the hint **under** the glyph the pitch has to carry
+  `1.36 x size + 10`, which is where 130 came from — and 130 is already
+  two units past that limit;
+- with the hint **beside** it the constraint is only `0.88 x size`, so
+  24pt fits with room and **the page still holds eight**. Going larger
+  costs rows, and a plan page showing four items is a different page.
+
+Beside is better for a glyph anyway: kana and kanji are both square and
+leave the width of the panel empty, which is where the reading goes on
+every flashcard ever printed. A **Latin** term keeps its hint
+underneath, because that is a word rather than a glyph and the two would
+collide — which is what the page's original comment argued, correctly,
+about the case it was looking at.
+
+**Kana had to move too, and that is not about kana.** A kana row with its
+hint 62 units under the baseline, followed by a kanji row at 24pt, puts
+the kanji's top *above* that hint: the first render printed `neko` inside
+日. A page mixes the two freely, so both go beside.
+
+The day's sheet gets the same treatment and it costs nothing there at
+all — the hint is already in a column of its own, so the only constraint
+is the 72-unit row pitch and `0.88 x 70` is 62. Kanji go from 13.6pt to
+20pt; kana stay where they were, because they were never the problem.
+
 
 ## Seeing the graph
 
@@ -1868,6 +1905,7 @@ asserts the doubled form would **not** have survived.
 | `later` | *at a question:* put it off until later this session |
 | `:oops` | that answer was an accident — take it back and ask again later |
 | `:aids` | which helps are on; `:aids later off` takes one away |
+| `:card <item>` | draw it big — in the terminal if it can, else a viewer |
 | `:sheet` | today's work, as a page to print |
 | `:chart <script>` | hiragana, katakana or youon, on one page |
 | `:zine` | the study plan, as a booklet to fold |
@@ -2040,6 +2078,92 @@ What SVG genuinely cannot do is the other two styles — stroke order wants
 line drawing frame by frame. Those answer with `-32005`, a code of their
 own, so a client can tell "that does not exist yet" from "you asked
 wrongly".
+
+### The size of a kanji is not the size of a letter
+
+A terminal cell gives a glyph about twenty pixels of height, and it gives
+the same twenty to あ and to 聞. あ is a handful of strokes in the em box;
+聞 is fourteen, and at that size the gaps inside 門 fall below one pixel
+and are not drawn small but **dropped**. The box is capped by the line
+height, not the width, so the only lever a terminal offers is the global
+font size — which scales the romaji with it.
+
+That makes a wrong answer on a complicated kanji ambiguous: the student
+may not have known it, or the renderer may not have drawn it. It is the
+same class of fault as counting the mora scorer's abstentions against the
+student, and the ladder's response-time floors make it worse, because
+squinting costs seconds.
+
+So **the glyph is drawn as a picture the first time a complicated
+character is met**, and the rule comes out of the graph rather than out of
+a list:
+
+```
+国    ->            # k_56fd, 8 strokes: drawn, then asked
+日    ->            # k_65e5, 4 strokes: the terminal is fine
+```
+
+- **`rank(k_8a9e, strokes, 14)` was already there.** kanjidic2 carries the
+  stroke count and the importer keeps it, so "is this too detailed for a
+  terminal cell?" is answered from a fact imported in Stage 0. Nothing
+  new is curated.
+- **A word has no count of its own, so it takes the worst character
+  written inside it.** 電話 is two thirteen-stroke kanji, and the hardest
+  glyph on the card is what decides whether the card is legible.
+  `lp_contains` is the same test `lp_infer` uses, so an antonym edge
+  cannot drag a simple word's figure up.
+- **Eight strokes is the line**, which takes in 29 of the 103 N5 kanji and
+  leaves 日, 山 and 口 in the terminal where they are perfectly legible
+  and where a picture would be an interruption.
+- **The first meeting only.** Reading 聞 at terminal size is itself a
+  skill, and a tutor that draws it big every time is one the student never
+  has to learn it from. `lp_asked` counts the journal, so this is the
+  first time *ever*, not the first time today.
+- **It is a fourth aid**, beside `slip`, `oops` and `later`, and goes off
+  the same way: `:aids glyph off`. An aid that cannot be refused is
+  indistinguishable from a lower standard.
+- **The picture goes up before the clock starts.** Rasterising and
+  pushing 20KB of base64 takes a fifth of a second, and every criterion in
+  both ladders carries a response-time floor.
+
+**A different card, because the word card would give the answer away.**
+The word card carries the reading in furigana position and the gloss
+below — the two things the student is being asked for. The `glyph` style
+is the term alone on a square, with the provenance line, which names the
+source and not the answer.
+
+```
+{"method":"langpop/card.render","params":{"item":"k_56fd","style":"glyph"}}
+  -> {"item":"k_56fd","style":"glyph","path":"…/cards/k_56fd-glyph.svg",
+      "width":420,"height":420,"format":"svg"}
+```
+
+**In the terminal, not in a window.** Opening a viewer mid-question takes
+the focus off the thing the student is being asked to read.
+`tools/term-image.py` speaks the two protocols that matter — the kitty
+graphics protocol (kitty, ghostty, WezTerm, Konsole) and iTerm2's inline
+images — rasterises the SVG with whichever of `rsvg-convert`,
+ImageMagick or `qlmanage` is installed, and says what happened in its
+**exit status**, because the caller needs the difference:
+
+| | |
+| --- | --- |
+| 0 | drawn |
+| 2 | this terminal has no image protocol |
+| 3 | no SVG converter installed |
+| 4 | the file is unreadable |
+
+`2` is a terminal to name in a one-line hint; `3` is a missing
+`rsvg-convert`. A plain false would have made those the same thing and
+the hint would have been wrong half the time. Either way it is said
+**once per session** — the same hint in front of thirty kanji is thirty
+interruptions to say one thing — and the character is still printed, just
+small.
+
+One Poplog detail worth writing down: **`pop_status` is the wait status,
+not the exit code.** A child that exits 2 leaves 512 there. Everything
+else in the tree compares it with zero, where the two readings agree, and
+this is the first caller that has to tell 2 from 3.
 
 ### What goes on the card
 

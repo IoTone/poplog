@@ -700,8 +700,9 @@ enddefine;
 
 
 ;;; ---------------------------------------------------------- the aids
-;;; Three things in here help a student who has not made a mistake of
-;;; knowledge: the slip detector, ":oops", and ":later".  Each can be
+;;; Four things in here help a student who has not made a mistake of
+;;; knowledge: the slip detector, ":oops", ":later", and the big glyph.
+;;; Each can be
 ;;; turned off, and that switch is not a convenience for the tutor -- it
 ;;; is for the student.  An aid that cannot be refused is
 ;;; indistinguishable from a lower standard, and a learner who suspects
@@ -716,12 +717,20 @@ enddefine;
 ;;; time; so what was available at any given answer is reconstructible
 ;;; exactly -- at the cost of one record per change, rather than a wider
 ;;; field on every answer.
-lconstant AIDS = [slip oops later];
+;;; `glyph` is the odd one of the four and belongs here anyway.  The
+;;; other three forgive something; this one makes the question legible --
+;;; a fourteen-stroke kanji in a terminal cell has strokes thinner than
+;;; a pixel, so a wrong answer may be the renderer's and not the
+;;; student's.  It is an aid by the test this list applies: a student who
+;;; suspects they are leaning on it must be able to take it away, and
+;;; reading 聞 small is itself a skill they may want to practise.
+lconstant AIDS = [slip oops later glyph];
 
 ;;; `true` has to be lifted in with ^, because `true` inside a list
 ;;; literal is the WORD true, which is not the boolean and is not false
 ;;; either -- so an unlifted default would read as on and never go off.
-vars lp_aids = newproperty([[slip ^true] [oops ^true] [later ^true]],
+vars lp_aids = newproperty([[slip ^true] [oops ^true] [later ^true]
+                            [glyph ^true]],
                            8, false, "perm"),
      lp_aid_log = [];                   ;;; [{aid on? when_ms} ...]
 
@@ -756,6 +765,7 @@ define lp_aid_why(a) -> s;
     lvars a, s;
     if     a == "slip"  then 'one more go when a typed answer looks mistyped'
     elseif a == "oops"  then ':oops takes back the answer you just gave'
+    elseif a == "glyph" then 'a complicated character is drawn big first'
     else                     'puts a question off until later today -- type it'
                              <> ' at a question'
     endif -> s;
@@ -2088,6 +2098,11 @@ enddefine;
 ;;; now carries two independent beliefs -- read it, and hear it -- and a
 ;;; listening answer credited to reading would be the comfortable
 ;;; averaging that channels were introduced to stop.
+;;; Forward: the big glyph lives with the other card code, several
+;;; hundred lines down, because it is card.p's business and not the
+;;; drill's.  The drill only has to know when to ask for it.
+vars procedure lp_show_glyph;
+
 define lp_drill(item, ch) -> done;
     lvars item, ch, shape, prompt, answer, options, o, i = 0, t0, line, typed,
           other, kslip = false, retried = false, heard = false, shown;
@@ -2108,6 +2123,16 @@ define lp_drill(item, ch) -> done;
     if (shape == "pick" or shape == "listen_pick")
     and strnumber(hd(answer)) and strnumber(hd(answer)) <= length(options)
     then options(strnumber(hd(answer))) else hd(answer) endif -> shown;
+
+    ;;; THE PICTURE GOES UP BEFORE THE CLOCK STARTS.  Rasterising an SVG
+    ;;; and pushing 20KB of base64 at a terminal takes a fifth of a
+    ;;; second on a good day, and every criterion in both ladders carries
+    ;;; a response-time floor -- so timing from before the glyph is on
+    ;;; screen would charge the student for the renderer, which is the
+    ;;; same validity fault as counting a scorer's abstention against
+    ;;; them.  Only the typed shapes: a listening question must not show
+    ;;; the glyph at all, which the shape test gets for free.
+    if shape == "type" then lp_show_glyph(item) endif;
     lp_now_ms() -> t0;
     repeat
         0 -> i;
@@ -3450,6 +3475,79 @@ enddefine;
 ;;; nothing for it, and the TUI works unchanged if the file is absent.
 vars lp_card_loaded = false;
 
+;;; ----------------------------------------------- how hard to look at
+;;; THE STROKE COUNT IS ALREADY IN THE GRAPH.  kanjidic2 carries it and
+;;; the importer keeps it -- `rank(k_8a9e, strokes, 14)` -- so the
+;;; question "is this glyph too detailed for a terminal cell?" is
+;;; answered from a fact that has been sitting in the tree since the
+;;; first import, and no new curation is needed to ask it.
+;;;
+;;; The MAXIMUM over the characters written inside the item, not the
+;;; item's own rank, because a word has no rank of its own: 電話 is two
+;;; thirteen-stroke kanji and the hardest character on the card is what
+;;; decides whether the card is legible.  lp_contains is the same test
+;;; lp_infer uses to tell containment from teaching order, so an antonym
+;;; edge cannot drag a simple word's figure up.
+define lp_strokes(item) -> n;
+    lvars item, pre, m, n = lp_rank_of(item, "strokes") or 0;
+    for pre in lp_edges_of(item) do
+        nextunless(lp_contains(item, pre));
+        lp_rank_of(pre, "strokes") -> m;
+        if m and m > n then m -> n endif;
+    endfor;
+enddefine;
+
+;;; Where the line goes, and it is a judgement rather than a measurement.
+;;; At a 20-pixel cell a kanji gets 20 pixels of height for all of its
+;;; strokes; at eight strokes the gaps are down to about two pixels and
+;;; the rasteriser starts dropping them.  Eight takes in 29 of the 103
+;;; N5 kanji and leaves 日, 山, 口 and the rest of the simple ones in the
+;;; terminal, where they are perfectly legible and where showing a
+;;; picture would be an interruption rather than a help.
+lconstant GLYPH_STROKES = 8,
+          GLYPH_COLS    = 18,          ;;; terminal cells wide
+          CARD_COLS     = 34;          ;;; :card, which is 8:5 and wordy
+
+;;; ONCE PER SESSION, both of them.  A terminal with no image protocol
+;;; would otherwise print the same hint in front of every complicated
+;;; kanji, which is thirty interruptions to say one thing.
+vars lp_glyph_told = false;
+
+define lp_glyph_wanted(item) -> yes;
+    lvars item, yes = false;
+    returnunless(lp_aid("glyph"));
+    returnunless(lp_form_of(item, "kanji"));
+    returnunless(lp_strokes(item) >= GLYPH_STROKES);
+    ;;; FIRST MEETING ONLY.  Reading 聞 at terminal size is itself a
+    ;;; skill, and a tutor that draws it big every time is a tutor the
+    ;;; student never has to learn it from.  lp_asked counts the journal,
+    ;;; so this is the first time ever and not the first time today.
+    lp_asked(item) == 0 -> yes;
+enddefine;
+
+define lp_show_glyph(item);
+    lvars item, path, w, h, why;
+    returnunless(lp_glyph_wanted(item));
+    unless lp_card_loaded then
+        pop11_compile(langpop_dir <> 'card.p');
+        true -> lp_card_loaded;
+    endunless;
+    lp_card_render(item, "glyph") -> (path, w, h, why);
+    returnif(why);
+    lp_card_inline(path, GLYPH_COLS) -> why;
+    returnunless(why);
+    returnif(lp_glyph_told);
+    true -> lp_glyph_told;
+    if why = 'no_converter' then
+        printf('\n  (I can draw this one big, but nothing here turns an SVG\n');
+        printf('  into a picture -- rsvg-convert, or ImageMagick.)\n');
+    else
+        printf('\n  (This terminal cannot show a picture, so a complicated\n');
+        printf('  character stays small.  kitty and ghostty can.  I will\n');
+        printf('  not mention it again this session.)\n');
+    endif;
+enddefine;
+
 define lp_show_card(i);
     lvars i, path, w, h, why;
     ;;; pop11_compile and not `load`: load is a syntax word that takes the
@@ -3468,9 +3566,14 @@ define lp_show_card(i);
         printf('  I cannot draw that: %p\n', [^why]);
     else
         printf('  %p  (%p x %p)\n', [% path, w, h %]);
-        unless lp_card_open(path) then
-            printf('  No viewer here; the file is on disk.\n');
-        endunless;
+        ;;; In the terminal if the terminal can, and only then a window.
+        ;;; Opening a viewer is a focus change, and a student who asked
+        ;;; to see a character did not ask to leave the session.
+        if lp_card_inline(path, CARD_COLS) then
+            unless lp_card_open(path) then
+                printf('  No viewer here; the file is on disk.\n');
+            endunless;
+        endif;
     endif;
 enddefine;
 
@@ -3721,8 +3824,9 @@ define lp_help();
     printf('  :status          the exit criteria of this level, measured\n');
     printf('  :place           find out where you are, instead of guessing\n');
     printf('  :oops            that answer was an accident -- ask me again later\n');
-    printf('  :aids            which helps are on (slip, oops, later)\n');
-    printf('  :card <item>     draw it, and open it in the system viewer\n');
+    printf('  :aids            which helps are on (slip, oops, later,\n');
+    printf('                   glyph)\n');
+    printf('  :card <item>     draw it, in the terminal or in a viewer\n');
     printf('  :say <item>      hear it said, if a voice is installed\n');
     printf('  :rate slow       listen slower from now on (slow|normal|fast)\n');
     printf('  :mic             check the microphone level, and the room\n');

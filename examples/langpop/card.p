@@ -51,6 +51,24 @@ lconstant
     FOOT_SIZE    = 17,
 ;
 
+;;; ---------------------------------------------------- the glyph canvas
+;;; A SECOND, SQUARE CANVAS, for the view that is shown WHILE a question
+;;; is being asked.  The word card cannot do that job: it carries the
+;;; reading in furigana position and the gloss below, which are the two
+;;; things the student is being asked for.  Showing it at the prompt
+;;; would not be a bigger glyph, it would be the answer.
+;;;
+;;; So the glyph style is the term and nothing else, on a square because
+;;; a kanji is square and the empty width of a 8:5 card is where the
+;;; glyph could have been.  300 units of 420 is the ideograph at 71% of
+;;; the canvas, which is roughly where a kanji sits on a flashcard.
+lconstant
+    GLYPH_W      = 420,
+    GLYPH_H      = 420,
+    GLYPH_PAD    = 30,
+    GLYPH_SIZE   = 300,
+;
+
 ;;; The family NAME, not a file: the viewer resolves it, and naming the
 ;;; static Regular face keeps it off the variable font whose default
 ;;; instance renders a stop too light (docs/bugs/imgui-atlas-ascii-only.md
@@ -62,7 +80,19 @@ lconstant CARD_FONT =
     '&apos;Noto Sans JP&apos;, &apos;Hiragino Sans&apos;, '
     <> '&apos;Yu Gothic&apos;, Meiryo, sans-serif';
 
-lconstant CARD_STYLES = [word stroke sentence];
+;;; `glyph` is built and is the second one that is; stroke order and
+;;; sentence-in-context still want the gfx path.
+lconstant CARD_STYLES = [word glyph stroke sentence];
+
+;;; Per style, because there are two canvases now and both callers -- the
+;;; protocol, which puts them in the reply, and term-image.py, which
+;;; needs the aspect to claim the right number of terminal rows -- have
+;;; to be told which one they got.
+define lp_card_dims(style) -> (w, h);
+    lvars style, w, h;
+    if style == "glyph" then (GLYPH_W, GLYPH_H) else (CARD_W, CARD_H) endif
+        -> (w, h);
+enddefine;
 
 ;;; -------------------------------------------------------------- escaping
 ;;; Five characters, and all five matter: a gloss is human-written text
@@ -198,6 +228,52 @@ define lp_card_gloss(i) -> g;
     lp_gloss_of(i, theirs) or lp_gloss_of(i, mine) -> g;
 enddefine;
 
+;;; the line the provenance asks for.  own(...) is ours to publish;
+;;; anything else names where the fact came from, which is the whole
+;;; reason every item carries a source in the first place.
+;;;
+;;; On the glyph card too, and deliberately: it names the kind, the
+;;; language, the rung and the source, and not one of those is the
+;;; answer to the question being asked over the top of it.
+define lp_card_foot(i) -> foot;
+    lvars i, foot;
+    (lp_jkey_or(lp_kind(i)) <> ' · ' <> lp_jkey_or(lp_ilang(i))
+     <> ' ' <> lp_jkey_or(lp_ilevel(i))
+     <> '   ' <> lp_term_str(lp_isrc(i))) -> foot;
+enddefine;
+
+;;; The term, as big as the square will take, and nothing that answers
+;;; anything.  lp_card_fit is the same fitter the word card uses, so a
+;;; two-kanji word shrinks to fit rather than running off the edge.
+define lp_glyph_svg(i) -> svg;
+    lvars i, svg, term, reading, mid = GLYPH_W / 2,
+          avail = GLYPH_W - 2 * GLYPH_PAD, tsize;
+    lp_card_term(i) -> (term, reading);
+    lp_card_fit(term, GLYPH_SIZE, avail) -> tsize;
+
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    <> sprintf('<svg xmlns="http://www.w3.org/2000/svg" width="%p" '
+               <> 'height="%p" viewBox="0 0 %p %p" role="img" '
+               <> 'aria-label="%p">\n',
+               [% GLYPH_W, GLYPH_H, GLYPH_W, GLYPH_H,
+                  lp_card_esc(i sys_>< '') %])
+    <> sprintf('  <title>%p</title>\n', [% lp_card_esc(i sys_>< '') %])
+    <> '  <rect width="100%" height="100%" fill="#faf9f6"/>\n'
+    <> sprintf('  <g font-family="%p" text-anchor="middle">\n',
+               [% CARD_FONT %])
+    ;;; Centred on the square rather than sitting on a baseline a third
+    ;;; of the way up: dominant-baseline is honoured by every renderer
+    ;;; that can draw this font at all.
+    <> sprintf('    <text x="%p" y="%p" font-size="%p" fill="#1b1a17" '
+               <> 'font-weight="500" dominant-baseline="central">%p</text>\n',
+               [% mid, (GLYPH_H - 34) / 2, tsize, lp_card_esc(term) %])
+    <> sprintf('    <text x="%p" y="%p" font-size="%p" fill="#8a8275">'
+               <> '%p</text>\n',
+               [% mid, GLYPH_H - 18, FOOT_SIZE,
+                  lp_card_esc(lp_card_foot(i)) %])
+    <> '  </g>\n</svg>\n' -> svg;
+enddefine;
+
 define lp_card_svg(i, style) -> svg;
     lvars i, style, svg, term, reading, gloss, foot, mid = CARD_W / 2,
           avail = CARD_W - 2 * CARD_PAD, tsize, rsize;
@@ -212,12 +288,7 @@ define lp_card_svg(i, style) -> svg;
     lp_card_fit(term, TERM_SIZE, avail) -> tsize;
     lp_card_fit(if reading then reading else '' endif, READ_SIZE, avail) -> rsize;
 
-    ;;; the line the provenance asks for.  own(...) is ours to publish;
-    ;;; anything else names where the fact came from, which is the whole
-    ;;; reason every item carries a source in the first place.
-    (lp_jkey_or(lp_kind(i)) <> ' · ' <> lp_jkey_or(lp_ilang(i))
-     <> ' ' <> lp_jkey_or(lp_ilevel(i))
-     <> '   ' <> lp_term_str(lp_isrc(i))) -> foot;
+    lp_card_foot(i) -> foot;
 
     '<?xml version="1.0" encoding="UTF-8"?>\n'
     <> sprintf('<svg xmlns="http://www.w3.org/2000/svg" width="%p" height="%p" '
@@ -283,11 +354,12 @@ define lp_card_render(i, style) -> (path, w, h, why);
     unless member(style, CARD_STYLES) then
         'no_such_style' -> why; return;
     endunless;
-    unless style == "word" then
+    unless style == "word" or style == "glyph" then
         ;;; stroke order and sentence-in-context both want line drawing
         ;;; frame by frame, which is the gfx path and not this one.
         'style_not_built' -> why; return;
     endunless;
+    lp_card_dims(style) -> (w, h);
     lp_card_term(i) -> (term, reading);
     unless term then 'no_written_form' -> why; return endunless;
 
@@ -295,11 +367,51 @@ define lp_card_render(i, style) -> (path, w, h, why);
         sysobey('mkdir -p ' <> lp_card_dir());
     endunless;
     lp_card_dir() <> (i sys_>< '') <> '-' <> (style sys_>< '') <> '.svg' -> path;
-    lp_write_file(path, lp_card_svg(i, style));
+    lp_write_file(path,
+                  if style == "glyph" then lp_glyph_svg(i)
+                  else lp_card_svg(i, style) endif);
 enddefine;
 
 ;;; The system viewer, which is the whole of the graphics requirement:
 ;;; "a system call to run an external program is probably good enough".
+;;; --------------------------------------------------- in the terminal
+;;; The viewer opens a window, which is right for :card and wrong in the
+;;; middle of a question: it takes the focus off the thing the student is
+;;; being asked to read.  A terminal that can draw a picture should draw
+;;; it where the question is.
+;;;
+;;; Two protocols, one converter and three escape dialects' worth of
+;;; base64 live in tools/term-image.py, for the same reason the mora
+;;; scorer and the level meter do: Pop-11 names the command and reads
+;;; the status.  THE STATUS IS THE INTERFACE --
+;;;
+;;;     0  drawn        2  no image protocol here
+;;;     3  no SVG converter installed    4  the file is unreadable
+;;;
+;;; -- and the caller needs the difference, because `2` is a terminal to
+;;; be named in a one-line hint and `3` is a machine missing
+;;; rsvg-convert.  Returning a plain false would have made those the
+;;; same thing and the hint would have been wrong half the time.
+define lp_card_inline(path, cols) -> why;
+    lvars path, cols, why = false, st;
+    ;;; Pop-11's own buffer first: the escape sequence is written by a
+    ;;; child process straight to the shared descriptor, so anything
+    ;;; still sitting in popdevout would land AFTER the picture.
+    sysflush(popdevout);
+    sysobey('python3 -I ' <> langpop_dir <> 'tools/term-image.py \''
+            <> path <> '\' --cols ' <> (cols sys_>< '') <> ' 2>/dev/null');
+    ;;; POP_STATUS IS THE WAIT STATUS, not the exit code: a child that
+    ;;; exits 2 leaves 512 here.  Everything else in the tree compares it
+    ;;; with 0, where the two readings agree, and this is the first
+    ;;; caller that needs to tell 2 from 3 -- so it shifts, and says why.
+    (pop_status div 256) -> st;
+    if      st == 0 then false
+    elseif  st == 2 then 'no_protocol'
+    elseif  st == 3 then 'no_converter'
+    else                 'no_picture'
+    endif -> why;
+enddefine;
+
 define lp_card_open(path) -> ok;
     lvars path, ok = false, opener;
     for opener in ['/usr/bin/open' '/usr/bin/xdg-open' '/usr/bin/see'] do
