@@ -22,12 +22,13 @@
 */
 
 vars langpop_lib = true;                ;;; no TUI session from langpop.p
-load 'examples/langpop/langpop.p';
-load 'examples/langpop/card.p';         ;;; langpop/card.render
-load 'examples/langpop/sheet.p';        ;;; langpop/sheet.render
-load 'examples/langpop/audio.p';        ;;; langpop/audio.say
+lconstant HERE = sys_fname_path(popfilename);
+pop11_compile(HERE <> 'langpop.p');
+pop11_compile(HERE <> 'card.p');        ;;; langpop/card.render
+pop11_compile(HERE <> 'sheet.p');       ;;; langpop/sheet.render
+pop11_compile(HERE <> 'audio.p');       ;;; langpop/audio.say
 
-uses jsonrpc;
+lp_need_lib("jsonrpc", "jsonrpc_listen");
 
 ;;; ------------------------------------------------------------- sessions
 ;;; A session is a row, not a process: id -> {student, opened_ms, seen}.

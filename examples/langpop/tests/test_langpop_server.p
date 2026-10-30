@@ -11,7 +11,8 @@
 uses poptest;
 
 vars langpop_server_lib = true;         ;;; no serve loop, just the handler
-load 'examples/langpop/server.p';
+lconstant HERE = sys_fname_path(popfilename);
+pop11_compile(HERE <> '../server.p');
 
 find_dir() -> langpop_dir;
 lp_load();

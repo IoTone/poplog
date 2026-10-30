@@ -10,7 +10,8 @@ uses poptest;
 uses utf8;
 
 vars langpop_lib = true;                ;;; no session, just the procedures
-load 'examples/langpop/langpop.p';
+lconstant HERE = sys_fname_path(popfilename);
+pop11_compile(HERE <> '../langpop.p');
 
 find_dir() -> langpop_dir;
 lp_load();
@@ -1423,6 +1424,7 @@ check('and the level', lp_level, "preschool");
 ;;; ---------------------------------------------------------- integrity
 ;;; The real graph first.
 check('the shipped graph has no violations', lp_check(), []);
+
 
 ;;; Then a graph that is wrong in seven ways, so the checks above are
 ;;; known not to be vacuous.  This replaces item/5, form/3 and requires/2.

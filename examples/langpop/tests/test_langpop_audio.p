@@ -18,8 +18,9 @@ uses poptest;
 uses utf8;
 
 vars langpop_lib = true, langpop_audio_lib = true;
-load 'examples/langpop/langpop.p';
-load 'examples/langpop/audio.p';
+lconstant HERE = sys_fname_path(popfilename);
+pop11_compile(HERE <> '../langpop.p');
+pop11_compile(HERE <> '../audio.p');
 
 find_dir() -> langpop_dir;
 lp_load();

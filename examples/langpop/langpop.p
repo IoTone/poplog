@@ -23,18 +23,48 @@
 
 uses prolog;
 uses define_prolog;
-uses json;
 uses utf8;
 
 ;;; ------------------------------------------------------------- locating
-vars langpop_dir = 'examples/langpop/';
+;;; The directory this file is in, read from the compiler WHILE it is
+;;; reading this file.  popfilename is only right now, at compile time;
+;;; from inside a procedure it would name whatever file was compiling
+;;; when the procedure ran.  A relative invocation gives a relative
+;;; path, which stays right as long as nobody changes directory, and no
+;;; invocation in the tree does.
+vars langpop_dir;
+sys_fname_path(popfilename) -> langpop_dir;
+
+;;; Fail with a sentence, not a mishap.  Two of the libraries this
+;;; program leans on are younger than most installed Poplogs: lib/json
+;;; grew json_object on 2026-10-01, and lib/jsonrpc (which server.p
+;;; checks) landed on 2026-10-20.  A Poplog without them is not broken,
+;;; it is old, and LIBRARY NOT FOUND names the symptom when what the
+;;; reader needs is the release to fetch.
+define lp_need_lib(lib, marker);
+    lvars lib, marker;
+    returnif(isdefined(marker));
+    ;;; popuseslist, explicitly: the one-argument form searches the
+    ;;; AUTOLOAD list, which does not include pop/lib/lib, so it answers
+    ;;; false for a library that `uses` would have found.
+    returnif(syslibcompile(lib, popuseslist) and isdefined(marker));
+    printf('langpop: this Poplog has no usable lib/%p (nothing defines %p).\n',
+           [% lib, marker %]);
+    printf('langpop: it needs a Poplog from 2026-10-20 or later -- see README.\n');
+    sysexit();
+enddefine;
+lp_need_lib("json", "json_object");
 
 define find_dir() -> d;
     lvars c;
-    for c in ['examples/langpop/' './' '../' 'langpop/'] do
+    ;;; langpop_dir first: it came from the path this file was compiled
+    ;;; by, which is right wherever the process was started.  The rest
+    ;;; are the old guesses, kept for a caller who assigned langpop_dir
+    ;;; something else and wants the walk.
+    for c in [% langpop_dir, 'examples/langpop/', './', '../', 'langpop/' %] do
         if sys_file_exists(c <> 'graph/schema.pl') then c -> d; return endif;
     endfor;
-    'examples/langpop/' -> d;
+    langpop_dir -> d;
 enddefine;
 
 ;;; ------------------------------------------------- the overlay, in Pop-11

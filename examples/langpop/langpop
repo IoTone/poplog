@@ -1,0 +1,48 @@
+#!/bin/sh
+# examples/langpop/langpop -- run the tutor from anywhere, with any Poplog.
+#
+#     ./langpop                    the tutor (Japanese; --lang en for English)
+#     ./langpop server --port N    the JSON-RPC server
+#     ./langpop client ...         the line client
+#     ./langpop dump ...           the exporter
+#     ./langpop import ...         the importer
+#     ./langpop test               every suite, and a nonzero exit if any fails
+#     ./langpop --check | --audit | --gap ...               reports
+#
+# Finds a Poplog in this order: $LANGPOP_POPLOG (the poplog command to
+# run), the enclosing Poplog source tree's own ./poplog (which is where
+# this directory lives today), then `poplog` on PATH.  Every .p file here
+# locates its neighbours from its own path, so the working directory
+# does not matter.
+
+here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+if [ -n "$LANGPOP_POPLOG" ]; then
+    run="$LANGPOP_POPLOG"
+elif [ -x "$here/../../poplog" ]; then
+    run="$here/../../poplog"
+elif command -v poplog >/dev/null 2>&1; then
+    run=poplog
+else
+    echo 'langpop: no Poplog found.' >&2
+    echo 'langpop: it needs one from 2026-10-20 or later (lib/json, lib/jsonrpc);' >&2
+    echo 'langpop: set LANGPOP_POPLOG to the poplog command, or put poplog on PATH.' >&2
+    exit 3
+fi
+
+case "$1" in
+    server|client|dump|import)
+        f="$1.p"; shift ;;
+    test|tests)
+        failed=0
+        for t in "$here"/tests/test_*.p; do
+            last=$("$run" basepop11 "$t" </dev/null 2>&1 | tail -1)
+            printf '%s: %s\n' "$(basename "$t" .p)" "$last"
+            case "$last" in *'ALL PASS'*) ;; *) failed=1 ;; esac
+        done
+        exit $failed ;;
+    *)
+        f='langpop.p' ;;
+esac
+
+exec "$run" basepop11 "$here/$f" "$@"

@@ -29,7 +29,8 @@
 */
 
 vars langpop_lib = true;                ;;; no session: just the procedures
-load 'examples/langpop/langpop.p';
+lconstant HERE = sys_fname_path(popfilename);
+pop11_compile(HERE <> 'langpop.p');
 uses datetime;                          ;;; dt_iso, for the generated stamp
 
 4000 -> poplinewidth; 4096 -> poplinemax;

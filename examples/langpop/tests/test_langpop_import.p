@@ -25,7 +25,8 @@ uses poptest;
 uses utf8;
 
 vars langpop_lib = true, langpop_import_lib = true;
-load 'examples/langpop/import.p';
+lconstant HERE = sys_fname_path(popfilename);
+pop11_compile(HERE <> '../import.p');
 
 find_dir() -> langpop_dir;
 

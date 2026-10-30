@@ -16,7 +16,8 @@ uses utf8;
 uses json;
 
 vars langpop_lib = true, langpop_dump_lib = true;
-load 'examples/langpop/dump.p';
+lconstant HERE = sys_fname_path(popfilename);
+pop11_compile(HERE <> '../dump.p');
 
 ;;; This suite holds FOUR whole exports in memory at once, which the
 ;;; exporter itself never does -- dump_dev writes a character at a time

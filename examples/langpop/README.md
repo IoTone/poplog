@@ -36,7 +36,29 @@ privileges a phone app would not have.
 
 tools/test-libs.sh examples/langpop/tests/test_langpop.p \
                    examples/langpop/tests/test_langpop_server.p   # 55 + 63 checks
+
+# or all of the above through the wrapper, from ANY directory:
+examples/langpop/langpop                       # the tutor
+examples/langpop/langpop --audit               # any report
+examples/langpop/langpop server --port 7801    # the server
+examples/langpop/langpop test                  # every suite, nonzero exit on failure
 ```
+
+The working directory does not matter: every `.p` file here locates its
+neighbours from its own path, read off `popfilename` while the compiler
+is still inside the file (the only moment it is right). The wrapper
+finds a Poplog by `$LANGPOP_POPLOG`, then the enclosing source tree's
+`./poplog`, then `poplog` on `PATH`.
+
+What it finds has to be young enough. langpop leans on two libraries
+newer than most installed Poplogs — `lib/json` (with `json_object`,
+2026-10-01) and `lib/jsonrpc` (2026-10-20) — so it probes for them at
+startup (`lp_need_lib`) and stops with the release to fetch, rather than
+dying mid-compile with `LIBRARY NOT FOUND`, which names the symptom and
+not the cure. One trap inside the probe: `syslibcompile` must be handed
+`popuseslist` explicitly, because its one-argument form searches the
+autoload list, which does not include `pop/lib/lib` — it would answer
+false for a library that `uses` finds without complaint.
 
 A session, in full:
 
