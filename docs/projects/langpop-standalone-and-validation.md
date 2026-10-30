@@ -145,38 +145,42 @@ commit in the sequence that is hard to undo, so it goes last.
 ## The ladder, and the ceiling under it
 
 `--check` reports 577 items, 12 rungs, 39 exit criteria, no violations.
-A sound graph is not a climbable one. Walking every exit criterion with
-an empty student and asking only *how many items exist to measure it*:
+A sound graph is not a climbable one -- and the report that says how far
+one can climb **already exists**. The first draft of this document
+proposed building it, which was wrong twice: `--audit` prints exactly
+this table, per criterion with `short by N` and rung by rung with *can
+it be left*, and it counts the pools **cumulatively**, which is the
+correct reading because the criteria are -- `kanji(2230)` at N1 means
+every kanji through N1. The draft's hand-walked numbers counted each
+level alone and understated n5 by fifty words. (A duplicate `--ceiling`
+was built, found to restate `--audit` less correctly, and removed the
+same hour; the project's own rule -- one measurement, one rendering --
+decides this.)
 
-| rung | criterion | needs | in the graph |
+`--audit`, 2026-10-29:
+
+| rung | criterion | needs | askable (cumulative) |
 |---|---|---|---|
-| ja preschool | recognise(hiragana) | 69 kana | **69** |
-| ja preschool | recognise(katakana) | 69 kana | **69** |
-| ja preschool | 3 × skill probe | generated | **generated** |
-| ja preschool | vocabulary(50, read) | 50 | **50** |
-| ja preschool | vocabulary(50, hear) | 50 | needs audio |
-| ja n5 | kanji(103, read) | 103 | **103** |
-| ja n5 | vocabulary(800, read) | 800 | **148** |
-| ja n4 | vocabulary(1500) / kanji(284) | 1500 / 284 | **0 / 0** |
-| ja n3 | 3750 / 650 | | **0 / 0** |
-| ja n2 | 6000 / 1023 | | **0 / 0** |
-| ja n1 | 10000 / 2230 | | **0 / 0** |
-| en preschool | 3 named criteria | generated | **generated** |
-| en a1 | vocabulary(500, read) | 500 | **100** |
-| en a2 … c1 | 1000 … 8000 | | **0** |
-| en b1/b2/c1 | coverage(reading/listening) | a corpus | **100-word freq list** |
+| ja preschool | all 7 | | **ok -- the rung can be left** |
+| ja n5 | kanji(103, read) | 103 | **103, ok** |
+| ja n5 | vocabulary(800, read) | 800 | **198**, short by 602 |
+| ja n5 | vocabulary(800, hear) | 800 | **52**, short by 748 |
+| ja n4 … n1 | kanji / vocabulary | 284…2230 / 1500…10000 | 103 / 198, short |
+| en preschool | sound_contrasts | 12 | 0 askable -- needs_audio |
+| en a1 | vocabulary(500, read) | 500 | **112**, short by 388 |
+| en a2 … c1 | 1000 … 8000 | | 112, short |
+| en b1/b2/c1 | coverage(reading/listening) | 95--98% | a 100-word freq list, short/needs_audio |
 
-**Two rungs are climbable today: `ja preschool`, in full, and the kanji
-half of `ja n5`.** Everything above is an empty room with a door. The
-`--check` violation `level_empty` catches a rung with no items at all;
-it does not catch a rung with 148 items and a criterion asking for 800,
-because that is not a malformed graph -- it is an unfinished one.
+Bottom line, in `--audit`'s own words: **"1 of 12 rungs can be left as
+the graph stands"** -- `ja preschool`, with `ja n5` blocked only by
+words (the kanji half is full). `en preschool` is blocked by
+`needs_audio` on `sound_contrasts`, which is an instrument gap rather
+than a content gap, and the audit's six verdicts keep those apart --
+that distinction is the backbone of everything below.
 
-**That is the first finding of the validation work and it arrives before
-any student, simulated or real: validating the climb is mostly a content
-job, and the code part is small.** It also argues for a new report,
-`--ceiling`, printing exactly the table above, so that the gap is a
-number the build prints rather than a thing somebody remembers.
+**So the first finding of the validation work arrives before any
+student, simulated or real: the report already existed, it says the
+climb is blocked by content, and the code part of validation is small.**
 
 ## What a climb costs in answers
 
@@ -207,7 +211,7 @@ decides Part 3 by itself.
 
 The honest target, and the one the content can nearly reach:
 
-1. **Content.** 652 more n5 words. The importer already does this
+1. **Content.** 602 more n5 words (the pool is cumulative: 198 held). The importer already does this
    (`import.p`, `tools/fetch-upstream.sh`, the n5 picks file); the
    blocker is curation, and `docs/projects/langpop-japanese-tranche.md`
    is waiting on marks. The okurigana-stripped kun readings -- about 16
@@ -258,8 +262,9 @@ corpus, with a licence checked the way speechocean762's was.
 
 ## What "validated" should mean -- three layers, separately reported
 
-1. **Reachable** -- the `--ceiling` table: can each rung's criteria be
-   satisfied at all by the content present? Static, cheap, no student.
+1. **Reachable** -- the `--audit` table: can each rung's criteria be
+   satisfied at all by the content present? Static, cheap, no student,
+   and already built.
 2. **Sound** -- the invariants below hold over a long run. This is where
    bugs live.
 3. **Taught** -- the order makes sense to a person. A simulated student
@@ -396,7 +401,7 @@ Honest expectations, ranked by how likely I think each is:
   **disagreements get logged for a person**, which turns the run into a
   curation queue rather than a verdict;
 - **scheduler and starvation bugs** -- these need scale, and have never
-  had it; 148 words is not enough to starve anything;
+  had it; 198 words is not enough to starve anything;
 - **criterion arithmetic at the boundary** -- the 0.80 threshold, the
   `ms` floor, `thin` pools, and what `:status` prints at 799 of 800;
 - **save/restore and journal replay** -- the round-trip invariant over a
@@ -416,15 +421,15 @@ later one.
 | 0 | PR #72 to `dev`, `dev` to `master` | merged |
 | 1 | the `load`-path fix; `./langpop`; the Poplog-version check | suites pass from a root-relative layout |
 | 2 | the carve; verify 44 commits; delete from Poplog with a pointer | new repo's suites pass from a fresh clone |
-| 3 | `--ceiling`, printing the Part 2 table | the gap is a number the build prints |
+| 3 | ~~a ceiling report~~ already built: it is `--audit` | nothing to do |
 | 4 | the oracle student over JSON-RPC, and the invariant assertions | `ja preschool` climbs from empty, reproducibly, from a seed |
 | 5 | the okurigana fix and the n5 word tranche to 800 | `ja n5` climbs; the disagreement log is a curation queue |
 | 6 | the model harness: adversarial suite and sampled chat turns | the suite runs in CI-time and its failures are transcripts |
 | 7 | English: the frequency corpus, the coverage criteria, the TOEIC band table | `en a1` climbs; `coverage` measures something real |
 
-Phases 0--4 are weeks of small work. Phase 5 upward is content, and that
+Phases 0--4 are days of small work (and 3 is none). Phase 5 upward is content, and that
 is where the time actually goes -- which is the same conclusion the
-ceiling table reaches, arrived at from the other end.
+audit table reaches, arrived at from the other end.
 
 ---
 
