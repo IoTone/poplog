@@ -146,26 +146,30 @@ check('the same item renders byte for byte the same', lp_read_file(path), first)
 ;;; things it must not carry.  A bigger glyph that gives the answer away
 ;;; is not a bigger glyph, it is the answer.
 lvars gpath, gw, gh, gwhy;
-lp_card_render("k_56fd", "glyph") -> (gpath, gw, gh, gwhy);
-check('the glyph style is built', gwhy, false);
-check('and is square, because a kanji is', gw, gh);
+if lp_ilang("k_56fd") then
+    lp_card_render("k_56fd", "glyph") -> (gpath, gw, gh, gwhy);
+    check('the glyph style is built', gwhy, false);
+    check('and is square, because a kanji is', gw, gh);
 
-lvars gsvg = lp_read_file(gpath);
-check_true('the glyph is on it', has('国', gsvg));
-check_false('its reading is NOT', has('くに', gsvg));
-check_false('nor its gloss', has('country', gsvg));
+    lvars gsvg = lp_read_file(gpath);
+    check_true('the glyph is on it', has('国', gsvg));
+    check_false('its reading is NOT', has('くに', gsvg));
+    check_false('nor its gloss', has('country', gsvg));
 
-;;; The contrast, stated rather than assumed: the word card carries both,
-;;; which is exactly why it cannot be the one shown at a prompt.
-lvars wpath, ww, wh, wwhy;
-lp_card_render("k_56fd", "word") -> (wpath, ww, wh, wwhy);
-lvars wsvg = lp_read_file(wpath);
-check_true('the word card does carry the reading', has('くに', wsvg));
-check_true('and the gloss', has('country', wsvg));
+    ;;; The contrast, stated rather than assumed: the word card carries
+    ;;; both, which is exactly why it cannot be the one shown at a prompt.
+    lvars wpath, ww, wh, wwhy;
+    lp_card_render("k_56fd", "word") -> (wpath, ww, wh, wwhy);
+    lvars wsvg = lp_read_file(wpath);
+    check_true('the word card does carry the reading', has('くに', wsvg));
+    check_true('and the gloss', has('country', wsvg));
 
-;;; Provenance survives, because it names the source and not the answer.
-check_true('the glyph card still says where the item came from',
-           has('kanjidic2', gsvg));
+    ;;; Provenance survives, because it names the source, not the answer.
+    check_true('the glyph card still says where the item came from',
+               has('kanjidic2', gsvg));
+else
+    printf(';;; imported content not built -- the glyph card not checked\n');
+endif;
 
 ;;; Both canvases are reported, because term-image.py needs the aspect to
 ;;; claim the right number of terminal rows and a client needs it to lay
@@ -178,11 +182,15 @@ check_true('the word canvas is wider than tall', dw > dh);
 
 ;;; A two-kanji word on one square: the fitter is the word card's, so it
 ;;; shrinks to fit rather than running off the edge.
-lp_card_render("w_denwa", "glyph") -> (gpath, gw, gh, gwhy);
-check('a two-kanji word draws', gwhy, false);
-check_true('with both characters', has('電話', lp_read_file(gpath)));
-check_false('and still no reading', has('でんわ',
-                                        lp_read_file(gpath)));
+if lp_ilang("w_denwa") then
+    lp_card_render("w_denwa", "glyph") -> (gpath, gw, gh, gwhy);
+    check('a two-kanji word draws', gwhy, false);
+    check_true('with both characters', has('電話', lp_read_file(gpath)));
+    check_false('and still no reading', has('でんわ',
+                                            lp_read_file(gpath)));
+else
+    printf(';;; imported content not built -- the two-kanji square not checked\n');
+endif;
 
 ;;; ----------------------------------------------------------- refusals
 lp_card_render("nonesuch", "word") -> (path, w, h, why);

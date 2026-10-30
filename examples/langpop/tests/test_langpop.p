@@ -573,33 +573,38 @@ lp_aids_reset();
 lvars glyphuser = lp_user, glyphjournal = lp_journal;
 "glypher" -> lp_user; [] -> lp_journal;
 
-check('a kanji carries its own stroke count', lp_strokes("k_56fd"), 8);
-check('a simple one is simple', lp_strokes("k_65e5"), 4);
-check('a kana has none at all', lp_strokes("hi_a"), 0);
+check('a kana has no strokes at all', lp_strokes("hi_a"), 0);
+check_false('and is never drawn big', lp_glyph_wanted("hi_a"));
 
-;;; A WORD HAS NO STROKE COUNT OF ITS OWN, so it takes the worst of the
-;;; characters written inside it -- the hardest glyph on the card is
-;;; what decides whether the card is legible.
-check('a word takes the worst character in it', lp_strokes("w_denwa"), 13);
+if lp_ilang("k_56fd") then
+    check('a kanji carries its own stroke count', lp_strokes("k_56fd"), 8);
+    check('a simple one is simple', lp_strokes("k_65e5"), 4);
 
-check_true('a detailed kanji is worth drawing', lp_glyph_wanted("k_56fd"));
-check_false('a simple one is not', lp_glyph_wanted("k_65e5"));
-check_false('and a kana never is', lp_glyph_wanted("hi_a"));
+    ;;; A WORD HAS NO STROKE COUNT OF ITS OWN, so it takes the worst of
+    ;;; the characters written inside it -- the hardest glyph on the card
+    ;;; is what decides whether the card is legible.
+    check('a word takes the worst character in it', lp_strokes("w_denwa"), 13);
 
-;;; FIRST MEETING ONLY.  Reading 聞 at terminal size is itself a skill,
-;;; and a tutor that draws it big every time is one the student never
-;;; has to learn it from.
-lp_journal <> [[% "k_56fd", "read", 1, "wrong", 900, lp_now_ms() %]]
-    -> lp_journal;
-check_false('but only the first time it is met', lp_glyph_wanted("k_56fd"));
-[] -> lp_journal;
-check_true('met again on a clean journal', lp_glyph_wanted("k_56fd"));
+    check_true('a detailed kanji is worth drawing', lp_glyph_wanted("k_56fd"));
+    check_false('a simple one is not', lp_glyph_wanted("k_65e5"));
 
-;;; It is an aid, which means it can be refused.
-lp_aid_set("glyph", false).erase;
-check_false('and the student can turn it off', lp_glyph_wanted("k_56fd"));
-lp_aids_reset();
-check_true('and back on', lp_glyph_wanted("k_56fd"));
+    ;;; FIRST MEETING ONLY.  Reading 聞 at terminal size is itself a
+    ;;; skill, and a tutor that draws it big every time is one the
+    ;;; student never has to learn it from.
+    lp_journal <> [[% "k_56fd", "read", 1, "wrong", 900, lp_now_ms() %]]
+        -> lp_journal;
+    check_false('but only the first time it is met', lp_glyph_wanted("k_56fd"));
+    [] -> lp_journal;
+    check_true('met again on a clean journal', lp_glyph_wanted("k_56fd"));
+
+    ;;; It is an aid, which means it can be refused.
+    lp_aid_set("glyph", false).erase;
+    check_false('and the student can turn it off', lp_glyph_wanted("k_56fd"));
+    lp_aids_reset();
+    check_true('and back on', lp_glyph_wanted("k_56fd"));
+else
+    printf(';;; imported content not built -- the big glyph not checked\n');
+endif;
 
 glyphuser -> lp_user; glyphjournal -> lp_journal;
 

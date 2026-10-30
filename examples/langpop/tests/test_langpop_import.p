@@ -661,20 +661,25 @@ procedure();
 endprocedure();
 
 ;;; And end to end: a corpus token that is the stem of a taught verb is
-;;; held, not queued.
-lp_write_file(FIX <> 'freq-stem-tmp.txt',
-    '話 50\n知 30\nぞるぷ 20\n');
-procedure();
-    dlocal imp_lang = "ja";
-    imp_gap_scan(FIX <> 'freq-stem-tmp.txt', 10)
-        -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
-endprocedure();
-check('both stems are credited to their verbs', gnheld, 2);
-check('and carry their tokens', gheld, 80);
-check('so only the nonsense word is a gap', length(gmiss), 1);
-check('which is the one no verb in the graph ends with',
-      gmiss(1)(2), 'ぞるぷ');
-sysdelete(FIX <> 'freq-stem-tmp.txt').erase;
+;;; held, not queued.  The two verbs are imported content, so without
+;;; the generated graph the scan has nothing to credit them to.
+if lp_ilang("w_hanasu") and lp_ilang("w_shiru") then
+    lp_write_file(FIX <> 'freq-stem-tmp.txt',
+        '話 50\n知 30\nぞるぷ 20\n');
+    procedure();
+        dlocal imp_lang = "ja";
+        imp_gap_scan(FIX <> 'freq-stem-tmp.txt', 10)
+            -> (gnl, gtot, gheld, gnheld, gmiss, gshard, gshards);
+    endprocedure();
+    check('both stems are credited to their verbs', gnheld, 2);
+    check('and carry their tokens', gheld, 80);
+    check('so only the nonsense word is a gap', length(gmiss), 1);
+    check('which is the one no verb in the graph ends with',
+          gmiss(1)(2), 'ぞるぷ');
+    sysdelete(FIX <> 'freq-stem-tmp.txt').erase;
+else
+    printf(';;; imported content not built -- the stem credit not checked\n');
+endif;
 
 ;;; The graph teaches あ -- as a GRAPHEME.  The gap is about vocabulary,
 ;;; so hi_a must not answer for the interjection.

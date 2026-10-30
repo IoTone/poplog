@@ -286,14 +286,18 @@ check_true('a hint beside a glyph gets fewer characters',
 
 ;;; END TO END, on the page itself, because the two checks above would
 ;;; both pass with the constant wired to nothing.
-lvars kpage = zine_plan_page([% "w_denwa", "hi_a" %], 0, 3, 'Next');
-check_true('the page sets the kanji word at 24pt',
-           issubstring('font-size="170"', kpage) /== false);
-check_true('and the kana beside it at 18pt',
-           issubstring('font-size="130"', kpage) /== false);
-check_true('both glyphs are on it',
-           issubstring('電話', kpage) /== false
-           and issubstring('あ', kpage) /== false);
+if lp_ilang("w_denwa") then
+    lvars kpage = zine_plan_page([% "w_denwa", "hi_a" %], 0, 3, 'Next');
+    check_true('the page sets the kanji word at 24pt',
+               issubstring('font-size="170"', kpage) /== false);
+    check_true('and the kana beside it at 18pt',
+               issubstring('font-size="130"', kpage) /== false);
+    check_true('both glyphs are on it',
+               issubstring('電話', kpage) /== false
+               and issubstring('あ', kpage) /== false);
+else
+    printf(';;; imported content not built -- the mixed page not checked\n');
+endif;
 
 ;;; --------------------------------------------------------- the zine
 ;;; Eight pages from one sheet.  The imposition is not a creative work

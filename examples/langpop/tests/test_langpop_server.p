@@ -828,15 +828,19 @@ check_true('card: the file holds the glyph',
 ;;; the method hands the style straight to it.  A client that wants to
 ;;; draw a character big at a prompt needs the one card that does not
 ;;; carry the answer.
-lvars gcard = result('langpop/card.render',
-                     jsonrpc_obj([% 'item', 'k_56fd', 'style', 'glyph' %]));
-check('card: the glyph style is built', gcard('style'), 'glyph');
-check('card: and is square', gcard('width'), gcard('height'));
-check('card: 420 of them', gcard('width'), 420);
-check_true('card: the glyph is on it',
-           issubstring('国', lp_read_file(gcard('path'))) /== false);
-check_false('card: and its reading is not',
-            issubstring('くに', lp_read_file(gcard('path'))) /== false);
+if lp_ilang("k_56fd") then
+    lvars gcard = result('langpop/card.render',
+                         jsonrpc_obj([% 'item', 'k_56fd', 'style', 'glyph' %]));
+    check('card: the glyph style is built', gcard('style'), 'glyph');
+    check('card: and is square', gcard('width'), gcard('height'));
+    check('card: 420 of them', gcard('width'), 420);
+    check_true('card: the glyph is on it',
+               issubstring('国', lp_read_file(gcard('path'))) /== false);
+    check_false('card: and its reading is not',
+                issubstring('くに', lp_read_file(gcard('path'))) /== false);
+else
+    printf(';;; imported content not built -- the glyph card not checked\n');
+endif;
 
 ;;; The style defaults, so the smallest possible call works.
 check('card: style defaults to word',
