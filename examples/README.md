@@ -101,7 +101,8 @@ DAG under 577 items, a placement interview, a JSON-RPC server, printed
 study booklets, and audio scoring through a microphone. It is outside
 the Poplog language and too large to live here, so it was carved out
 with its history intact (56 commits, via git-filter-repo) into the
-**pop-11-langpop** repository, where development continues.
+[**pop-11-langpop**](https://github.com/IoTone/pop-11-langpop)
+repository, where development continues.
 
 What it needs from Poplog stays here: `lib/json` (json_object,
 2026-10-01) and `lib/jsonrpc` (2026-10-20), which it probes for at
