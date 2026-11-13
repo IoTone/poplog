@@ -1,1 +1,23 @@
 * -linguist-detectable
+
+# Line endings.  Every text file in the tree is stored with LF, and
+# Unix tools, the Pop-11 compiler and the shell scripts all expect it.
+# Without a rule, git on Windows with core.autocrlf would check text out
+# as CRLF.  eol=lf keeps LF in the working tree on every platform.
+* text=auto eol=lf
+
+# Kept byte for byte.  Binary content, and the few files whose exact
+# bytes matter.
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.pdf   binary
+*.ttf   binary
+*.z3    binary
+*.z5    binary
+nix/seeds/**      binary
+gfx-font-test     binary
+pop/help/lr_parser -text
+pop/teach/gc       -text
+# Inform source, stored with CRLF; left as it is.
+examples/games/czech.inf -text

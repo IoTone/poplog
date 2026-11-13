@@ -1,0 +1,9 @@
+HELP HASH_LT                                Mark Rubinstein  November 1985
+                                 Renamed from HASH_< for Windows, 2026
+
+Please see HELP * HASH_
+
+(HELP HASH_ describes the compile-time macro  #_< ... >_#  .  This file
+was called hash_< until 2026; Windows does not allow < in a file name,
+so a checkout of the whole tree failed there.  See
+https://github.com/IoTone/poplog/issues/18 )

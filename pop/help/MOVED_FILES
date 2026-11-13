@@ -270,7 +270,7 @@ These files can be made accessible by means of the command
     goto
     halts
     hash_
-    hash_<
+    hash_lt
     hd
     help
     helpfiles
