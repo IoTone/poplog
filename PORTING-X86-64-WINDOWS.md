@@ -5,7 +5,7 @@
 > x86-64. It records only what is Windows-specific. Tracking issue: #20
 > (checkout fix: #18).
 
-## Status (2026-11-20): first light. A cross-built `corepop.exe` runs Pop-11 on Windows 11
+## Status (2026-11-20): self-hosting. `./configure && make all` builds Poplog on Windows 11
 
 | Item | State |
 |---|---|
@@ -13,8 +13,9 @@
 | Target, toolchain and bootstrap route | decided below |
 | Spikes S1–S3 (§9) | run on Windows 11 with Cygwin 3.6.12, gcc 14.4.0, binutils 2.47; **go**, with two design changes they forced (§3.5, §3.2) |
 | Spike S4, cross-emission from the Pi 5 (§9) | run; the whole system cross-compiles to PE objects and links on Windows up to the C runtime |
-| `corepop.exe` | cross-emitted on the Pi 5, linked by hand on Windows with Cygwin gcc. Compiles and runs Pop-11 from a file and from a pipe; see "First light" in §9 for exactly what was exercised |
-| Not done | `configure`/`Makefile.in` integration (the link was a hand-typed command), a native rebuild on Windows, saved images, the language images, VED, a validation script, a published seed. Linux has not been rebuilt with these changes |
+| Build | `./configure --with_no_x && make all` from a Cygwin shell, seeded by a `corepop.exe`, completes in under a minute with no errors: popc, the system sources, a new `corepop`, `basepop11`, and the start-up, Lisp, Prolog and ML images. The seed used for the last run was itself built that way (second generation) |
+| Checked by hand | Pop-11, Prolog, Common Lisp and Standard ML each ran a small program from a pipe; `tools/port-windows/second-light.p` (objectclass, processes, properties, file and directory I/O) gave the right answers. See "Self-hosting" in §9 |
+| Not done | VED and anything else under a terminal; `exload` of a DLL and callbacks from C; sockets; a validation script; X and graphics; a published seed (it exists only as `target/pop/corepop.exe` on one machine); a third-generation comparison. **Linux has not been rebuilt with these changes** |
 
 Claims in this document are marked by how they were established:
 **[source]** was read in this tree; **[platform]** is a documented property of
@@ -358,8 +359,8 @@ Visual Studio, MSYS2 and WSL are not needed.
 | 1 | Spikes S1–S3 (§9), on the Windows machine, no Poplog needed | done 2026-11-20; results in §9 |
 | 2 | `sysdefs_cygwin.p`, `asmout.p`, target override, the cross job | **part done**: the Linux-flavoured system passes the PE assembler and links (§9). The Cygwin-flavoured one stops at the first per-OS tables, which is phase 3's work |
 | 3 | `WIN64_ABI` glue (§3.3), C runtime branches (§3.4–3.5), constants (§3.6), link options | **done 2026-11-20**: `corepop.exe` starts and runs code, ladder rungs 1–2 by hand (§9). Build-system integration still to do |
-| 4 | Debug up the ladder, rungs 2–6 | `tools/validate-cygwin.sh` passes; seed published |
-| 5 | Native rebuild from the published seed; generation-2 self-rebuild | `make all` on Windows with no cross step |
+| 4 | Debug up the ladder, rungs 2–6 | rungs 2–5 pass by hand (§9); rung 6 (interactive use under a terminal, VED) not tried; no script yet; seed not published |
+| 5 | Native rebuild from the published seed; generation-2 self-rebuild | **done 2026-11-20** with a local seed: `make all` on Windows with no cross step |
 | 6 | Deferred items from §4, in order of demand | per item |
 
 **Branch policy.** All of this work stays on `windows-checkout`, which is not
@@ -510,6 +511,50 @@ Two aids added on the way, both in `pop_win_fault.c` / `c_core.c`: setting
 raises and every move of the break; and a fault that reaches the old signal
 handler by any route other than the vectored one prints a message and exits
 instead of spinning.
+
+### Self-hosting (2026-11-20)
+
+With the cross-built `corepop.exe` placed at `target/pop/corepop.exe`,
+`./configure --with_no_x` and `make` ran through the existing rules. Timings
+are from one Windows 11 machine.
+
+| Step | Result |
+|---|---|
+| `make stamp_popc` | popc, poplibr and poplink compiled from source and saved as images |
+| `make stamp_srclib` | all 306 files of `pop/src` compiled, assembled by Cygwin's `as`, archived: 26 s (17 minutes on the Pi 5) |
+| `make stamp_new_corepop` | `new_corepop.exe` linked by the generated `poplink_cmnd`, which carries the PE link options from `configure` |
+| `new_corepop.exe` installed as the seed, then `make all` | 52 s, exit 0, no mishaps: `basepop11.exe`, `startup.psv`, `clisp.psv`, `prolog.psv`, `pml.psv`, the documentation indexes |
+
+Then, by hand, each from a pipe: Prolog computed `fact(20)` and `6*7`; Lisp
+defined and ran `fact` and `mapcar`; ML inferred `int -> int` and
+`int list`; Pop-11 ran `second-light.p`. Saved images are being written and
+read back throughout, since popc itself runs from one.
+
+`Makefile.in` needed nothing beyond the new C file: the three symbolic links,
+`mv newpop11 new_corepop`, the hard links to `basepop11` and the
+`${popsys}/corepop` prerequisite all work with `.exe` files as they stand.
+
+Found on the way:
+
+7. **The internal allocator's block was too small.** `c_core.c` replaces
+   `malloc` for the process and serves it from a fixed block: 8 MB on Linux
+   and macOS, 160 KB otherwise. Cygwin exhausted it while saving an image.
+   It is now 8 MB there too.
+8. **A signal sent with `kill` cannot become a mishap.** The allocator
+   reports exhaustion with `kill(getpid(), SIGEMT)`, relying on the handler
+   to redirect the thread, which Cygwin does not allow (§3.5). On this
+   target `_pop_win_raise` raises a private exception instead, which goes
+   through the vectored handler like a fault. Any other error signal sent to
+   the process from outside still ends it, with a message naming the signal.
+9. **Cygwin clears `errno` on success.** `access`, `stat` and `open` leave
+   `errno` 0 when they succeed. `Set_enotdir` in `sysopen.p` called `access`
+   between a failed `open` and the test of `errno`, so opening a file that
+   does not exist gave "CAN'T OPEN FILE (No error)" where it should have
+   returned false; popc could not start. Fixed there. Other code that reads
+   `errno` after an intervening successful call would have the same fault
+   and has not been looked for.
+10. `basepop11.stb` comes out empty. It is the symbol table used when
+    external code is linked against the running system; not needed so far.
 
 ## 10. Later: a native build
 

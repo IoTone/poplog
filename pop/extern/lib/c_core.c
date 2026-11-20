@@ -620,6 +620,7 @@ int set_libc_errno(int x) {
 #endif
 
 #if defined(__CYGWIN__)
+#include <stdio.h>          /* snprintf for the signal diagnostics */
 /* Cygwin's mcontext is the Windows CONTEXT record: named registers, no
    gregs[] array and no greg_t. */
 #define POP_GREG_T      unsigned long
@@ -663,9 +664,12 @@ void _pop_errsig_handler(int sig, siginfo_t *info, ucontext_t *context) {
        to do, and a process spinning silently is worse than one that says
        so and stops. */
     if (!_pop_in_fault_handler) {
-        static const char msg[] =
-            "\nPoplog: error signal delivered outside the fault handler; cannot recover\n";
-        write(2, msg, sizeof msg - 1);
+        char msg[160];
+        int n = snprintf(msg, sizeof msg,
+            "\nPoplog: signal %d (code %d, address %p) delivered outside the"
+            " fault handler; cannot recover\n",
+            sig, info ? info->si_code : -1, info ? info->si_addr : (void *) 0);
+        write(2, msg, n);
         _exit(1);
     }
 #endif
@@ -1453,7 +1457,7 @@ extern char *sbrk();
 #if defined(SVR4)
 /* SVR4 getpwnam needs lots of space */
 #define POP_MEM_BLOCK_SIZE 200000
-#elif defined(__linux__) || defined(__APPLE__)
+#elif defined(__linux__) || defined(__APPLE__) || defined(__CYGWIN__)
 /* Modern dlopen chains (glibc loader structures, TLS, constructor
  * allocations across 20+ dependency libraries -- e.g. libcurl's) can
  * malloc megabytes during external load, which draws from this block
@@ -1683,8 +1687,16 @@ void *malloc(size_t nbytes) {
                      * (tested for by System_error)
                      */
                     __pop_malloc_exhausted = nbytes;
+#if defined(__CYGWIN__)
+                    /* a signal sent with kill cannot be turned into a
+                       mishap on this system; see pop_win_fault.c */
+                    {   extern void _pop_win_raise(int);
+                        _pop_win_raise(SIGEMT);
+                    }
+#else
                     kill(getpid(), SIGEMT);
                     pause();                    /* allow sig to be sent */
+#endif
                 }
                 errno = ENOMEM;
                 return(NULL);

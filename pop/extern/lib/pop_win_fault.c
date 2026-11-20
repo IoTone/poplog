@@ -33,6 +33,10 @@
 
 extern void _pop_errsig_handler(int sig, siginfo_t *info, ucontext_t *context);
 
+/* Private exception code (bit 29 set = not a system code) carrying a signal
+   number as its one argument. */
+#define POP_EXCEPTION_SIGNAL    0xE0504F50
+
 /* Nonzero while _pop_errsig_handler is being called from here; c_core.c
    refuses to act on an error signal that arrives any other way. */
 int _pop_in_fault_handler = 0;
@@ -79,6 +83,13 @@ static LONG CALLBACK pop_fault_filter(EXCEPTION_POINTERS *ep) {
     void *addr = (void *) er->ExceptionAddress;
 
     switch (er->ExceptionCode) {
+        case POP_EXCEPTION_SIGNAL:
+            /* raised by _pop_win_raise below */
+            sig = (int) er->ExceptionInformation[0];
+            code = 0;
+            addr = 0;
+            pc = 0;         /* wherever it is, it is ours */
+            break;
         case EXCEPTION_ACCESS_VIOLATION:
             sig = SIGSEGV;
             /* ExceptionInformation[0]: 0 read, 1 write, 8 execute;
@@ -143,6 +154,15 @@ static LONG CALLBACK pop_fault_filter(EXCEPTION_POINTERS *ep) {
         ep->ContextRecord->Rip = uc.uc_mcontext.rip;
     }
     return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+/* Raise an error signal in a way that can become a mishap.  The Unix code
+   does kill(getpid(), sig) and lets the handler redirect the thread; here a
+   signal handler cannot redirect anything, but an exception raised by the
+   program goes through the vectored handler like any fault. */
+void _pop_win_raise(int sig) {
+    ULONG_PTR arg = (ULONG_PTR) sig;
+    RaiseException(POP_EXCEPTION_SIGNAL, 0, 1, &arg);
 }
 
 static void install(void) {

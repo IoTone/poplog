@@ -53,6 +53,11 @@ define Set_enotdir(file);
         Fname_path(file, true) -> file;
         if _neg(_extern[NI, SE] access(Encode_sys(file,_nbuf), _0)) then
             _:ENOTDIR -> _ERRNO
+        else
+            ;;; A call that succeeds may still change errno: Cygwin's
+            ;;; access, stat and open all leave it 0, which turned every
+            ;;; "file not found" into "CAN'T OPEN FILE (No error)".
+            _:ENOENT -> _ERRNO
         endif
     endif
 enddefine;

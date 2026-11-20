@@ -157,6 +157,23 @@ if [ "$HOST_OS" = Darwin ]; then
     # executable at startup.
     CC_LINK_OPTIONS=""
 fi
+case "$HOST_OS" in
+  CYGWIN*)
+    # Windows, Cygwin runtime (PORTING-X86-64-WINDOWS.md).  The x86-64 backend
+    # uses 32-bit absolute addresses, so the image must sit at a fixed base
+    # below 2 GB; Cygwin's default is above 4 GB and randomised.  The stack
+    # reserve is kept modest because Windows uses it for every thread and
+    # places those stacks low, where the Pop heap has to go; it is also
+    # committed in full at start-up (pop_win_fault.c).  There is no
+    # -export-dynamic for PE.
+    if [ "$HOST_ARCH" != x86_64 ]; then
+        echo "ERROR: Poplog on Windows is only ported to x86_64 (this is $HOST_ARCH)."
+        exit 1
+    fi
+    HOST_OS=Cygwin
+    CC_LINK_OPTIONS="-Wl,--image-base=0x400000 -Wl,--disable-dynamicbase -Wl,--stack,0x800000"
+    ;;
+esac
 case "$HOST_ARCH" in
   i86pc)
       # Solaris
@@ -230,6 +247,10 @@ if [ "$HOST_OS" = Darwin ]; then
     # below do not exist there. Skip the probes.
     HAS_NOPIE=no; HAS_AS_NEEDED=no; HAS_HASH_STYLE=no; HASH_STYLE_OPT=""
     echo "Darwin: skipping GNU-ld option probes (PIE mandatory)"
+elif [ "$HOST_OS" = Cygwin ]; then
+    # These are ELF linker options; the PE link options were set above.
+    HAS_NOPIE=no; HAS_AS_NEEDED=no; HAS_HASH_STYLE=no; HASH_STYLE_OPT=""
+    echo "Cygwin: skipping ELF linker option probes"
 else
 echo -n "Testing if compiler recognizes -no-pie"
 NO_PIE_OPT=-no-pie
