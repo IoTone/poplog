@@ -42,7 +42,12 @@ vars
     eliza_key_rec, eliza_pre, eliza_post, eliza_synon,
     eliza_mem = [],
     eliza_dir = sys_fname_path(popfilename),   ;;; directory of this source file
-    eliza_no_repl = false;                      ;;; set true to load without starting
+    eliza_no_repl;                              ;;; set true to load without starting
+
+;;; Not initialised in the declaration above: that would overwrite a value the
+;;; loader set beforehand, and the engine-only load described at the end of
+;;; this file would start the session anyway.
+if isundef(eliza_no_repl) then false -> eliza_no_repl endif;
 
 ;;; parser state (used only while reading the script)
 vars p_ckw, p_crank, p_cdecs, p_cmem, p_cpat, p_creas, p_have_dec;
