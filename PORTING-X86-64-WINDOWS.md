@@ -14,8 +14,9 @@
 | Spikes S1–S3 (§9) | run on Windows 11 with Cygwin 3.6.12, gcc 14.4.0, binutils 2.47; **go**, with two design changes they forced (§3.5, §3.2) |
 | Spike S4, cross-emission from the Pi 5 (§9) | run; the whole system cross-compiles to PE objects and links on Windows up to the C runtime |
 | Build | `./configure --with_no_x && make all` from a Cygwin shell, seeded by a `corepop.exe`, completes in under a minute with no errors: popc, the system sources, a new `corepop`, `basepop11`, and the start-up, Lisp, Prolog and ML images. The seed used for the last run was itself built that way (second generation) |
-| Checked by hand | Pop-11, Prolog, Common Lisp and Standard ML each ran a small program from a pipe; `tools/port-windows/second-light.p` (objectclass, processes, properties, file and directory I/O) gave the right answers. See "Self-hosting" in §9 |
-| Not done | VED and anything else under a terminal; `exload` of a DLL and callbacks from C; sockets; a validation script; X and graphics; a published seed (it exists only as `target/pop/corepop.exe` on one machine); a third-generation comparison. **Linux has not been rebuilt with these changes** |
+| Validation | `tools/validate-cygwin.sh`: **36 of 36 gates pass** (2026-11-20, one machine, Cygwin 3.6.12). It covers the four languages, interactive use and VED under a pseudo-terminal, faults becoming mishaps, child processes and pipes, heap growth, saving and restoring an image, and external calls with integer, float, string and more than four arguments |
+| Linux | The same changes applied to a fresh tree on the Pi 5 (aarch64 Linux): `make all` exits 0 and `tools/validate-raspi5.sh` passes 13 of 13. That covers the shared C and Pop edits. **x86-64 Linux, which shares the edited assembly files, has not been built**, nor macOS or RISC-V |
+| Not done | callbacks from C into Pop; `exload` of a DLL built here; sockets; timers and asynchronous I/O; X and graphics; the packages; a published seed (it exists only on one machine); a third-generation comparison |
 
 Claims in this document are marked by how they were established:
 **[source]** was read in this tree; **[platform]** is a documented property of
@@ -359,7 +360,7 @@ Visual Studio, MSYS2 and WSL are not needed.
 | 1 | Spikes S1–S3 (§9), on the Windows machine, no Poplog needed | done 2026-11-20; results in §9 |
 | 2 | `sysdefs_cygwin.p`, `asmout.p`, target override, the cross job | **part done**: the Linux-flavoured system passes the PE assembler and links (§9). The Cygwin-flavoured one stops at the first per-OS tables, which is phase 3's work |
 | 3 | `WIN64_ABI` glue (§3.3), C runtime branches (§3.4–3.5), constants (§3.6), link options | **done 2026-11-20**: `corepop.exe` starts and runs code, ladder rungs 1–2 by hand (§9). Build-system integration still to do |
-| 4 | Debug up the ladder, rungs 2–6 | rungs 2–5 pass by hand (§9); rung 6 (interactive use under a terminal, VED) not tried; no script yet; seed not published |
+| 4 | Debug up the ladder, rungs 2–6 | **done 2026-11-20**: `tools/validate-cygwin.sh` passes 36 of 36. Seed not published |
 | 5 | Native rebuild from the published seed; generation-2 self-rebuild | **done 2026-11-20** with a local seed: `make all` on Windows with no cross step |
 | 6 | Deferred items from §4, in order of demand | per item |
 
@@ -555,6 +556,29 @@ Found on the way:
    and has not been looked for.
 10. `basepop11.stb` comes out empty. It is the symbol table used when
     external code is linked against the running system; not needed so far.
+
+### Validation (2026-11-20)
+
+`tools/validate-cygwin.sh` follows the Pi and Mac scripts gate for gate and
+adds the Windows gates of §8. Two more differences turned up while writing
+it:
+
+11. **`dlsym` on the image handle finds nothing.** Poplog resolves external
+    symbols by `dlsym(dlopen(NULL), name)`. On Windows a handle names one
+    module, and the executable exported nothing, so `exload` could not find
+    `strlen`. Cygwin's `RTLD_DEFAULT` (0) searches every loaded module and is
+    now tried first; and the link adds `-Wl,--export-all-symbols` so that the
+    C runtime inside the executable can be found too, which is the job
+    `-export-dynamic` does on ELF.
+12. Under a pseudo-terminal (`script`) the Pop-11 and Prolog top levels and
+    VED's screen drawing worked without change: the `termios` tables of §3.6
+    are right at least as far as raw mode, echo and the control characters
+    VED sets.
+
+Three of the first failures were mistakes in the test, not the port, and are
+worth knowing: a variadic external call takes its argument count last
+(`exacc f(#| a, b, c |#)`); `pipein` wants a full path; and `popmemlim` stops
+a 24 MB allocation by default.
 
 ## 10. Later: a native build
 

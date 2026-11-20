@@ -164,14 +164,15 @@ case "$HOST_OS" in
     # below 2 GB; Cygwin's default is above 4 GB and randomised.  The stack
     # reserve is kept modest because Windows uses it for every thread and
     # places those stacks low, where the Pop heap has to go; it is also
-    # committed in full at start-up (pop_win_fault.c).  There is no
-    # -export-dynamic for PE.
+    # committed in full at start-up (pop_win_fault.c).
     if [ "$HOST_ARCH" != x86_64 ]; then
         echo "ERROR: Poplog on Windows is only ported to x86_64 (this is $HOST_ARCH)."
         exit 1
     fi
     HOST_OS=Cygwin
-    CC_LINK_OPTIONS="-Wl,--image-base=0x400000 -Wl,--disable-dynamicbase -Wl,--stack,0x800000"
+    # --export-all-symbols stands in for -export-dynamic: it lets dlsym find
+    # the C runtime that is linked into the executable.
+    CC_LINK_OPTIONS="-Wl,--image-base=0x400000 -Wl,--disable-dynamicbase -Wl,--stack,0x800000 -Wl,--export-all-symbols"
     ;;
 esac
 case "$HOST_ARCH" in

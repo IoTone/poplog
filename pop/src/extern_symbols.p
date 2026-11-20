@@ -196,6 +196,17 @@ define Shlib_findsym(handles, try_previous_p, symbol, value) -> success;
             exitfrom(true, Shlib_findsym);
         endif;
     enddefine;
+  #_IF DEF CYGWIN
+    ;;; On Windows a handle names one module, so the handle for the image
+    ;;; finds only what the executable itself exports.  Cygwin's
+    ;;; RTLD_DEFAULT (0) searches every module loaded in the process, which
+    ;;; is where the C library is (cygwin1.dll).
+    lvars _dflt = _extern dlsym(_0, symbol);
+    if _nonzero(_dflt) then
+        _dflt -> value!XP_PTR;
+        return(true -> success)
+    endif;
+  #_ENDIF
     ;;; look in the image first
     lconstant image_handle = writeable consexternal_ptr();
     if _zero(_image_handle) then
