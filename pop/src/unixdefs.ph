@@ -75,6 +75,20 @@ deftype
     uid_t   = int,
     gid_t   = int;
 
+#_ELSEIF DEF CYGWIN         /* must come before BERKELEY */
+
+    /*  Cygwin 3.x, x86-64.  Every CYGWIN clause in this file is written
+        from the output of tools/port-windows/cygdefs.c (kept alongside as
+        cygdefs.out); none is copied from another system's clause.      */
+deftype
+    dev_t   = int,          /* u32 */
+    ino_t   = long,         /* u64 */
+    mode_t  = int,          /* u32 */
+    nlink_t = short,        /* u16 */
+    time_t  = -long,        /* i64 */
+    uid_t   = int,          /* u32 */
+    gid_t   = int;          /* u32 */
+
 #_ELSEIF DEF FREEBSD or DEF NETBSD   /* must come before BERKELEY */
 
 deftype
@@ -218,6 +232,31 @@ struct STATB {
     blkcnt_t ST_BLOCKS;
     byte    ST_FSTYPE[16];
 };
+
+#_ELSEIF DEF CYGWIN         /* must come before BERKELEY */
+
+    /*  <cygwin/stat.h>; sizeof == 128.  Each time is a struct timespec
+        (sec + nsec, both 64-bit).                                      */
+struct STATB
+  { dev_t   ST_DEV;         /* u32  @0 (+4 pad) */
+    ino_t   ST_INO;         /* u64  @8   */
+    mode_t  ST_MODE;        /* u32  @16  */
+    nlink_t ST_NLINK;       /* u16  @20 (+2 pad) */
+    uid_t   ST_UID;         /* u32  @24  */
+    gid_t   ST_GID;         /* u32  @28  */
+    dev_t   ST_RDEV;        /* u32  @32 (+4 pad) */
+    off_t   ST_SIZE;        /* i64  @40  */
+    time_t  ST_ATIME;       /* i64  @48  */
+    long    ST_ATIME_X;     /* nsec @56  */
+    time_t  ST_MTIME;       /*      @64  */
+    long    ST_MTIME_X;     /*      @72  */
+    time_t  ST_CTIME;       /*      @80  */
+    long    ST_CTIME_X;     /*      @88  */
+    int     ST_BLKSIZE;     /* i32  @96 (+4 pad) */
+    blkcnt_t ST_BLOCKS;     /* i64  @104 */
+    time_t  ST_BTIME;       /* birthtime @112 */
+    long    ST_BTIME_X;     /*      @120 */
+  };
 
 #_ELSEIF DEF NETBSD         /* must come before BERKELEY */
 struct STATB {
@@ -466,7 +505,7 @@ lconstant macro (
     _STM_IFLNK  = _8:120000,
     );
 
-#_IF DEF LINUX and DEF UNIX_ELF or DEF FREEBSD or DEF NETBSD or DEF NCR or DEF DGUX or DEF SOLARIS_X86
+#_IF DEF LINUX and DEF UNIX_ELF or DEF FREEBSD or DEF NETBSD or DEF NCR or DEF DGUX or DEF SOLARIS_X86 or DEF CYGWIN
 ;;; In these systems -- all PC Unix variants -- calls to the *stat()
 ;;; functions are replaced by the C compiler with calls to *xstat()
 ;;; alternatives. In some versions of Linux, the stat() functions
@@ -507,6 +546,21 @@ struct DIRECT
     byte    DIR_NAME[];     /* name of file */
   };
 
+
+#_ELSEIF DEF CYGWIN     /* must come before BERKELEY */
+
+    /*  <sys/dirent.h>: u32 version; (4 reserved); u64 ino; u8 type;
+        (3 pad); u32 internal; then the name at byte offset 24.  There is
+        no record length and no name length: the name is NUL-terminated
+        in a 256-byte field (see Decode_dir_entry in unix_dir.p).       */
+struct DIRECT
+  { int     DIR_VERSION,
+            DIR_RESERVED;
+    ino_t   DIR_INO;
+    byte    DIR_TYPE;
+    int     DIR_INTERNAL;
+    byte    DIR_NAME[];
+  };
 
 #_ELSEIF DEF DARWIN     /* must come before BERKELEY */
 
@@ -604,12 +658,21 @@ define lconstant _IOW(x,y,s);
     _int(IOC_IN || (s<<16) || (x<<8) || y)
 enddefine;
 
+  #_IF DEF CYGWIN
+    ;;; Cygwin encodes a size of 8 in these two (0x4008667f, 0x8008667d)
+    ;;; and defines neither FIOCLEX nor FIOSETOWN.
+lconstant macro (
+    _FIONREAD   = _IOR(`f`, 127, 8),
+    _FIOASYNC   = _IOW(`f`, 125, 8),
+    );
+  #_ELSE
 lconstant macro (
     _FIOCLEX    = _IO(`f`, 1),
     _FIONREAD   = _IOR(`f`, 127, SIZEOF(int)),
     _FIOASYNC   = _IOW(`f`, 125, 4),
     _FIOSETOWN  = _IOW(`f`, 124, 4),
     );
+  #_ENDIF
 
 #_ENDIF /* AT&T System V */
 
@@ -664,6 +727,11 @@ lconstant macro (
 lconstant macro (
     O_NDELAY    = 8:4000,
     O_APPEND    = 8:2000,
+    );
+#_ELSEIF DEF CYGWIN
+lconstant macro (
+    O_NDELAY    = 16:4000,      ;;; == O_NONBLOCK
+    O_APPEND    = 16:08,
     );
 #_ELSE
 lconstant macro (

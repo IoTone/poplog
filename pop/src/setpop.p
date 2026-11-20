@@ -738,7 +738,14 @@ define Setup_system(_cs_hi, _plog_nwords);
     endif;
 
     ;;; get the list of environment strings
+  #_IF DEF CYGWIN
+    ;;; environ is a variable inside the Cygwin DLL, and the data of a
+    ;;; Windows DLL cannot be addressed directly from Pop code (the reference
+    ;;; is a 32-bit one and the DLL is far away), so C fetches it.
+    Get_arg_list(_extern _pop_environ()) -> popenvlist;
+  #_ELSE
     Get_arg_list(_extern environ:data!(((b)))) -> popenvlist;
+  #_ENDIF
 
   #_IF DEF SYSTEM_V or DEF HPUX
     systranslate('LOGNAME')-> popusername;

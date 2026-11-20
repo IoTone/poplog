@@ -259,7 +259,7 @@ stamp_newpop: stamp_popc
 	touch stamp_newpop
 
 LIBPOP_CSRC = c_bignum c_callback c_core c_sysinit ext_arm \
-              pop_encoding pop_poll pop_stat pop_timer pop_vararg_fix
+              pop_encoding pop_poll pop_stat pop_timer pop_vararg_fix \n              pop_win_fault
 
 LIBPOP_OBJS0 = $(addprefix ${popexlib}/, $(addsuffix .o, \
                 $(basename $(notdir ${LIBPOP_CSRC}))))

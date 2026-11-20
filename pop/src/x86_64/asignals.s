@@ -183,6 +183,47 @@ do_call_sys:
     movq    8(%USP), %rax
     addq    $16, %USP
 
+#_IF DEF WIN64_ABI
+
+    ;;; Microsoft x64 convention: the first four arguments go in RCX, RDX,
+    ;;; R8 and R9, the rest on the stack above 32 bytes of space that the
+    ;;; caller must provide for the callee.  The stack pointer is a
+    ;;; multiple of 16 here and must be one at the call.
+
+    movq    %rax, %rcx
+    subq    $4, %rcx
+    jbe     W1.4
+    movq    $4, %rax
+    ;;; an odd number of stack arguments needs a dummy for alignment
+    testq   $1, %rcx
+    jz      W1.3
+    pushq   $0
+
+W1.3:   pushq   (%USP)          ;;; last argument first
+    addq    $8, %USP
+    decq    %rcx
+    jnz     W1.3
+
+W1.4:
+    leaq    (%USP, %rax, 8), %USP   ;;; RAX = number of register arguments
+    cmpq    $1, %rax
+    jb      W2.2
+    movq    -8(%USP), %rcx
+    je      W2.2
+    movq    -16(%USP), %rdx
+    cmpq    $3, %rax
+    jb      W2.2
+    movq    -24(%USP), %r8
+    je      W2.2
+    movq    -32(%USP), %r9
+
+W2.2:   subq    $32, %rsp
+    cld
+    call    *%r10
+    jmp     L2.3
+
+#_ENDIF
+
     ;;; Copy any arguments to the system stack
 
     cmpq    $0, %rax
@@ -241,7 +282,7 @@ L2.2:   ;;; Make the call:
     cld
     call    *%r10
 
-    ;;; Stack the result (from EAX)
+L2.3:   ;;; Stack the result (from EAX)
 
     subq    $8, %USP
     movq    %rax, (%USP)

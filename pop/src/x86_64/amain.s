@@ -61,7 +61,11 @@ EXTERN_NAME(main):
 
     ;;; Save pointer to argument vector (argv)
 
+#_IF DEF WIN64_ABI
+    movq    %rdx,  I_LAB(Sys$- _init_args)  ;;; main(argc, argv): RCX, RDX
+#_ELSE
     movq    %rsi,  I_LAB(Sys$- _init_args)
+#_ENDIF
 
 #_IF DEF LINUX
 
@@ -89,7 +93,12 @@ EXTERN_NAME(main):
 
     ;;; Exit with 0
 
+#_IF DEF WIN64_ABI
+    movl    $0, %ecx
+    subq    $32, %rsp
+#_ELSE
     movl    $0, %edi
+#_ENDIF
     call    EXTERN_NAME(_exit)
 
     .align  16

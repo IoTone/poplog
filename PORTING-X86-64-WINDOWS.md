@@ -5,7 +5,7 @@
 > x86-64. It records only what is Windows-specific. Tracking issue: #20
 > (checkout fix: #18).
 
-## Status (2026-11-20): design; spikes run and passed; no Poplog code yet
+## Status (2026-11-20): first light. A cross-built `corepop.exe` runs Pop-11 on Windows 11
 
 | Item | State |
 |---|---|
@@ -13,7 +13,8 @@
 | Target, toolchain and bootstrap route | decided below |
 | Spikes S1–S3 (§9) | run on Windows 11 with Cygwin 3.6.12, gcc 14.4.0, binutils 2.47; **go**, with two design changes they forced (§3.5, §3.2) |
 | Spike S4, cross-emission from the Pi 5 (§9) | run; the whole system cross-compiles to PE objects and links on Windows up to the C runtime |
-| Windows code so far | `sysdefs_cygwin.p`, the `POP_TARGET_OS` override, `tools/port-windows/cross-emit.sh`. Nothing in the assembly glue, the C runtime or the per-OS tables yet, so nothing runs |
+| `corepop.exe` | cross-emitted on the Pi 5, linked by hand on Windows with Cygwin gcc. Compiles and runs Pop-11 from a file and from a pipe; see "First light" in §9 for exactly what was exercised |
+| Not done | `configure`/`Makefile.in` integration (the link was a hand-typed command), a native rebuild on Windows, saved images, the language images, VED, a validation script, a published seed. Linux has not been rebuilt with these changes |
 
 Claims in this document are marked by how they were established:
 **[source]** was read in this tree; **[platform]** is a documented property of
@@ -356,7 +357,7 @@ Visual Studio, MSYS2 and WSL are not needed.
 | 0 | Checkout fix (#18), on `windows-checkout` | done; a clone of that branch works on Windows |
 | 1 | Spikes S1–S3 (§9), on the Windows machine, no Poplog needed | done 2026-11-20; results in §9 |
 | 2 | `sysdefs_cygwin.p`, `asmout.p`, target override, the cross job | **part done**: the Linux-flavoured system passes the PE assembler and links (§9). The Cygwin-flavoured one stops at the first per-OS tables, which is phase 3's work |
-| 3 | `WIN64_ABI` glue (§3.3), C runtime branches (§3.4–3.5), constants (§3.6), link options | `corepop.exe` starts: ladder rung 1 |
+| 3 | `WIN64_ABI` glue (§3.3), C runtime branches (§3.4–3.5), constants (§3.6), link options | **done 2026-11-20**: `corepop.exe` starts and runs code, ladder rungs 1–2 by hand (§9). Build-system integration still to do |
 | 4 | Debug up the ladder, rungs 2–6 | `tools/validate-cygwin.sh` passes; seed published |
 | 5 | Native rebuild from the published seed; generation-2 self-rebuild | `make all` on Windows with no cross step |
 | 6 | Deferred items from §4, in order of demand | per item |
@@ -446,6 +447,69 @@ is fine, and the remaining work is what §3.3 to §3.6 describe: the tables,
 the C runtime branch, and the calling-convention glue. The first run used the
 Linux system description, so its objects are a format check only; they are
 not a Windows Poplog and would not run.
+
+### First light (2026-11-20)
+
+`corepop.exe`, 2.2 MB, linked on Windows from the Pi's objects with
+
+```
+gcc -Wl,--image-base=0x400000 -Wl,--disable-dynamicbase -Wl,--stack,0x800000 \
+    -o corepop poplink_1.o poplink_2.o poplink_3.o src.olb poplink_4.o \
+    poplink_dat.o -L. -lpop -lm
+```
+
+Run from a Cygwin shell with no debugger, on a Pop-11 file and on the same
+text piped to standard input, it gave the right answers for: printing;
+integer and float arithmetic; a list built by a `for` loop (so code generated
+at run time executes from the heap); `fact(25)` (the C bignum routines);
+`sys_os_type`, which reports `[unix cygwin 3.6 pe posix {198808}]`; a mishap
+for integer and float division by zero and for a type error; **a mishap for
+user-stack underflow, which is a real access violation in generated code,
+claimed by the vectored handler and recovered**; recursion to depth 20,000
+and a mishap at the recursion limit; a garbage collection; and `sysobey`
+running a child process. That is all that has been tried. Nothing was run
+twice across a rebuild from clean, and no existing test suite has been run.
+
+What it took beyond the design, in the order it was hit:
+
+1. **Per-OS tables.** Clauses for Cygwin in `unixdefs.ph`, `unix_tty.ph`,
+   `sigdefs.ph`, `unix_errno.ph`, `lib/include/sysdefs.ph` and a dozen
+   single-line sites, all from `tools/port-windows/cygdefs.c` (output kept as
+   `cygdefs.out`). Cygwin's `termios` matches no other system: `TCSANOW` is
+   2, `VINTR` is 6, `ONLCR` is 8, `PARMRK` is `0x10000`.
+2. **A DLL's data cannot be addressed from Pop code.** `setpop.p` read the C
+   variable `environ` directly; on PE that is a 32-bit reference to an
+   address inside `cygwin1.dll`, and the program stopped at load with
+   "Invalid relocation". It now calls `_pop_environ()`. `environ` was the
+   only such symbol in the core system; any library that reads a C global
+   from a DLL (`errno`, `timezone`, `stdin`) will hit the same thing.
+3. **The compiler does most of the calling-convention work.** gcc accepts
+   `__attribute__((sysv_abi))` on this target, so the C functions that
+   assembly calls directly (the 12 bignum helpers) and the assembly entry
+   that C calls (`_pop_external_callback`) are simply declared System V
+   (`POP_ASM_ABI`), and `aarith.s` and the callback entry are unchanged.
+   Only `_call_sys`, `_call_external` and `main` needed assembly, about 150
+   lines under `#_IF DEF WIN64_ABI`. §3.3 overestimated this.
+4. **The stack reserve crowds the low address space.** The size given to
+   `--stack` is used for every thread, and Windows puts those stacks low.
+   With 256 MB, three of them covered `0x106c0000`–`0x407a0000` before `main`
+   and the heap reserve at `0x10000000` failed. The link uses 8 MB.
+5. **Pop code skips the stack guard page.** `Sys$-Move_callstack` drops the
+   stack by 32 KB in one step at start-up. Started from a Cygwin shell the
+   stack below is not yet committed, the write faults, and the process ends
+   with status 0 and no output. Under gdb, under `strace`, or started from
+   PowerShell the stack happened to be committed and everything worked, which
+   cost an hour. Spike S1 missed it because its frames were 12 KB. Fix:
+   `_pop_win_stack_commit` walks the stack down a page at a time once, at the
+   first C call. The stack reserve is therefore committed memory.
+6. Static constructors in the C runtime do not run, because `main` is
+   assembly and does not call `__main`. Nothing depends on them today.
+
+Two aids added on the way, both in `pop_win_fault.c` / `c_core.c`: setting
+`POP_FAULT_TRACE` in the environment reports every exception the process
+raises and every move of the break; and a fault that reaches the old signal
+handler by any route other than the vectored one prints a message and exits
+instead of spinning.
 
 ## 10. Later: a native build
 

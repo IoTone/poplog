@@ -307,7 +307,10 @@ define lconstant Map_or_read(_paddr, _poffs, _fileoffs, _const, _share);
     #_ENDIF
 
     ;;; use mmap
-#_IF DEF DARWIN
+#_IF DEF DARWIN or DEF CYGWIN
+    ;;; (Cygwin: Windows cannot map a file over the reserved heap region, and
+    ;;; an executable file mapping needs the execute bit on the image file;
+    ;;; reading the segment in avoids both.  PORTING-X86-64-WINDOWS.md 3.4)
     ;;; Darwin: READ the segment into the existing heap memory instead of
     ;;; mmapping the file over it.  The heap is dual-mapped (c_core.c): an RX
     ;;; execution view aliases the canonical RW anon pages, and an mmap

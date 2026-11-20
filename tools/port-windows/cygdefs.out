@@ -1,0 +1,495 @@
+
+[basic C types]
+char 1 short 2 int 4 long 8 long long 8 pointer 8 float 4 double 8
+
+[sys/types.h]
+off_t              size  8 signed
+blkcnt_t           size  8 signed
+blksize_t          size  4 signed
+dev_t              size  4 unsigned
+ino_t              size  8 unsigned
+mode_t             size  4 unsigned
+nlink_t            size  2 unsigned
+time_t             size  8 signed
+uid_t              size  4 unsigned
+gid_t              size  4 unsigned
+pid_t              size  4 signed
+clock_t            size  8 unsigned
+size_t             size  8 unsigned
+ssize_t            size  8 signed
+suseconds_t        size  8 signed
+socklen_t          size  4 signed
+
+[struct stat]
+struct stat        size 128
+  st_dev           offset   0 size  4
+  st_ino           offset   8 size  8
+  st_mode          offset  16 size  4
+  st_nlink         offset  20 size  2
+  st_uid           offset  24 size  4
+  st_gid           offset  28 size  4
+  st_rdev          offset  32 size  4
+  st_size          offset  40 size  8
+  st_atim          offset  48 size 16
+  st_mtim          offset  64 size 16
+  st_ctim          offset  80 size 16
+  st_blksize       offset  96 size  4
+  st_blocks        offset 104 size  8
+  st_birthtim      offset 112 size 16
+S_IFMT             0170000
+S_IFREG            0100000
+S_IFDIR            040000
+S_IFIFO            010000
+S_IFLNK            0120000
+struct timespec    size 16
+  tv_sec           offset   0 size  8
+  tv_nsec          offset   8 size  8
+struct utimbuf     size 16
+  actime           offset   0 size  8
+  modtime          offset   8 size  8
+
+[struct dirent]
+struct dirent      size 280
+  d_ino            offset   8 size  8
+  d_type           offset  16 size  1
+  d_name           offset  24 size 256
+  __d_version      offset   0 size  4
+  __d_internal1    offset  20 size  4
+
+[ioctl]
+FIONREAD           0x4008667f
+FIONBIO            0x8004667e
+FIOCLEX            (not defined)
+FIOASYNC           0x8008667d
+FIOSETOWN          (not defined)
+TIOCGWINSZ         0x5401
+TIOCSWINSZ         0x5402
+TIOCGPGRP          0x540f
+TIOCSPGRP          0x5410
+TIOCLINUX          0x5403
+struct winsize     size 8
+  ws_row           offset   0 size  2
+  ws_col           offset   2 size  2
+  ws_xpixel        offset   4 size  2
+  ws_ypixel        offset   6 size  2
+
+[fcntl]
+F_DUPFD            0
+F_GETFD            1
+F_SETFD            2
+F_GETFL            3
+F_SETFL            4
+F_GETOWN           5
+F_SETOWN           6
+F_GETLK            7
+F_SETLK            8
+F_SETLKW           9
+FD_CLOEXEC         1
+O_RDONLY           0x0
+O_WRONLY           0x1
+O_RDWR             0x2
+O_ACCMODE          0x3
+O_NDELAY           0x4000
+O_NONBLOCK         0x4000
+O_APPEND           0x8
+O_CREAT            0x200
+O_TRUNC            0x400
+O_EXCL             0x800
+O_NOCTTY           0x8000
+O_SYNC             0x2000
+O_BINARY           0x10000
+O_TEXT             0x20000
+R_OK               4
+W_OK               2
+X_OK               1
+F_OK               0
+SEEK_SET           0
+SEEK_CUR           1
+SEEK_END           2
+
+[times and timers]
+struct tms         size 32
+  tms_utime        offset   0 size  8
+  tms_stime        offset   8 size  8
+  tms_cutime       offset  16 size  8
+  tms_cstime       offset  24 size  8
+struct timeval     size 16
+  tv_sec           offset   0 size  8
+  tv_usec          offset   8 size  8
+struct timezone    size 8
+  tz_minuteswest   offset   0 size  4
+  tz_dsttime       offset   4 size  4
+struct itimerval   size 32
+  it_interval      offset   0 size 16
+  it_value         offset  16 size 16
+ITIMER_REAL        0
+ITIMER_VIRTUAL     1
+ITIMER_PROF        2
+_SC_CLK_TCK        2
+_SC_PAGESIZE       8
+_SC_OPEN_MAX       4
+_SC_NPROCESSORS_ONLN 10
+struct tm          size 56
+  tm_sec           offset   0 size  4
+  tm_min           offset   4 size  4
+  tm_hour          offset   8 size  4
+  tm_mday          offset  12 size  4
+  tm_mon           offset  16 size  4
+  tm_year          offset  20 size  4
+  tm_wday          offset  24 size  4
+  tm_yday          offset  28 size  4
+  tm_isdst         offset  32 size  4
+  tm_gmtoff        offset  40 size  8
+  tm_zone          offset  48 size  8
+
+[resources]
+RLIMIT_CPU         0
+RLIMIT_FSIZE       1
+RLIMIT_DATA        2
+RLIMIT_STACK       3
+RLIMIT_CORE        4
+RLIMIT_NOFILE      5
+RLIMIT_AS          6
+RLIM_INFINITY      0xffffffffffffffff
+struct rlimit      size 16
+  rlim_cur         offset   0 size  8
+  rlim_max         offset   8 size  8
+
+[mmap]
+PROT_NONE          0x0
+PROT_READ          0x1
+PROT_WRITE         0x2
+PROT_EXEC          0x4
+MAP_SHARED         0x1
+MAP_PRIVATE        0x2
+MAP_FIXED          0x10
+MAP_ANONYMOUS      0x20
+MAP_NORESERVE      0x4000
+(unsigned long) MAP_FAILED 0xffffffffffffffff
+
+[wait]
+WNOHANG            1
+WUNTRACED          2
+WCONTINUED         8
+status encoding: exit(3) -> 0x300, low 7 bits = signal
+
+[select]
+FD_SETSIZE         1024
+fd_mask            size  8 unsigned
+sizeof(fd_set)     128
+NFDBITS            64
+
+[signals]
+SIGHUP             1
+SIGINT             2
+SIGQUIT            3
+SIGILL             4
+SIGTRAP            5
+SIGABRT            6
+SIGIOT             6
+SIGEMT             7
+SIGFPE             8
+SIGKILL            9
+SIGBUS             10
+SIGSEGV            11
+SIGSYS             12
+SIGPIPE            13
+SIGALRM            14
+SIGTERM            15
+SIGURG             16
+SIGSTOP            17
+SIGTSTP            18
+SIGCONT            19
+SIGCHLD            20
+SIGTTIN            21
+SIGTTOU            22
+SIGIO              23
+SIGPOLL            23
+SIGXCPU            24
+SIGXFSZ            25
+SIGVTALRM          26
+SIGPROF            27
+SIGWINCH           28
+SIGLOST            29
+SIGPWR             29
+SIGUSR1            30
+SIGUSR2            31
+NSIG               65
+SIGRTMIN           32
+SIGRTMAX           64
+SIG_BLOCK          1
+SIG_UNBLOCK        2
+SIG_SETMASK        0
+SA_NOCLDSTOP       0x1
+SA_SIGINFO         0x2
+SA_RESTART         0x10000000
+SA_NODEFER         0x40000000
+SA_RESETHAND       0x80000000
+SA_ONSTACK         0x20000000
+sizeof(sigset_t)   8
+struct sigaction   size 24
+  sa_handler       offset   0 size  8
+  sa_mask          offset   8 size  8
+  sa_flags         offset  16 size  4
+struct siginfo     size 148
+  si_signo         offset   0
+  si_code          offset   4
+  si_addr          offset  20
+FPE_INTDIV         15
+FPE_INTOVF         16
+FPE_FLTDIV         17
+FPE_FLTOVF         18
+FPE_FLTUND         19
+FPE_FLTRES         20
+FPE_FLTINV         21
+FPE_FLTSUB         22
+SEGV_MAPERR        23
+SEGV_ACCERR        24
+BUS_ADRALN         25
+BUS_ADRERR         26
+BUS_OBJERR         27
+ILL_ILLOPC         7
+ILL_PRVOPC         11
+sizeof(ucontext_t) 1296, uc_mcontext offset 0, rip offset in mcontext 248
+
+[errno]
+EPERM              1
+ENOENT             2
+ESRCH              3
+EINTR              4
+EIO                5
+ENXIO              6
+E2BIG              7
+ENOEXEC            8
+EBADF              9
+ECHILD             10
+EAGAIN             11
+ENOMEM             12
+EACCES             13
+EFAULT             14
+EBUSY              16
+EEXIST             17
+EXDEV              18
+ENODEV             19
+ENOTDIR            20
+EISDIR             21
+EINVAL             22
+ENFILE             23
+EMFILE             24
+ENOTTY             25
+EFBIG              27
+ENOSPC             28
+ESPIPE             29
+EROFS              30
+EMLINK             31
+EPIPE              32
+EDOM               33
+ERANGE             34
+EWOULDBLOCK        11
+ENOSR              63
+ELOOP              92
+EDQUOT             132
+ENOTSOCK           108
+EADDRINUSE         112
+EISCONN            127
+ENOTCONN           128
+ECONNREFUSED       111
+EALREADY           120
+EINPROGRESS        119
+ENAMETOOLONG       91
+ENOTEMPTY          90
+ECONNRESET         104
+ETIMEDOUT          116
+ENOSYS             88
+EDEADLK            45
+EHOSTUNREACH       118
+ENETUNREACH        114
+EADDRNOTAVAIL      125
+EAFNOSUPPORT       106
+EPROTONOSUPPORT    123
+EMSGSIZE           122
+ENOBUFS            105
+EOPNOTSUPP         95
+ECONNABORTED       113
+EDESTADDRREQ       121
+ESHUTDOWN          110
+
+[termios]
+struct termios     size 44
+tcflag_t           size  4 unsigned
+speed_t            size  4 unsigned
+cc_t               size  1 unsigned
+NCCS               18
+  c_iflag          offset   0 size  4
+  c_oflag          offset   4 size  4
+  c_cflag          offset   8 size  4
+  c_lflag          offset  12 size  4
+  c_line           offset  16 size  1
+  c_cc             offset  17 size 18
+  c_ispeed         offset  36 size  4
+  c_ospeed         offset  40 size  4
+TCSANOW            2
+TCSADRAIN          3
+TCSAFLUSH          1
+TCIFLUSH           0
+TCOFLUSH           1
+TCIOFLUSH          2
+_POSIX_VDISABLE    0
+VINTR              6
+VQUIT              10
+VERASE             5
+VKILL              7
+VEOF               4
+VEOL               2
+VEOL2              3
+VMIN               9
+VTIME              16
+VSTART             12
+VSTOP              13
+VSUSP              14
+VREPRINT           11
+VDISCARD           1
+VWERASE            17
+VLNEXT             8
+VSWTC              15
+IGNBRK             0x1
+BRKINT             0x2
+IGNPAR             0x4
+PARMRK             0x10000
+INPCK              0x10
+ISTRIP             0x20
+INLCR              0x40
+IGNCR              0x80
+ICRNL              0x100
+IUCLC              0x4000
+IXON               0x400
+IXANY              0x8000
+IXOFF              0x1000
+IMAXBEL            0x8
+OPOST              0x1
+OLCUC              0x2
+ONLCR              0x8
+OCRNL              0x4
+ONOCR              0x10
+ONLRET             0x20
+OFILL              0x40
+OFDEL              0x8000
+NLDLY              0x200
+NL0                0x0
+NL1                0x200
+CRDLY              0x180
+CR0                0x0
+CR1                0x80
+CR2                0x100
+CR3                0x180
+TABDLY             0x1800
+TAB0               0x0
+TAB1               0x800
+TAB2               0x1000
+TAB3               0x1800
+BSDLY              0x400
+BS0                0x0
+BS1                0x400
+VTDLY              0x2000
+VT0                0x0
+VT1                0x2000
+FFDLY              0x4000
+FF0                0x0
+FF1                0x4000
+CBAUD              0x100f
+B0                 0x0
+B50                0x1
+B75                0x2
+B110               0x3
+B134               0x4
+B150               0x5
+B200               0x6
+B300               0x7
+B600               0x8
+B1200              0x9
+B1800              0xa
+B2400              0xb
+B4800              0xc
+B9600              0xd
+B19200             0xe
+B38400             0xf
+CBAUDEX            0x100f
+B57600             0x1001
+B115200            0x1002
+B230400            0x1004
+B460800            0x1006
+CSIZE              0x30
+CS5                0x0
+CS6                0x10
+CS7                0x20
+CS8                0x30
+CSTOPB             0x40
+CREAD              0x80
+PARENB             0x100
+PARODD             0x200
+HUPCL              0x400
+CLOCAL             0x800
+CRTSCTS            0x8000
+XCASE              (not defined)
+ISIG               0x1
+ICANON             0x2
+ECHO               0x4
+ECHOE              0x8
+ECHOK              0x10
+ECHONL             0x20
+NOFLSH             0x40
+TOSTOP             0x80
+IEXTEN             0x100
+FLUSHO             0x200
+ECHOKE             0x400
+ECHOCTL            0x800
+
+[dynamic loading]
+RTLD_LAZY          0x1
+RTLD_NOW           0x2
+RTLD_GLOBAL        0x4
+RTLD_LOCAL         0x0
+
+[passwd, utsname]
+struct passwd      size 56
+  pw_name          offset   0 size  8
+  pw_passwd        offset   8 size  8
+  pw_uid           offset  16 size  4
+  pw_gid           offset  20 size  4
+  pw_gecos         offset  32 size  8
+  pw_dir           offset  40 size  8
+  pw_shell         offset  48 size  8
+struct utsname     size 390
+  sysname          offset   0 size 65
+  nodename         offset  65 size 65
+  release          offset 130 size 65
+  version          offset 195 size 65
+  machine          offset 260 size 65
+
+[sockets]
+AF_UNIX            1
+AF_INET            2
+AF_INET6           23
+SOCK_STREAM        1
+SOCK_DGRAM         2
+SOL_SOCKET         0xffff
+SO_REUSEADDR       0x4
+SO_KEEPALIVE       0x8
+SO_BROADCAST       0x20
+SO_LINGER          0x80
+SO_SNDBUF          0x1001
+SO_RCVBUF          0x1002
+SO_ERROR           0x1007
+SO_TYPE            0x1008
+SO_OOBINLINE       0x100
+MSG_OOB            0x1
+MSG_PEEK           0x2
+IPPROTO_TCP        6
+TCP_NODELAY        0x1
+struct sockaddr    size 16
+  sa_family        offset   0 size  2
+  sa_data          offset   2 size 14
+struct sockaddr_in size 16
+  sin_family       offset   0 size  2
+  sin_port         offset   2 size  2
+  sin_addr         offset   4 size  4

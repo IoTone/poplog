@@ -22,10 +22,10 @@ vars _image_handle = _0;    ;;; for SunOS
 
 
     /*  dummy external load to force linking against the dynamic linker
-        library (not needed for IRIX 5/OSF1/Darwin -- everything's in
-        libc.so / libSystem)
+        library (not needed for IRIX 5/OSF1/Darwin/Cygwin -- everything's in
+        libc.so / libSystem / cygwin1.dll)
     */
-#_IF DEF UNIX and not(DEFV IRIX >= 5.0 or DEF OSF1 or DEF DARWIN)
+#_IF DEF UNIX and not(DEFV IRIX >= 5.0 or DEF OSF1 or DEF DARWIN or DEF CYGWIN)
 exload dl [^DL_LIB]
     lconstant exload_dummy;     ;;; anything will do
 endexload;
@@ -60,6 +60,8 @@ lconstant macro DLOPEN_FLAGS = 16:001;  ;;; RTLD_LAZY
 lconstant macro DLOPEN_FLAGS = 16:001;  ;;; RTLD_LAZY
 #_ELSEIF DEF DARWIN
 lconstant macro DLOPEN_FLAGS = 16:9;    ;;; macOS: RTLD_LAZY(0x1) | RTLD_GLOBAL(0x8)
+#_ELSEIF DEF CYGWIN
+lconstant macro DLOPEN_FLAGS = 16:5;    ;;; Cygwin: RTLD_LAZY(0x1) | RTLD_GLOBAL(0x4)
 #_ENDIF
 
     /* open a shared library, allowing for unresolved references
@@ -243,7 +245,8 @@ define Name_translate(name, lang, cvt_always) -> name;
     endif;
 #_ELSE
     returnunless(cvt_always);
-  #_IF not(DEF SYSTEM_V or DEF COFF or DEF HP9000_700 or DEF UNIX_ELF)
+  #_IF not(DEF SYSTEM_V or DEF COFF or DEF HP9000_700 or DEF UNIX_ELF or DEF CYGWIN)
+    ;;; (x86-64 PE symbols, unlike 32-bit ones, have no leading underscore)
     '_' <> name -> name;
   #_ENDIF
     ;;; the only one that needs something special is Unix FORTRAN

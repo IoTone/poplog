@@ -22,7 +22,7 @@ section $-Sys => sys_convert_date, sysdaytime;
 ;;; Linux/FreeBSD (40/48 -- verified); the BERKELEY fallback would CALL
 ;;; timezone(), which on macOS is a POSIX data variable, not a function
 ;;; (branching to it faulted in libc's __DATA during the image build).
-#_IF DEFV SUNOS < 5.0 or DEF OSF1 or DEFV ULTRIX >= 4.0 or DEF LINUX or DEF FREEBSD or DEF NETBSD or DEF DARWIN
+#_IF DEFV SUNOS < 5.0 or DEF OSF1 or DEFV ULTRIX >= 4.0 or DEF LINUX or DEF FREEBSD or DEF NETBSD or DEF DARWIN or DEF CYGWIN
 lconstant macro USE_TM_ZONE = true;
 #_ELSEIF DEF SYSTEM_V or DEF HPUX or DEF AIX
 lconstant macro TZNAME = [tzname:data];     ;;; Timezone name for System V systems
