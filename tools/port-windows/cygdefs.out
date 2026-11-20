@@ -486,6 +486,27 @@ MSG_OOB            0x1
 MSG_PEEK           0x2
 IPPROTO_TCP        6
 TCP_NODELAY        0x1
+struct hostent     size 32
+  h_name           offset   0 size  8
+  h_aliases        offset   8 size  8
+  h_addrtype       offset  16 size  2
+  h_length         offset  18 size  2
+  h_addr_list      offset  24 size  8
+struct servent     size 32
+  s_name           offset   0 size  8
+  s_aliases        offset   8 size  8
+  s_port           offset  16 size  2
+  s_proto          offset  24 size  8
+struct protoent    size 24
+  p_name           offset   0 size  8
+  p_aliases        offset   8 size  8
+  p_proto          offset  16 size  2
+struct sockaddr_un size 110
+  sun_family       offset   0 size  2
+  sun_path         offset   2 size 108
+struct linger      size 4
+  l_onoff          offset   0 size  2
+  l_linger         offset   2 size  2
 struct sockaddr    size 16
   sa_family        offset   0 size  2
   sa_data          offset   2 size 14

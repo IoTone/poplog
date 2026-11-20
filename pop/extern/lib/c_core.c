@@ -2016,6 +2016,16 @@ char * _pop_sbrk(long nbytes) {
     return current_break;
 }
 
+/* Cygwin has no networks database and no getnetbyname.  LIB UNIX_SOCKETS
+   declares it with everything else it loads, so without a definition the
+   whole sockets library fails to load.  Answering "no such network" is what
+   a system with an empty /etc/networks would do. */
+struct netent;
+struct netent *getnetbyname(const char *name) {
+    (void) name;
+    return (struct netent *) 0;
+}
+
 /* environ lives in the Cygwin DLL; Pop code cannot address a DLL's data
    directly (see setpop.p), so it calls this. */
 char **_pop_environ(void) {

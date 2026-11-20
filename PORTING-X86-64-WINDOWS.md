@@ -14,9 +14,10 @@
 | Spikes S1–S3 (§9) | run on Windows 11 with Cygwin 3.6.12, gcc 14.4.0, binutils 2.47; **go**, with two design changes they forced (§3.5, §3.2) |
 | Spike S4, cross-emission from the Pi 5 (§9) | run; the whole system cross-compiles to PE objects and links on Windows up to the C runtime |
 | Build | `./configure --with_no_x && make all` from a Cygwin shell, seeded by a `corepop.exe`, completes in under a minute with no errors: popc, the system sources, a new `corepop`, `basepop11`, and the start-up, Lisp, Prolog and ML images. The seed used for the last run was itself built that way (second generation) |
-| Validation | `tools/validate-cygwin.sh`: **36 of 36 gates pass** (2026-11-20, one machine, Cygwin 3.6.12). It covers the four languages, interactive use and VED under a pseudo-terminal, faults becoming mishaps, child processes and pipes, heap growth, saving and restoring an image, and external calls with integer, float, string and more than four arguments |
+| Validation | `tools/validate-cygwin.sh`: **44 of 44 gates pass** (2026-11-20, one machine, Cygwin 3.6.12). It covers the four languages, interactive use and VED under a pseudo-terminal, faults becoming mishaps, child processes and pipes, heap growth, saving and restoring an image, external calls with integer, float, string and more than four arguments, a DLL built on the spot, and callbacks from C into Pop |
+| Library suites | `tools/test-libs.sh`: **17 of 19 pass**, 467 checks, including sockets, the HTTP server, JSON-RPC, the Swank server, child-process signals, pipes, regexps and UTF-8. The other two (`test_pcre`, `test_http_client`) need the optional pcre and curl shims, which have not been built here |
 | Linux | The same changes applied to a fresh tree on the Pi 5 (aarch64 Linux): `make all` exits 0 and `tools/validate-raspi5.sh` passes 13 of 13. That covers the shared C and Pop edits. **x86-64 Linux, which shares the edited assembly files, has not been built**, nor macOS or RISC-V |
-| Not done | callbacks from C into Pop; `exload` of a DLL built here; sockets; timers and asynchronous I/O; X and graphics; the packages; a published seed (it exists only on one machine); a third-generation comparison |
+| Not done | the pcre and curl shims; timers and asynchronous I/O beyond what the suites touch; X and graphics; the packages; the editor integrations; a published seed (it exists only on one machine); a third-generation comparison |
 
 Claims in this document are marked by how they were established:
 **[source]** was read in this tree; **[platform]** is a documented property of
@@ -574,6 +575,28 @@ it:
     VED's screen drawing worked without change: the `termios` tables of §3.6
     are right at least as far as raw mode, echo and the control characters
     VED sets.
+
+13. **A DLL built here loads, and C can call back into Pop.**
+    `tools/port-windows/ffi-callback.c` is compiled with `gcc -shared` and
+    loaded by `exload`. Seven integer arguments, integers and doubles
+    interleaved, and a single-float argument and result all arrive
+    correctly. A callback made through `exfunc_export` works, including 500
+    callbacks that each allocate (so the collector runs with C frames on the
+    stack) while the C caller keeps state in callee-saved registers, and a
+    mishap inside a callback unwinds through the C frames. This is the
+    `sysv_abi` declaration of `_pop_external_callback` doing its job: the
+    assembly entry is the Linux one, unchanged.
+14. **Cygwin's name-lookup structures are Winsock's.** In `struct hostent`,
+    `servent` and `protoent` the address type and length, the port and the
+    protocol number are 16 bits where Unix has `int`, and `struct linger` is
+    two 16-bit fields. `LIB UNIX_SOCKETS` read `h_addrtype` as a 32-bit
+    field, got the length mixed into it, and rejected every host name. The
+    library now has Cygwin layouts. Also **Cygwin has no `getnetbyname`**;
+    the C runtime supplies one that finds nothing, so the library loads.
+15. **`tools/test-libs.sh` needs a Cygwin perl or none.** If the only perl
+    on the path is Git for Windows' (an MSYS program), every suite is
+    reported as failing. Run it with `PATH=/usr/local/bin:/usr/bin`, or
+    install Cygwin's perl.
 
 Three of the first failures were mistakes in the test, not the port, and are
 worth knowing: a variadic external call takes its argument count last

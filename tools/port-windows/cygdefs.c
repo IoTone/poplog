@@ -25,6 +25,8 @@
 #include <sys/utsname.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <netdb.h>
+#include <sys/un.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -243,6 +245,12 @@ int main(void) {
     H(SOL_SOCKET); H(SO_REUSEADDR); H(SO_KEEPALIVE); H(SO_BROADCAST); H(SO_LINGER);
     H(SO_SNDBUF); H(SO_RCVBUF); H(SO_ERROR); H(SO_TYPE); H(SO_OOBINLINE);
     H(MSG_OOB); H(MSG_PEEK); D(IPPROTO_TCP); H(TCP_NODELAY);
+    ST(hostent); F(hostent, h_name); F(hostent, h_aliases); F(hostent, h_addrtype);
+    F(hostent, h_length); F(hostent, h_addr_list);
+    ST(servent); F(servent, s_name); F(servent, s_aliases); F(servent, s_port); F(servent, s_proto);
+    ST(protoent); F(protoent, p_name); F(protoent, p_aliases); F(protoent, p_proto);
+    ST(sockaddr_un); F(sockaddr_un, sun_family); F(sockaddr_un, sun_path);
+    ST(linger); F(linger, l_onoff); F(linger, l_linger);
     ST(sockaddr); F(sockaddr, sa_family); F(sockaddr, sa_data);
     ST(sockaddr_in); F(sockaddr_in, sin_family); F(sockaddr_in, sin_port); F(sockaddr_in, sin_addr);
     return 0;

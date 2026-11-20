@@ -221,6 +221,21 @@ gate "six arguments to a variadic function"        'SNPRINTF 11-22-33'
 gate "eight arguments (four on the stack)"         'EIGHT 1 2 3 4 5'
 gate "no-argument call (getpid)"                   'GETPID <true>'
 
+echo "-- gate 12: a DLL built here, and callbacks from C into Pop --"
+if command -v gcc >/dev/null 2>&1 && gcc -shared -O1 -o "$T/ffi-callback.dll" tools/port-windows/ffi-callback.c 2>"$T/cc.err"; then
+    OUT=$(FFI_CALLBACK_LIB="$T/ffi-callback.dll" pop11 tools/port-windows/ffi-callback.p)
+    gate_mishap "seven integer arguments"               'WEIGH7 7654321'
+    gate_mishap "integers and doubles interleaved"      'MIX 11\.5'
+    gate_mishap "single-float argument and result"      'HALVE 2\.5'
+    gate_mishap "C writes into a Pop string"            'FILL zzzzzzzz'
+    gate_mishap "callback from C into Pop"              'TWICE -6993'
+    gate_mishap "500 allocating callbacks, C registers intact" 'LOOP 225250'
+    gate_mishap "mishap inside a callback unwinds the C frames" 'MISHAP-IN-CALLBACK'
+    gate_mishap "callbacks still work afterwards"       'AFTER -6993'
+else
+    skip "DLL gates (no gcc, or the test library did not build)"
+fi
+
 echo
 echo "== summary: $PASS passed, $FAIL failed, $SKIP skipped =="
 [ "$FAIL" = 0 ] && echo "   PORT VALIDATED (console core)." || echo "   VALIDATION INCOMPLETE."
