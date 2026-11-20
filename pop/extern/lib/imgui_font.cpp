@@ -99,6 +99,14 @@ extern "C" int pop_gfx_font_init(void)
     cands[n++] = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf";
     cands[n++] = "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc";
     cands[n++] = "/Library/Fonts/Arial Unicode.ttf";
+#elif defined(__CYGWIN__)
+    /* Shipped with Windows 10 and 11 (Yu Gothic, Meiryo) and with every
+     * Japanese-capable Windows before them (MS Gothic).  The paths assume
+     * Cygwin's default /cygdrive prefix and Windows on drive C; set
+     * POPLOG_GFX_FONT otherwise. */
+    cands[n++] = "/cygdrive/c/Windows/Fonts/YuGothR.ttc";
+    cands[n++] = "/cygdrive/c/Windows/Fonts/meiryo.ttc";
+    cands[n++] = "/cygdrive/c/Windows/Fonts/msgothic.ttc";
 #else
     /* Debian/Ubuntu, Fedora, Arch, and the Noto JP-only package. */
     cands[n++] = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc";

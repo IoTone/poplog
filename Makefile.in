@@ -59,6 +59,27 @@ GFX_LINK_OBJS  = ${popexlib}/imgui_backend_sdl.o ${popexlib}/imgui_font.o \
 GFX_LINK_LDFLAGS = @@GFX_SDL_LIBS@@
 export POP_GFX_OBJECTS = ${GFX_LINK_OBJS}
 export POP_GFX_LDFLAGS = ${GFX_LINK_LDFLAGS}
+else ifeq (${GFX_CONF},imgui-win32)
+# Experimental native graphics backend for Windows (Dear ImGui + Win32 +
+# Direct3D 11), built with Cygwin's g++.  Glue:
+# pop/extern/lib/imgui_backend_win32.cpp.  Nothing to install: d3d11,
+# d3dcompiler and the rest ship with Windows.  The extra compile flags are
+# for Cygwin: gnu++17 because strict ISO mode hides POSIX declarations the
+# glue uses; -include stdint.h because imgui_impl_dx11.cpp uses intptr_t
+# without including it (it gets it from elsewhere under MSVC and MinGW);
+# and no gamepad, which would need XInput.
+XL_FLAG=-nox
+GFX_CXX        = c++
+GFX_INCLUDES   = -std=gnu++17 -include stdint.h -DIMGUI_IMPL_WIN32_DISABLE_GAMEPAD \
+                 -I${GFX_IMGUI} -I${GFX_IMGUI}/backends -Ipop/extern/lib
+GFX_LINK_OBJS  = ${popexlib}/imgui_backend_win32.o ${popexlib}/imgui_font.o \
+                 ${popexlib}/imgui.o \
+                 ${popexlib}/imgui_draw.o ${popexlib}/imgui_tables.o \
+                 ${popexlib}/imgui_widgets.o ${popexlib}/imgui_impl_win32.o \
+                 ${popexlib}/imgui_impl_dx11.o
+GFX_LINK_LDFLAGS = -ld3d11 -ld3dcompiler -ldxgi -ldwmapi -lgdi32 -luser32 -limm32 -lstdc++
+export POP_GFX_OBJECTS = ${GFX_LINK_OBJS}
+export POP_GFX_LDFLAGS = ${GFX_LINK_LDFLAGS}
 else
 ifeq (${X_CONF},no)
 XL_FLAG=-nox
@@ -312,6 +333,13 @@ ${popexlib}/imgui_backend_sdl.o: pop/extern/lib/imgui_backend_sdl.cpp stamp_dirs
 ${popexlib}/imgui_impl_sdl3.o: ${GFX_IMGUI}/backends/imgui_impl_sdl3.cpp stamp_dirs_and_symlinks
 	${GFX_CXX} -std=c++17 -O2 ${GFX_INCLUDES} -c $< -o $@
 ${popexlib}/imgui_impl_opengl3.o: ${GFX_IMGUI}/backends/imgui_impl_opengl3.cpp stamp_dirs_and_symlinks
+	${GFX_CXX} -std=c++17 -O2 ${GFX_INCLUDES} -c $< -o $@
+# Windows (Win32 + Direct3D 11) glue + backends -- plain C++
+${popexlib}/imgui_backend_win32.o: pop/extern/lib/imgui_backend_win32.cpp stamp_dirs_and_symlinks
+	${GFX_CXX} -std=c++17 -O2 ${GFX_INCLUDES} -c $< -o $@
+${popexlib}/imgui_impl_win32.o: ${GFX_IMGUI}/backends/imgui_impl_win32.cpp stamp_dirs_and_symlinks
+	${GFX_CXX} -std=c++17 -O2 ${GFX_INCLUDES} -c $< -o $@
+${popexlib}/imgui_impl_dx11.o: ${GFX_IMGUI}/backends/imgui_impl_dx11.cpp stamp_dirs_and_symlinks
 	${GFX_CXX} -std=c++17 -O2 ${GFX_INCLUDES} -c $< -o $@
 
 

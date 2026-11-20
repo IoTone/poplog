@@ -236,6 +236,30 @@ else
     skip "DLL gates (no gcc, or the test library did not build)"
 fi
 
+echo "-- gate 13: graphics (Dear ImGui on Win32 + Direct3D 11) --"
+# Only when basepop11 was built with ./configure --experimental-graphics.
+# The window is never shown and the software rasteriser is used, so this
+# needs neither a GPU nor anyone watching; it does need a desktop session.
+if nm target/pop/basepop11.exe 2>/dev/null | grep -q pop_gfx_init; then
+    OUT=$(GFX_TEST_OUT="$T/gfx.ppm" POP_GFX_HEADLESS=1 POP_GFX_RENDERER=warp \
+          TMO=90 pop11 tools/port-windows/gfx-test.p)
+    gate "window, device and font from Pop-11"         'SPEC Win32 \+ Direct3D 11'
+    gate "frame rendered and read back"                'RENDERED 1'
+    if [ -f "$T/gfx.ppm" ]; then
+        # 800x520 RGB after a 15-byte header, and more than a blank frame:
+        # the scene has a dark background and four bright colours.
+        OUT="size $(stat -c %s "$T/gfx.ppm") colours $(tail -c +16 "$T/gfx.ppm" | od -An -v -tu1 -w3 | sort -u | wc -l)"
+        gate "image is 800x520 and not blank"          '^size 1248015 colours ([5-9]|[1-9][0-9]+)$'
+    else
+        OUT="no image file"; gate "image is 800x520 and not blank" 'never'
+    fi
+    OUT=$(POP_GFX_HEADLESS=1 POP_GFX_RENDERER=warp timeout 240 "${BASE[@]}" \
+          < tools/teach-rc-graphic-walkthrough.p 2>&1)
+    gate "TEACH RC_GRAPHIC walkthrough"                'teach-walkthrough-PASSED'
+else
+    skip "graphics (basepop11 built without --experimental-graphics)"
+fi
+
 echo
 echo "== summary: $PASS passed, $FAIL failed, $SKIP skipped =="
 [ "$FAIL" = 0 ] && echo "   PORT VALIDATED (console core)." || echo "   VALIDATION INCOMPLETE."

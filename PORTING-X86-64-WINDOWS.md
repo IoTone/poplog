@@ -14,10 +14,11 @@
 | Spikes S1–S3 (§9) | run on Windows 11 with Cygwin 3.6.12, gcc 14.4.0, binutils 2.47; **go**, with two design changes they forced (§3.5, §3.2) |
 | Spike S4, cross-emission from the Pi 5 (§9) | run; the whole system cross-compiles to PE objects and links on Windows up to the C runtime |
 | Build | `./configure --with_no_x && make all` from a Cygwin shell, seeded by a `corepop.exe`, completes in under a minute with no errors: popc, the system sources, a new `corepop`, `basepop11`, and the start-up, Lisp, Prolog and ML images. The seed used for the last run was itself built that way (second generation) |
-| Validation | `tools/validate-cygwin.sh`: **44 of 44 gates pass** (2026-11-20, one machine, Cygwin 3.6.12). It covers the four languages, interactive use and VED under a pseudo-terminal, faults becoming mishaps, child processes and pipes, heap growth, saving and restoring an image, external calls with integer, float, string and more than four arguments, a DLL built on the spot, and callbacks from C into Pop |
+| Validation | `tools/validate-cygwin.sh`: **48 of 48 gates pass** on a graphics build, 44 of 44 without (2026-11-20, one machine, Cygwin 3.6.12). It covers the four languages, interactive use and VED under a pseudo-terminal, faults becoming mishaps, child processes and pipes, heap growth, saving and restoring an image, external calls with integer, float, string and more than four arguments, a DLL built on the spot, callbacks from C into Pop, and graphics |
+| Graphics | `./configure --experimental-graphics` builds a native Dear ImGui backend (Win32 window, Direct3D 11) into `basepop11`. `LIB POPGFX` and `LIB RC_GRAPHIC` run unchanged; the TEACH RC_GRAPHIC walkthrough passes. See "Graphics" in §9. X11 is not attempted |
 | Library suites | `tools/test-libs.sh`: **17 of 19 pass**, 467 checks, including sockets, the HTTP server, JSON-RPC, the Swank server, child-process signals, pipes, regexps and UTF-8. The other two (`test_pcre`, `test_http_client`) need the optional pcre and curl shims, which have not been built here |
 | Linux | The same changes applied to a fresh tree on the Pi 5 (aarch64 Linux): `make all` exits 0 and `tools/validate-raspi5.sh` passes 13 of 13. That covers the shared C and Pop edits. **x86-64 Linux, which shares the edited assembly files, has not been built**, nor macOS or RISC-V |
-| Not done | the pcre and curl shims; timers and asynchronous I/O beyond what the suites touch; X and graphics; the packages; the editor integrations; a published seed (it exists only on one machine); a third-generation comparison |
+| Not done | the pcre and curl shims; timers and asynchronous I/O beyond what the suites touch; X11; mouse and panel interaction in the graphics window (nobody has clicked in it); the packages; the editor integrations; a published seed (it exists only on one machine); a third-generation comparison |
 
 Claims in this document are marked by how they were established:
 **[source]** was read in this tree; **[platform]** is a documented property of
@@ -298,8 +299,7 @@ the port uses a C shim instead, as `pop_stat.c` already does for `stat`
 **In:** `corepop.exe`, `basepop11.exe`, terminal VED, `startup.psv`, the
 Lisp, Prolog and ML images, `sysobey`/pipes, `exload` of a plain DLL.
 
-**Out, to be added back one at a time:** X and Motif, the ImGui graphics
-backends, `pop_jit.c`, System V shared memory, the neural and vision
+**Out, to be added back one at a time:** X and Motif, `pop_jit.c`, System V shared memory, the neural and vision
 libraries, anything that needs `-export-dynamic`.
 
 ## 5. Bootstrap: where the first `corepop.exe` comes from
@@ -602,6 +602,53 @@ Three of the first failures were mistakes in the test, not the port, and are
 worth knowing: a variadic external call takes its argument count last
 (`exacc f(#| a, b, c |#)`); `pipein` wants a full path; and `popmemlim` stops
 a 24 MB allocation by default.
+
+### Graphics (2026-11-20)
+
+There is no good route to X11 here (Cygwin/X would need an X server running
+beside every Poplog), so graphics on Windows is the Dear ImGui path the Mac
+and Linux ports already have, with a third backend:
+`pop/extern/lib/imgui_backend_win32.cpp`, selected by
+`./configure --experimental-graphics` (or `=win32`).
+
+- **Platform and renderer:** Dear ImGui's own Win32 backend and its Direct3D
+  11 renderer. Nothing has to be installed: `d3d11`, `d3dcompiler` and the
+  rest ship with Windows, and Cygwin's `w32api` package has the headers and
+  import libraries. Only Cygwin's `gcc-g++` is needed, plus
+  `tools/fetch-imgui.sh` as on the other platforms.
+- **Why not SDL:** Cygwin's SDL is an X11 program. **Why not OpenGL:** on a
+  virtual machine or a remote session Windows often offers only the GDI
+  OpenGL 1.1, which ImGui's OpenGL 3 renderer cannot use. Direct3D 11 has a
+  software rasteriser, WARP, used automatically when there is no GPU and on
+  request with `POP_GFX_RENDERER=warp`.
+- **The same interface:** the file implements the `pop_gfx_*` surface of
+  `imgui_backend.h`, and its drawing half is the SDL backend's, so
+  `LIB POPGFX` and `LIB RC_GRAPHIC` needed no change.
+- **A Cygwin program opening a Win32 window** is unremarkable: it creates the
+  window on the calling thread and pumps its messages from `pop_gfx_poll`.
+- `POP_GFX_HEADLESS` keeps the window hidden and `pop_gfx_render_to_ppm`
+  reads a frame back, which is what the validation gate uses.
+
+What was checked: the C harness (`imgui_headless.cpp`) rendered its scene on
+the machine's GPU and on WARP; `tools/port-windows/gfx-test.p` drew the same
+scene from Pop-11 and the image was looked at (lines, circle, arc and
+Japanese text all in place); a visible window ran 720 frames at the display's
+120 Hz and Windows reported it by title; the TEACH RC_GRAPHIC walkthrough
+passed. Not checked: clicking, dragging or typing in the window, the panel
+widgets, resizing, more than one monitor, high-DPI scaling.
+
+Three things it needed outside the new file:
+
+16. **`main` calls `__main` on Cygwin.** C++ static constructors run from
+    `__main`, which a compiled `main` calls first; the assembly `main` did
+    not (item 6), so it now does.
+17. Two compiler flags for Cygwin's g++: `-std=gnu++17`, because strict ISO
+    mode hides POSIX declarations, and `-include stdint.h`, because ImGui's
+    Direct3D backend uses `intptr_t` without including it. Vendored ImGui is
+    not patched.
+18. Direct3D raises C++ exceptions internally while starting up. The
+    vectored handler sees them first and passes them on, as it should
+    (`POP_FAULT_TRACE` shows them as "not a fault we translate").
 
 ## 10. Later: a native build
 

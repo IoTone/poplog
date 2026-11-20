@@ -75,6 +75,19 @@ EXTERN_NAME(main):
 
 #_ENDIF
 
+#_IF DEF CYGWIN
+
+    ;;; Run the static constructors of any C++ linked into the image (the
+    ;;; graphics backend).  A compiler-generated main does this itself by
+    ;;; calling __main first; this main is assembly, so it must ask.
+    ;;; The stack pointer is a multiple of 16 here.
+
+    subq    $32, %rsp
+    call    EXTERN_NAME(__main)
+    addq    $32, %rsp
+
+#_ENDIF
+
     ;;; Initialise the floating-point unit
 
     call    fpu_init
