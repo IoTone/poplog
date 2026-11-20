@@ -1508,6 +1508,11 @@ typedef union OVERHEAD {
 
 
 #define MAGIC       0xff00fe01  /* magic # on accounting info */
+#if defined(__CYGWIN__)
+/* an aligned allocation: see memalign, after cfree */
+#define MAGIC_ALIGNED   0xff00fe02
+#define ALIGNED_RAW(a)  (((char **) (a))[-2])
+#endif
 #define NBUCKETS    62          /* number of buckets in table */
 
 /*
@@ -1720,6 +1725,14 @@ void free(void *cp) {
 
     if (cp == NULL) return;
     p = (ALLOCP)(cp - sizeof (union OVERHEAD));
+#if defined(__CYGWIN__)
+    if (p->magic_num == MAGIC_ALIGNED) {
+        /* from memalign and friends, below: free the enclosing block */
+        p->magic_num = 0;
+        free(ALIGNED_RAW(cp));
+        return;
+    }
+#endif
     if (p->magic_num != MAGIC) return;
 
     /* Stop poll_appcons getting called asynchronously, since the X event
@@ -1777,6 +1790,16 @@ void *realloc(void * cp, size_t nbytes) {
     if (cp == NULL) return(malloc(nbytes));
 
     p = (ALLOCP)(cp - sizeof(union OVERHEAD));
+#if defined(__CYGWIN__)
+    if (p->magic_num == MAGIC_ALIGNED) {
+        /* the result need not keep the alignment */
+        size = p->bucket_index;
+        if ((res = malloc(nbytes)) == NULL) return (NULL);
+        copybytes(cp, res, (nbytes < size) ? nbytes : size);
+        free(cp);
+        return(res);
+    }
+#endif
     if (p->magic_num == MAGIC) {
         was_alloced++;
         bucket = p->bucket_index;
@@ -1840,6 +1863,63 @@ void *calloc(size_t num, size_t size) {
 void cfree(char * p, unsigned num, unsigned size) {
     free(p);
 }
+
+#if defined(__CYGWIN__)
+
+/*  Aligned allocation.
+ *
+ *  A program that supplies its own malloc on Cygwin is used for every
+ *  allocation in the process, the C library's and every DLL's included.
+ *  It must then supply the aligned allocators as well: if it does not,
+ *  Cygwin's own posix_memalign calls itself until the stack is exhausted
+ *  and the process ends with no message.  OpenSSL (LIB CRYPTO, and curl
+ *  through it) asks for 64-byte-aligned memory the first time it is used,
+ *  so that is how this was found.
+ *
+ *  The aligned address is taken from inside an ordinary block.  Just below
+ *  it sit the usual 8-byte header, with MAGIC_ALIGNED in place of MAGIC and
+ *  the requested size in place of the bucket, and below that the address
+ *  of the block itself, which is what free() releases.
+ */
+void *memalign(size_t alignment, size_t nbytes) {
+    char *raw, *a;
+    ALLOCP h;
+    size_t slack = 2 * sizeof(union OVERHEAD);
+
+    if (alignment < sizeof(union OVERHEAD)) alignment = sizeof(union OVERHEAD);
+    if ((alignment & (alignment - 1)) != 0) { errno = EINVAL; return(NULL); }
+    if (nbytes > 0xffffffffUL - alignment - slack) { errno = ENOMEM; return(NULL); }
+
+    raw = malloc(nbytes + alignment + slack);
+    if (raw == NULL) return(NULL);
+    a = (char *) (((unsigned long) raw + slack + alignment - 1)
+                  & ~((unsigned long) alignment - 1));
+    ALIGNED_RAW(a) = raw;
+    h = (ALLOCP) (a - sizeof(union OVERHEAD));
+    h->magic_num = MAGIC_ALIGNED;
+    h->bucket_index = (unsigned) nbytes;
+    return(a);
+}
+
+int posix_memalign(void **memptr, size_t alignment, size_t nbytes) {
+    void *p;
+    if (alignment % sizeof(void *) != 0 || (alignment & (alignment - 1)) != 0
+        || alignment == 0)
+        return(EINVAL);
+    if ((p = memalign(alignment, nbytes)) == NULL) return(ENOMEM);
+    *memptr = p;
+    return(0);
+}
+
+void *aligned_alloc(size_t alignment, size_t nbytes) {
+    return(memalign(alignment, nbytes));
+}
+
+void *valloc(size_t nbytes) {
+    return(memalign(65536, nbytes));
+}
+
+#endif  /* __CYGWIN__ */
 
 
 

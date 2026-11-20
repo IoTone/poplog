@@ -23,6 +23,13 @@
  * Environment:
  *   POP_GFX_HEADLESS   if set, the window is created but never shown
  *   POP_GFX_RENDERER   "warp" forces the software rasteriser
+ *   POP_GFX_MAX_FRAMES after this many frames the window reports itself
+ *                      closed, so a program that runs "until the window is
+ *                      closed" ends by itself
+ *   POP_GFX_CAPTURE    a file name: the last frame is written there as a
+ *                      PPM when the window is shut down
+ * The last two let any graphics program, unchanged, be run unattended and
+ * its picture kept -- which is how the examples are checked.
  *
  * The CANVAS is a retained display list (g_canvas): pop_gfx_draw_* append to
  * it, frame_begin replays it onto the background draw list every frame, and
@@ -93,6 +100,9 @@ static bool                    g_closed = false;
 static bool                    g_frame_active = false;
 static bool                    g_hidden = false;    /* POP_GFX_HEADLESS       */
 static bool                    g_warp   = false;    /* software renderer used */
+static long                    g_frames = 0;        /* frames presented       */
+static long                    g_max_frames = 0;    /* POP_GFX_MAX_FRAMES     */
+static const char             *g_capture = nullptr; /* POP_GFX_CAPTURE        */
 static UINT                    g_resize_w = 0, g_resize_h = 0;
 static const wchar_t          *WNDCLASS_NAME = L"PoplogGfx";
 
@@ -192,6 +202,9 @@ int pop_gfx_init(const char *title, int width, int height)
     if (width  <= 0) width  = 1200;
     if (height <= 0) height = 720;
     g_hidden = getenv("POP_GFX_HEADLESS") != nullptr;
+    g_capture = getenv("POP_GFX_CAPTURE");
+    g_max_frames = getenv("POP_GFX_MAX_FRAMES") ? atol(getenv("POP_GFX_MAX_FRAMES")) : 0;
+    g_frames = 0;
 
     HINSTANCE inst = GetModuleHandleW(nullptr);
     WNDCLASSEXW wc;
@@ -304,6 +317,8 @@ void pop_gfx_frame_end(void)
     g_frame_active = false;
     render();
     g_swap->Present(1, 0);                              /* vsync             */
+    if (g_max_frames > 0 && ++g_frames >= g_max_frames)
+        g_closed = true;
 }
 
 /* Headless capture: render one frame of the retained canvas and read it back
@@ -352,10 +367,14 @@ extern "C" int pop_gfx_render_to_ppm(const char *path)
     return ok;
 }
 
+extern "C" int pop_gfx_render_to_ppm(const char *path);
+
 void pop_gfx_shutdown(void)
 {
     if (g_hwnd == nullptr)
         return;
+    if (g_capture != nullptr && g_capture[0] != '\0')
+        pop_gfx_render_to_ppm(g_capture);
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();

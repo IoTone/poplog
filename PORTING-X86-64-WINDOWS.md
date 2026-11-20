@@ -16,9 +16,11 @@
 | Build | `./configure --with_no_x && make all` from a Cygwin shell, seeded by a `corepop.exe`, completes in under a minute with no errors: popc, the system sources, a new `corepop`, `basepop11`, and the start-up, Lisp, Prolog and ML images. The seed used for the last run was itself built that way (second generation) |
 | Validation | `tools/validate-cygwin.sh`: **48 of 48 gates pass** on a graphics build, 44 of 44 without (2026-11-20, one machine, Cygwin 3.6.12). It covers the four languages, interactive use and VED under a pseudo-terminal, faults becoming mishaps, child processes and pipes, heap growth, saving and restoring an image, external calls with integer, float, string and more than four arguments, a DLL built on the spot, callbacks from C into Pop, and graphics |
 | Graphics | `./configure --experimental-graphics` builds a native Dear ImGui backend (Win32 window, Direct3D 11) into `basepop11`. `LIB POPGFX` and `LIB RC_GRAPHIC` run unchanged; the TEACH RC_GRAPHIC walkthrough passes. See "Graphics" in §9. X11 is not attempted |
-| Library suites | `tools/test-libs.sh`: **17 of 19 pass**, 467 checks, including sockets, the HTTP server, JSON-RPC, the Swank server, child-process signals, pipes, regexps and UTF-8. The other two (`test_pcre`, `test_http_client`) need the optional pcre and curl shims, which have not been built here |
+| Library suites | `tools/test-libs.sh`: **19 of 19 pass**, 513 checks, with the three optional shims built (`tools/build-popcrypto.sh`, `build-poppcre.sh`, `build-popcurl.sh`, unchanged): sockets, the HTTP server and client, JSON-RPC, the Swank server, child-process signals, pipes, regexps, PCRE, UTF-8. `tools/test-crypto.sh` and `tools/test-json.sh` pass |
+| Examples | Every program under `examples/` was run on 2026-11-20 as an audit; see "Examples audit" in §9. One real defect found and fixed (aligned allocation); none outstanding |
+| Setup | [`INSTALL-WINDOWS.md`](INSTALL-WINDOWS.md), with `tools/port-windows/setup-cygwin.ps1` to install the toolchain |
 | Linux | The same changes applied to a fresh tree on the Pi 5 (aarch64 Linux): `make all` exits 0 and `tools/validate-raspi5.sh` passes 13 of 13. That covers the shared C and Pop edits. **x86-64 Linux, which shares the edited assembly files, has not been built**, nor macOS or RISC-V |
-| Not done | the pcre and curl shims; timers and asynchronous I/O beyond what the suites touch; X11; mouse and panel interaction in the graphics window (nobody has clicked in it); the packages; the editor integrations; a published seed (it exists only on one machine); a third-generation comparison |
+| Not done | timers and asynchronous I/O beyond what the suites touch; X11; mouse and panel interaction in the graphics window (nobody has clicked in it); the packages; the editor integrations and the Jupyter kernel; `examples/robotarmy/counsel.p` (needs an API key or a local model) and `swarm-live.sh` (needs several machines); a published seed (it exists only on one machine); a third-generation comparison |
 
 Claims in this document are marked by how they were established:
 **[source]** was read in this tree; **[platform]** is a documented property of
@@ -649,6 +651,65 @@ Three things it needed outside the new file:
 18. Direct3D raises C++ exceptions internally while starting up. The
     vectored handler sees them first and passes them on, as it should
     (`POP_FAULT_TRACE` shows them as "not a fault we translate").
+
+### Examples audit (2026-11-20)
+
+Every example was run to look for defects, not just to see it start.
+
+| Set | How it was run | Result |
+|---|---|---|
+| Console programs: `eliza.p`, `secure_notes.p`, `http_hello.p`, `zdump.p`, `zplay.p`, `microgpt.p` | as their headers say, with scripted input where they read any; the web service was driven with `curl` | all correct. ELIZA gives the canonical replies; the Z-machine conformance suite passes 349 of 349 (version 3) and 406 of 406 (version 5) and the cave adventure plays; microgpt trains and samples |
+| Graphics: `tenprint`, `cube3d`, `poplog_letters`, `impossible_triangle`, `vectrex`, `rc_square`, `rc_spiral` | unchanged, with `POP_GFX_HEADLESS=1 POP_GFX_MAX_FRAMES=40 POP_GFX_CAPTURE=file`; each captured frame was looked at | all seven draw what they should |
+| `examples/robotarmy` (14 of 16) | single-process demos directly; each networked one as a server and clients on `127.0.0.1` | all correct: signed orders reject a tampered and a replayed message; Forth words, Pop-11 source and VM specs are compiled over UDP and run; the distributed Prolog query backtracks across two nodes; the classifier trains to 100% |
+| Notebooks (16, 465 code cells) | `tools/port-windows/audit-notebooks.py` re-runs every cell in a plain Pop-11 and compares with the output stored in the notebook | 436 cells identical. The 29 that differ were each read; none is a Windows defect (below) |
+
+Not run: `counsel.p` (needs an API key or a local model) and
+`swarm-live.sh` (needs several machines).
+
+**The defect found.** `secure_notes.p` printed one line and the process
+ended with status 0; the HTTP client suite ended the same way before printing
+anything.
+
+19. **A program that replaces `malloc` on Cygwin must supply the aligned
+    allocators too.** Poplog's `c_core.c` defines `malloc`, `free`, `realloc`
+    and `calloc` for the whole process. OpenSSL asks for 64-byte-aligned
+    memory the first time it is used; with no `posix_memalign` in the
+    program, Cygwin's own calls itself until the stack is gone, and a stack
+    overflow on this system is silent. `c_core.c` now provides `memalign`,
+    `posix_memalign`, `aligned_alloc` and `valloc` on top of its allocator.
+    Any DLL that wants aligned memory would have hit this, not only OpenSSL.
+
+**What the 29 differing notebook cells are.** The stored outputs were
+produced on an arm64 Mac through the Jupyter kernel.
+
+- 4 are `random` and its relatives, which differ every run. The stored
+  outputs there are stale: they show `random(5)` printing 5 ten times, the
+  defect recorded in `docs/bugs/random-int-64bit.md`, long since fixed.
+- 3 are floating-point printing: `3 + 5.2` is `8.2` here and `8.200001` in
+  the notebook; `sqrt(10)` is `3.162278` here and `3.162277` there. The same
+  cells run on the Pi 5 (arm64 Linux) reproduce the notebook exactly, so this
+  is a difference between the x86-64 and arm64 back-ends in how much of a
+  decimal survives, not something Windows does. The x86-64 answers are the
+  more accurate ones. Whether x86-64 Linux prints the same as Windows was not
+  checked, for want of an x86-64 Linux machine.
+- About 10 depend on what an earlier cell left on the user stack, which the
+  long-lived kernel session carries over and the audit's fresh process does
+  not (the TEACH files on the stack do this on purpose).
+- The rest are the order in which a warning on standard error and a result
+  on standard output were captured, or a trace line landing in the next cell.
+
+**Found on the way, not Windows defects.**
+
+20. `tools/bench-baseline.py` assumed a fine-grained CPU clock. Where the
+    clock ticks every 15.6 ms a fast workload measured as zero and the
+    calibration jumped to two million iterations a batch: the Python baseline
+    ran for hours. It now doubles when a batch is too short to time, as the
+    Perl baseline always did.
+21. The graphics backend gained two environment variables so that any
+    graphics program can be run unattended and its picture kept:
+    `POP_GFX_MAX_FRAMES` (the window reports itself closed after that many
+    frames) and `POP_GFX_CAPTURE` (the last frame is written as a PPM at
+    shutdown). The Metal and SDL backends do not have them.
 
 ## 10. Later: a native build
 
