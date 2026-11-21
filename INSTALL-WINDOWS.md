@@ -10,7 +10,8 @@ Visual Studio. How the port works, and what has and has not been tested, is in
 It has been built and validated on one machine (Windows 11 Home build 26300,
 Cygwin 3.6.12). The default branch does not check out on Windows.
 
-The whole thing is five steps and about ten minutes, most of it downloads.
+The whole thing is five steps and about ten minutes, most of it the Cygwin
+download.
 
 ## 1. Get the source
 
@@ -58,26 +59,18 @@ cd /cygdrive/c/Users/YOU/poplog
 ## 3. Put the seed in place
 
 Poplog is written in Pop-11, so building it needs a Poplog: a small
-bootstrap binary called `corepop`. For Windows it goes here:
+bootstrap binary called `corepop`. The one for Windows is in the tree, with
+the other platforms' seeds:
 
 ```sh
 mkdir -p target/pop
-cp /path/to/corepop-x86_64-cygwin.exe target/pop/corepop.exe
+cp nix/seeds/corepop-x86_64-cygwin target/pop/corepop.exe
 ```
 
-**Where to get it.** As of this writing the Windows seed has not been
-published with the other platforms' seeds, so one of these:
-
-- copy `target/pop/corepop.exe` from a machine that already has a Windows
-  build (any build of this branch will do; it is about 2 MB);
-- or make one from another platform's Poplog, which is how the first one was
-  made: run `tools/port-windows/cross-emit.sh` on a Linux or macOS machine
-  that has a working Poplog, copy the objects it produces to Windows, and
-  link them there. `PORTING-X86-64-WINDOWS.md` section 5 has the details.
-  This takes an hour, not a minute, and is not the easy path.
-
-When the seed is published this step becomes a single download, as in
-[`INSTALL`](INSTALL).
+Note the `.exe` on the copy. The seed needs nothing but `cygwin1.dll`. It was
+built from this branch and then checked by bootstrapping a fresh clone from
+it alone; `PORTING-X86-64-WINDOWS.md` section 5 says how it was first made
+(cross-compiled from a Linux machine) and how to make another.
 
 ## 4. Build
 
