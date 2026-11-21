@@ -62,7 +62,7 @@ the ones not yet ported or benchmarked in this fork — is:
 | Solaris | x86 (i386) | ✅ Supported (upstream; Solaris 10) | — not benchmarked |
 | FreeBSD | x86-64 | ✅ Supported (upstream) | — not benchmarked |
 | Linux | RISC-V (`riscv64`, RV64GC) | ✅ Supported (this port; StarFive VisionFive) | ✅ VF |
-| Windows | x86-64 | 🚧 TODO — not yet ported | — TODO — |
+| Windows | x86-64 | 🚧 Experimental (Cygwin port, branch `windows-checkout`; see `PORTING-X86-64-WINDOWS.md`) | ✅ W11, in [its own section](#windows-11-experimental-port) |
 
 There are two tiers below the six benchmarked machines. **Supported but not
 benchmarked here:** ARM32 Linux, Solaris/x86 and FreeBSD/x86-64 are real,
@@ -298,6 +298,79 @@ CPython's interpreter loop scales with raw core speed. This is the clearest
 signal yet for the Phase-4 perf item (bias `PD_EXECUTE` to retire the per-call
 redirect); on Linux arm64 (Pi5, no W^X dual-map) closures stay a clean **2.46×**
 Poplog win.
+
+---
+
+## Windows 11 (experimental port)
+
+Added 2026-11. The Windows port lives on the `windows-checkout` branch and is
+experimental, so its numbers are kept apart from the six machines above
+rather than threaded through their tables. Same harness, same workloads, same
+Poplog version (160200).
+
+**System under test (W11).** Dell G15 5520: Intel Core i5-12500H (Alder Lake,
+2022; 4 performance + 8 efficiency cores, 16 threads), 15.7 GiB RAM, L2
+9 MiB, L3 18 MiB. Windows 11 Home build 26300, "Balanced" power plan, on AC.
+Poplog is the native Cygwin build (`PE32+ … x86-64`, Cygwin 3.6.12, gcc
+14.4.0), with the graphics backend linked in. Baselines: CPython **3.12.0**
+(the python.org Windows build, run natively, not under Cygwin) and Perl
+**5.44** (Cygwin).
+
+**How it was run.** `tools/bench-poplog.p` and the two baseline scripts, one
+after another, each **pinned to one performance core** (affinity mask 4) at
+High priority. `tools/bench.sh` was not used as it stands: it has no way to
+pin, and on this CPU that matters (below).
+
+| Workload | Poplog W11 | CoV | Python 3.12 (native) | Perl 5.44 |
+|---|---|---|---|---|
+| nfib29 (calls) | 10.1 ms | 0.7 % | **5.35×** | 13.2× |
+| intloop10M | 46.6 ms | 0.5 % | **5.11×** | 2.42× |
+| lists (alloc/GC) | 7.18 ms | 0.8 % | **9.19×** | — |
+| closures1M | 34.0 ms | 1.3 % | 1.26× | — |
+| gc20 | 21.1 ms | 2.2 % | 0.28× | — |
+| strings | 0.824 ms | 1.0 % | 0.68× | — |
+| compile500 (→ machine code) | 57.2 ms | 0.7 % | 0.10× | — |
+
+Ratios are the baseline's slowdown against Poplog on the same machine
+(>1 = slower than Poplog), as in the tables above; every ratio's 95 % CI is
+within ±2 %.
+
+**Reading it.**
+
+- The cross-language pattern is the one every other machine shows: Poplog's
+  native code is 5–9× CPython on calls, integer loops and list building,
+  CPython wins on `gc20`, `strings` and above all `compile500`, and Perl sits
+  where it does everywhere else (13×, 2.4×). Nothing about the Windows build
+  moves a workload from one side of that line to the other.
+- `compile500` at 57 ms carries the same x86-64 penalty as the i7's 66.7 ms
+  (‡): it is the x86-64 code emitter, not the operating system.
+- Against the other machines the absolute times say little: this is a newer
+  CPU than the i7 and the environment is not comparable. They are **not** a
+  Windows-versus-Linux comparison; that needs the same machine booted both
+  ways, which has not been done.
+- `closures1M` is the one row where this machine is slower than the i7
+  (34.0 ms against 22.0 ms) while being faster on everything else. Unexplained.
+  The Mac rows show that this workload is sensitive to how procedure records
+  are laid out and executed, so it may be Windows-specific or may not.
+
+**Three things that bit, for anyone repeating this.**
+
+- **Pin it.** Unpinned, on a CPU with two kinds of core, the first run had
+  run-to-run variation of 2–20 % (against under 1 % here) and `gc20` read
+  30.6 ms instead of 21.1 ms: a third of its batches had landed on efficiency
+  cores. The same effect as the M2's ◊ rows, larger.
+- **Do not use Cygwin's Python as the baseline.** It was measured too (3.12.12,
+  unpinned): it is a little faster than the native build on `nfib29` (0.78×)
+  but 3.4–6.3× slower on `intloop10M`, `lists`, `compile500`, `closures1M`
+  and `strings`, which would flatter Poplog by the same factors.
+  The interpreter *build* matters as much as the version, here more than
+  anywhere.
+- **The CPU clock ticks every 15.6 ms on Windows.** `tools/bench-baseline.py`
+  treated a batch too short to time as having taken a microsecond and jumped
+  to two million iterations; one workload then ran for most of an hour. It
+  now doubles instead, as the Perl script always did. The Poplog script was
+  already safe, since `systime` is in centiseconds and it never divides by
+  less than one.
 
 ---
 
