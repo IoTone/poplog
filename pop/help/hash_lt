@@ -5,5 +5,6 @@ Please see HELP * HASH_
 
 (HELP HASH_ describes the compile-time macro  #_< ... >_#  .  This file
 was called hash_< until 2026; Windows does not allow < in a file name,
-so a checkout of the whole tree failed there.  See
-https://github.com/IoTone/poplog/issues/18 )
+so a checkout of the whole tree failed there.  HELP HASH_< still
+finds this file, by way of the table of renamed files in
+ved/src/vdsysfile.p.  See https://github.com/IoTone/poplog/issues/18 )

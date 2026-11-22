@@ -80,6 +80,24 @@ vars
         ];
 
 
+    /*  Documentation files renamed so that the tree checks out on Windows,
+        which does not allow < > : " | ? * in a file name (issue #18).
+        Each old name still finds its file.  Pairs: old name, new name.
+    */
+lconstant renamed_doc_files = [
+    'hash_<'    'hash_lt'
+];
+
+define lconstant Renamed_doc_file(name);
+    lvars l = renamed_doc_files;
+    until l == [] do
+        if fast_front(l) = name then return(fast_front(fast_back(l))) endif;
+        fast_back(fast_back(l)) -> l
+    enduntil;
+    false
+enddefine;
+
+
 define vars vedgetlibfilename(list, defaultname, name) -> file;
     lvars fextn = false, srchlist, ss_extn;
 
@@ -266,6 +284,12 @@ define vars vedsysfile(name, list, defaultproc);
         ;;; VMS - upper and lower case are equivalent
         vedgetlibfilename(list, name, request) -> file;
 #_ENDIF
+        ;;; not found: it may be the old name of a renamed file
+        unless file then
+            if Renamed_doc_file(uppertolower(request)) ->> s then
+                vedgetlibfilename(list, name, s) -> file
+            endif
+        endunless;
     endif;
 
     ;;; check for multiple doc_index entries
