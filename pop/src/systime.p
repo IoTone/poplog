@@ -27,7 +27,7 @@ lvars _ticks = _0;  ;;; clock ticks per second
 
 ;;; for most systems, clock rate is machine dependent -- use sysconf(2)
 #_IF DEF POSIX1
-lconstant macro _SC_CLK_TCK =   #_IF DEF HPUX or DEF LINUX _2
+lconstant macro _SC_CLK_TCK =   #_IF DEF HPUX or DEF LINUX or DEF CYGWIN _2
                                 #_ELSE _3
                                 #_ENDIF;
 #_ENDIF

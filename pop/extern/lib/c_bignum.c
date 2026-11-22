@@ -1,10 +1,29 @@
+/* The do_* routines below are called directly from pop/src/<arch>/aarith.s */
+/*
+ *  Calling convention of routines that hand-written assembly calls, or
+ *  that C calls in hand-written assembly.  The x86-64 assembly runtime
+ *  (pop/src/x86_64) passes arguments the System V way.  Windows compilers
+ *  use the Microsoft convention, so on that target these few functions are
+ *  marked as System V and the compiler does the conversion at each call.
+ *  Calls out to arbitrary C functions (_call_sys, _call_external) cannot be
+ *  handled this way and are converted in the assembly itself.
+ *  See PORTING-X86-64-WINDOWS.md section 3.3.
+ */
+#ifndef POP_ASM_ABI
+#if defined(__CYGWIN__) && defined(__x86_64__)
+#define POP_ASM_ABI __attribute__((sysv_abi))
+#else
+#define POP_ASM_ABI
+#endif
+#endif
+
 int
 do_div(int a, int b) {
     return a/b;
 }
 
 void
-do_bgi_mult(unsigned int * dst, int len, unsigned int * xp,
+POP_ASM_ABI do_bgi_mult(unsigned int * dst, int len, unsigned int * xp,
      unsigned int m) {
     unsigned int c = 0;
     int i = 0;
@@ -20,7 +39,7 @@ do_bgi_mult(unsigned int * dst, int len, unsigned int * xp,
 }
 
 void
-do_bgi_mult_add(unsigned int * dst, int len, unsigned int * xp,
+POP_ASM_ABI do_bgi_mult_add(unsigned int * dst, int len, unsigned int * xp,
      unsigned int m) {
     unsigned int c = 0;
     int i = 0;
@@ -37,7 +56,7 @@ do_bgi_mult_add(unsigned int * dst, int len, unsigned int * xp,
 }
 
 void
-do_bgi_sub_mult(unsigned int * dst, int len, unsigned int * xp,
+POP_ASM_ABI do_bgi_sub_mult(unsigned int * dst, int len, unsigned int * xp,
      unsigned int m) {
     unsigned int c = 0;
     int i = 0;
@@ -55,7 +74,7 @@ do_bgi_sub_mult(unsigned int * dst, int len, unsigned int * xp,
 }
 
 void
-do_bgi_add(unsigned int * dst, int xlen, unsigned int * xp,
+POP_ASM_ABI do_bgi_add(unsigned int * dst, int xlen, unsigned int * xp,
      int ylen, unsigned int * yp) {
     unsigned int c = 0;
     if (ylen < xlen) {
@@ -94,7 +113,7 @@ do_bgi_add(unsigned int * dst, int xlen, unsigned int * xp,
 }
 
 void
-do_bgi_sub(unsigned int * dst, int xlen, unsigned int * xp,
+POP_ASM_ABI do_bgi_sub(unsigned int * dst, int xlen, unsigned int * xp,
      int ylen, unsigned int * yp) {
     unsigned int c = 0;
     int mlen = (xlen < ylen)?xlen:ylen;
@@ -134,7 +153,7 @@ do_bgi_sub(unsigned int * dst, int xlen, unsigned int * xp,
 }
 
 void
-do_bgi_negate(unsigned int * dst, int xlen, unsigned int * xp) {
+POP_ASM_ABI do_bgi_negate(unsigned int * dst, int xlen, unsigned int * xp) {
     unsigned int c = 0;
     int i = 0;
     unsigned int xext = (unsigned int)(((int)(xp[xlen - 1])) >> 31);
@@ -155,7 +174,7 @@ do_bgi_negate(unsigned int * dst, int xlen, unsigned int * xp) {
 }
 
 void
-do_bgi_negate_no_ov(unsigned int * dst, int xlen, unsigned int * xp) {
+POP_ASM_ABI do_bgi_negate_no_ov(unsigned int * dst, int xlen, unsigned int * xp) {
     unsigned int c = 0;
     int i = 0;
     while(i < xlen) {
@@ -169,7 +188,7 @@ do_bgi_negate_no_ov(unsigned int * dst, int xlen, unsigned int * xp) {
 }
 
 unsigned int
-do_bgi_div(unsigned int * dst, int len, unsigned int * xp,
+POP_ASM_ABI do_bgi_div(unsigned int * dst, int len, unsigned int * xp,
      unsigned int divisor) {
     unsigned int rem = 0;
     while(len > 0) {
@@ -188,7 +207,7 @@ do_bgi_div(unsigned int * dst, int len, unsigned int * xp,
 }
 
 unsigned int
-do_bgi_lshift(unsigned int * dst, int off, int len, unsigned int * xp) {
+POP_ASM_ABI do_bgi_lshift(unsigned int * dst, int off, int len, unsigned int * xp) {
     int i;
     unsigned int rem = 0;
     for(i = 0; i < len; i++) {
@@ -201,7 +220,7 @@ do_bgi_lshift(unsigned int * dst, int off, int len, unsigned int * xp) {
 }
 
 void
-do_bgi_rshiftl(unsigned int * dst, int off, int len, unsigned int * xp) {
+POP_ASM_ABI do_bgi_rshiftl(unsigned int * dst, int off, int len, unsigned int * xp) {
     unsigned int rem = 0;
     while(len > 0) {
         len--;
@@ -217,7 +236,7 @@ struct ldh_str {
 };
 
 int
-do_quotient_estimate_init(struct ldh_str * ldh, int len,
+POP_ASM_ABI do_quotient_estimate_init(struct ldh_str * ldh, int len,
                           unsigned int * div) {
     unsigned int divh = div[len - 1];
     int shift = 0;
@@ -260,7 +279,7 @@ do_quotient_estimate_init(struct ldh_str * ldh, int len,
 }
 
 unsigned int
-do_quotient_estimate(struct ldh_str * ldh, unsigned int lo,
+POP_ASM_ABI do_quotient_estimate(struct ldh_str * ldh, unsigned int lo,
                           unsigned int hi) {
     if (hi > 0) {
         double d2_to_32 = ((double)(1<<16))*((double)(1<<16));

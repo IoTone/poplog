@@ -45,8 +45,16 @@ def calibrate(f):
         t0 = now(); runk(f, k); dt = now() - t0
         if dt >= MINTIME or k >= 100_000_000:
             return k
-        # grow toward target from the measured rate (min 2x)
-        k = max(k * 2, int(k * (MINTIME + 0.001) / max(dt, 1e-6)))
+        # grow toward target from the measured rate (min 2x).  A batch too
+        # short for the clock to see reads as zero; that says nothing about
+        # the rate, so just double, as bench-baseline.pl does.  (Treating it
+        # as a microsecond made k jump to two million on Windows, where the
+        # CPU clock ticks every 15.6 ms: one batch of "strings" then took
+        # the better part of an hour.)
+        if dt <= 0:
+            k *= 2
+        else:
+            k = max(k * 2, int(k * (MINTIME + 0.001) / dt))
 
 
 def measure(name, f):

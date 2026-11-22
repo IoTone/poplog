@@ -30,6 +30,8 @@ notes_for() {
             echo "Apple Silicon macOS (Mach-O, MAP_JIT); needs the allow-jit entitlement path, see PORTING-ARM64-M-SILICON-OSX.md; re-blessed 2026-10 with the struct STATB layout fix" ;;
         corepop-riscv64-linux)
             echo "RISC-V RV64GC Linux (lp64d); built on a Cloud-V riscv64 host; re-blessed 2026-10 with the struct STATB layout fix" ;;
+        corepop-x86_64-cygwin)
+            echo "x86-64 Windows 11, Cygwin runtime (PE, needs cygwin1.dll; install as target/pop/corepop.exe); experimental, see INSTALL-WINDOWS.md and PORTING-X86-64-WINDOWS.md" ;;
         *)  echo "" ;;
     esac
 }

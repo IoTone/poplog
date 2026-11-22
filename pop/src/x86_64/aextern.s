@@ -193,6 +193,148 @@ DEF_C_LAB (_call_external)
     push    %r11
     push    %r12
 
+#_IF DEF WIN64_ABI
+
+    ;;; Microsoft x64 convention.  Arguments are positional: argument N
+    ;;; (N < 4) goes in the Nth integer register if it is an integer or
+    ;;; pointer and in the Nth XMM register if it is a float, and the rest
+    ;;; go on the stack above 32 bytes that the caller provides.  Those 32
+    ;;; bytes are exactly four argument slots, so every argument is first
+    ;;; stored in memory at RSP + 8*N, and then the first four slots are
+    ;;; loaded into BOTH sets of registers.  That is right whichever kind
+    ;;; the callee expects, and is what a variadic callee requires.
+    ;;;
+    ;;; Registers: RAX work; R10 work, then the routine; R12 fltsingle;
+    ;;; R14 offset of the next slot; R15 offset of the next argument on the
+    ;;; user stack.  Work variables: (%rbp) routine, -8(%rbp) float
+    ;;; conversion, -24(%rbp) size of the arguments on the user stack.
+
+    movq    (%USP), %r12    ;;; fltsingle
+    movq    8(%USP), %r10   ;;; routine
+    movq    16(%USP), %r15  ;;; nargs
+    shlq    $3, %r15        ;;; convert to byte offset
+    leaq    24(%USP), %USP  ;;; adjust user stack
+
+    pushq   %r10
+    movq    %rsp, %rbp
+    subq    $24, %rsp
+    movq    %r15, -24(%rbp)
+
+    ;;; Allocate the slots: at least the four the callee may use
+    movq    %r15, %rax
+    cmpq    $32, %rax
+    jae     W0.1
+    movq    $32, %rax
+W0.1:   subq    %rax, %rsp
+    andq    $-0x10, %rsp
+    movq    $0, (%rsp)
+    movq    $0, 8(%rsp)
+    movq    $0, 16(%rsp)
+    movq    $0, 24(%rsp)
+
+    xorq    %r14, %r14
+    testq   %r15, %r15
+    jz      Wdo_call
+
+Wargloop:
+    movq    -8(%USP, %r15), %rax
+
+    testq   $1, %rax    ;;; issimple
+    jz      W2.1
+    testq   $2, %rax    ;;; isinteger
+    jz      W1.1
+
+    ;;; Pop integer: convert to m/c integer
+    sarq    $2, %rax
+    jmp     Wstore
+
+W1.1:   ;;; Pop decimal: clear the tag bit, giving a double
+    subq    $1, %rax
+    movq    %rax, -8(%rbp)
+    jmp     Wfloat
+
+W2.1:   ;;; Pop structure: get extern type from key
+    movq    _KEY(%rax), %r10
+    movzbl  _K_EXTERN_TYPE(%r10), %r10d
+    testl   %r10d, %r10d
+    jz      Wstore          ;;; EXTERN_TYPE_NORMAL (0): pass unchanged
+
+    cmpl    $_:EXTERN_TYPE_DEREF, %r10d
+    jne     W4.1
+    ;;; External pointer: pass dereferenced
+    movq    _XP_PTR(%rax), %rax
+    jmp     Wstore
+
+W4.1:   cmpl    $_:EXTERN_TYPE_DDEC, %r10d
+    jne     W5.1
+    ;;; Ddecimal
+    movq    _DD_1(%rax), %r10
+    movq    %r10, -8(%rbp)
+    jmp     Wfloat
+
+W5.1:   ;;; Must be biginteger (same conversion as the System V code below)
+    cmpl    $3, _BGI_LENGTH(%rax)
+    jb      W5.2
+    movl    _BGI_SLICES+8(%rax), %r10d
+    salq    $62, %r10
+    movq    %r10, -8(%rbp)
+    movl    _BGI_SLICES+4(%rax),%r10d
+    shlq    $31, %r10
+    movl    _BGI_SLICES(%rax), %eax
+    orq     %r10, %rax
+    orq     -8(%rbp), %rax
+    jmp     Wstore
+
+W5.2:   movl    _BGI_SLICES(%rax), %r10d
+    cmpl    $1, _BGI_LENGTH(%rax)
+    je      W6.1
+    movslq  _BGI_SLICES+4(%rax), %rax
+    shrq    $1, %rax
+    orq     %r10, %rax
+    jmp     Wstore
+
+W6.1:   movslq  %r10d, %rax
+    jmp     Wstore
+
+Wfloat: ;;; -8(%rbp) holds a double: pass it as it is, or as a single if
+    ;;; the low bit of fltsingle says so
+    testl   $1, %r12d
+    jnz     Wsingle
+    movq    -8(%rbp), %rax
+    jmp     Wstore
+
+Wsingle:
+    cvtsd2ss -8(%rbp), %xmm0
+    movd    %xmm0, %eax     ;;; zero-extends into RAX
+
+Wstore: movq    %rax, (%rsp, %r14)
+    addq    $8, %r14
+    sarl    $1, %r12d
+    subq    $8, %r15
+    jnz     Wargloop
+
+    addq    -24(%rbp), %USP
+
+Wdo_call:
+    movq    (%rbp), %r10
+    movq    (%rsp), %rcx
+    movq    8(%rsp), %rdx
+    movq    16(%rsp), %r8
+    movq    24(%rsp), %r9
+    movq    %rcx, %xmm0
+    movq    %rdx, %xmm1
+    movq    %r8, %xmm2
+    movq    %r9, %xmm3
+
+    cld             ;;; clear direction flag
+    movq    %USP, SAVED_USP ;;; save USP for callback
+    ;;; enable async callback
+    movq    %rsp, EXTERN_NAME(__pop_in_user_extern)
+    call    *%r10
+    jmp     Lcalled
+
+#_ENDIF
+
     ;;; Load fixed arguments
 
     movq    (%USP), %r12    ;;; fltsingle
@@ -326,6 +468,7 @@ do_call1:
     ;;; enable async callback
     movq    %rsp, EXTERN_NAME(__pop_in_user_extern)
     call    *%r10
+Lcalled:
     ;;; disable async callback
     movq    $0, EXTERN_NAME(__pop_in_user_extern)
     movq    SAVED_USP, %USP ;;; restore USP

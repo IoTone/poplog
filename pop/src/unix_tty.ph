@@ -68,6 +68,14 @@ lconstant macro NCCS = 32;
 deftype tcflag_t = long;        ;;; macOS: unsigned long (LP64 -> 8 bytes)
 lconstant macro NCCS = 20;
 
+  #_ELSEIF DEF CYGWIN
+
+    ;;; All CYGWIN clauses in this file come from tools/port-windows/cygdefs.c.
+    ;;; struct termios is 44 bytes: 4 x u32 flags, c_line @16, c_cc[18] @17,
+    ;;; c_ispeed @36, c_ospeed @40.
+deftype tcflag_t = int;
+lconstant macro NCCS = 18;
+
   #_ELSE_ERROR
   #_ENDIF
 
@@ -77,7 +85,7 @@ struct TERMIOS
                 TMIO_CFLAG,     ;;; control modes
                 TMIO_LFLAG;     ;;; local modes
 
-  #_IF DEFV SUNOS < 5.0 or DEF IRIX or DEF LINUX
+  #_IF DEFV SUNOS < 5.0 or DEF IRIX or DEF LINUX or DEF CYGWIN
     byte        TMIO_LINE;      ;;; line discipline
   #_ELSEIF DEF HPUX
     long        TMIO_RESERVED;  ;;; reserved for future use
@@ -88,7 +96,7 @@ struct TERMIOS
   #_IF DEF ULTRIX or DEF ALPHA_LINUX
         byte            TMIO_LINE;              ;;; line discipline
   #_ENDIF
-  #_IF DEF OSF1 or DEFV LINUX >= 2.0 or DEF FREEBSD or DEF NETBSD
+  #_IF DEF OSF1 or DEFV LINUX >= 2.0 or DEF FREEBSD or DEF NETBSD or DEF CYGWIN
     int         TMIO_ISPEED,    ;;; input speed
                 TMIO_OSPEED;    ;;; output speed
   #_ELSEIF DEF DARWIN
@@ -111,6 +119,12 @@ lconstant macro (
     _TCSANOW        = _IOW(`t`, 84, SIZEOF(struct TERMIOS)),
     _TCSADRAIN      = _IOW(`t`, 83, SIZEOF(struct TERMIOS)),
     _TCSAFLUSH      = _IOW(`t`, 82, SIZEOF(struct TERMIOS)),
+);
+#_ELSEIF DEF CYGWIN
+lconstant macro (
+    _TCSANOW        = _2,
+    _TCSADRAIN      = _3,
+    _TCSAFLUSH      = _1,
 );
 #_ELSE
 lconstant macro (
@@ -210,6 +224,31 @@ lconstant macro (
         _CC_VMIN        = _16,
         _CC_VTIME       = _17,
         _CC_VSTATUS     = _18,
+    );
+
+  #_ELSEIF DEF CYGWIN
+
+    ;;; Cygwin has no VDSUSP.
+    lconstant macro (
+        _POSIX_VDISABLE = _0,       ;;; value to disable a control char
+
+        _CC_VDISCARD    = _1,
+        _CC_VEOL        = _2,
+        _CC_VEOL2       = _3,
+        _CC_VEOF        = _4,
+        _CC_VERASE      = _5,
+        _CC_VINTR       = _6,
+        _CC_VKILL       = _7,
+        _CC_VLNEXT      = _8,
+        _CC_VMIN        = _9,
+        _CC_VQUIT       = _10,
+        _CC_VREPRINT    = _11,
+        _CC_VSTART      = _12,
+        _CC_VSTOP       = _13,
+        _CC_VSUSP       = _14,
+        _CC_VSWTCH      = _15,
+        _CC_VTIME       = _16,
+        _CC_VWERASE     = _17,
     );
 
   #_ELSEIF DEF X86_LINUX and DEFV LINUX >= 2.0
@@ -315,6 +354,26 @@ lconstant macro (
 
     ;;; Input modes
 
+  #_IF DEF CYGWIN
+
+lconstant macro (
+    _TTY_IGNBRK     = _16:00000001,
+    _TTY_BRKINT     = _16:00000002,
+    _TTY_IGNPAR     = _16:00000004,
+    _TTY_INPCK      = _16:00000010,
+    _TTY_ISTRIP     = _16:00000020,
+    _TTY_INLCR      = _16:00000040,
+    _TTY_IGNCR      = _16:00000080,
+    _TTY_ICRNL      = _16:00000100,
+    _TTY_IXON       = _16:00000400,
+    _TTY_IXOFF      = _16:00001000,
+    _TTY_IUCLC      = _16:00004000,
+    _TTY_IXANY      = _16:00008000,
+    _TTY_PARMRK     = _16:00010000,
+);
+
+  #_ELSE
+
 lconstant macro (
     _TTY_IGNBRK     = _16:00000001,
     _TTY_BRKINT     = _16:00000002,
@@ -356,10 +415,48 @@ lconstant macro (
 
   #_ENDIF
 
+  #_ENDIF   ;;; DEF CYGWIN
+
 
     ;;; Output modes
 
-  #_IF DEF OSF1 or DEF ALPHA_LINUX
+  #_IF DEF CYGWIN
+
+lconstant macro (
+    _TTY_OPOST      = _16:00000001,
+    _TTY_OLCUC      = _16:00000002,
+    _TTY_OCRNL      = _16:00000004,
+    _TTY_ONLCR      = _16:00000008,
+    _TTY_ONOCR      = _16:00000010,
+    _TTY_ONLRET     = _16:00000020,
+    _TTY_OFILL      = _16:00000040,
+    _TTY_OFDEL      = _16:00008000,
+
+    _TTY_CRDLY      = _16:00000180,
+        _TTY_CR0    = _16:00000000,
+        _TTY_CR1    = _16:00000080,
+        _TTY_CR2    = _16:00000100,
+        _TTY_CR3    = _16:00000180,
+    _TTY_NLDLY      = _16:00000200,
+        _TTY_NL0    = _16:00000000,
+        _TTY_NL1    = _16:00000200,
+    _TTY_BSDLY      = _16:00000400,
+        _TTY_BS0    = _16:00000000,
+        _TTY_BS1    = _16:00000400,
+    _TTY_TABDLY     = _16:00001800,
+        _TTY_TAB0   = _16:00000000,
+        _TTY_TAB1   = _16:00000800,
+        _TTY_TAB2   = _16:00001000,
+        _TTY_TAB3   = _16:00001800,
+    _TTY_VTDLY      = _16:00002000,
+        _TTY_VT0    = _16:00000000,
+        _TTY_VT1    = _16:00002000,
+    _TTY_FFDLY      = _16:00004000,
+        _TTY_FF0    = _16:00000000,
+        _TTY_FF1    = _16:00004000,
+);
+
+  #_ELSEIF DEF OSF1 or DEF ALPHA_LINUX
 
 lconstant macro (
     _TTY_OPOST      = _16:00000001,
@@ -575,6 +672,44 @@ lconstant macro (
     _TTY_CLOCAL     = _16:00001000,
 );
 
+  #_ELSEIF DEF CYGWIN
+
+    ;;; CBAUD is 0x100f: speeds above 38400 set bit 12 (B57600 = 0x1001).
+    ;;; Cygwin defines no EXTA/EXTB; they are given their traditional
+    ;;; meaning, 19200 and 38400.
+lconstant macro (
+    _TTY_CBAUD      = _16:0000100F,
+        _TTY_B0     = _16:00000000,
+        _TTY_B50    = _16:00000001,
+        _TTY_B75    = _16:00000002,
+        _TTY_B110   = _16:00000003,
+        _TTY_B134   = _16:00000004,
+        _TTY_B150   = _16:00000005,
+        _TTY_B200   = _16:00000006,
+        _TTY_B300   = _16:00000007,
+        _TTY_B600   = _16:00000008,
+        _TTY_B1200  = _16:00000009,
+        _TTY_B1800  = _16:0000000A,
+        _TTY_B2400  = _16:0000000B,
+        _TTY_B4800  = _16:0000000C,
+        _TTY_B9600  = _16:0000000D,
+        _TTY_B19200 = _16:0000000E,
+        _TTY_B38400 = _16:0000000F,
+        _TTY_EXTA   = _16:0000000E,
+        _TTY_EXTB   = _16:0000000F,
+    _TTY_CSIZE      = _16:00000030,
+        _TTY_CS5    = _16:00000000,
+        _TTY_CS6    = _16:00000010,
+        _TTY_CS7    = _16:00000020,
+        _TTY_CS8    = _16:00000030,
+    _TTY_CSTOPB     = _16:00000040,
+    _TTY_CREAD      = _16:00000080,
+    _TTY_PARENB     = _16:00000100,
+    _TTY_PARODD     = _16:00000200,
+    _TTY_HUPCL      = _16:00000400,
+    _TTY_CLOCAL     = _16:00000800,
+);
+
   #_ELSEIF DEF ALPHA_LINUX
 lconstant macro (
         _TTY_CBAUD              = _16:0000001F,
@@ -669,6 +804,24 @@ lconstant macro (
     _TTY_IEXTEN     = _16:00000400,
     _TTY_XCASE      = _16:00004000,
     _TTY_NOFLSH     = _16:80000000,
+);
+
+  #_ELSEIF DEF CYGWIN
+
+    ;;; Cygwin has no XCASE; it is 0 here so that setting or clearing it
+    ;;; does nothing (bit 2 is ECHO on this system).
+lconstant macro (
+    _TTY_XCASE      = _16:00000000,
+    _TTY_ISIG       = _16:00000001,
+    _TTY_ICANON     = _16:00000002,
+    _TTY_ECHO       = _16:00000004,
+    _TTY_ECHOE      = _16:00000008,
+    _TTY_ECHOK      = _16:00000010,
+    _TTY_ECHONL     = _16:00000020,
+    _TTY_NOFLSH     = _16:00000040,
+    _TTY_IEXTEN     = _16:00000100,
+    _TTY_ECHOKE     = _16:00000400,
+    _TTY_ECHOCTL    = _16:00000800,
 );
 
   #_ELSE

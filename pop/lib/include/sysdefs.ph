@@ -138,6 +138,10 @@ dest(sys_os_type) -> (h, t);
     #_ELSEIF h == "darwin"
         iconstant DARWIN = hd(t);
         iconstant BERKELEY = 4.3;   ;;; Darwin is 4.4BSD-derived
+    #_ELSEIF h == "cygwin"
+        iconstant CYGWIN = hd(t);
+        iconstant BERKELEY = 4.3;
+        iconstant SHARED_LIBRARIES = true;
     #_ELSEIF h == "netbsd"
         iconstant NETBSD = hd(t);
         iconstant BERKELEY = 4.3;

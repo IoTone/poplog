@@ -512,6 +512,12 @@ void (* _pop_sigaction(int sig, void (*handler)()))() {
     if (_pop_exclude_sigset && sigismember(_pop_exclude_sigset, sig))
         return((void (*)()) -2);
 
+#if defined(__CYGWIN__)
+    /* faults in Pop code are caught by a vectored exception handler, not by
+       this signal handler: see pop_win_fault.c */
+    extern void _pop_win_fault_init(void);
+    if (handler == _pop_errsig_handler) _pop_win_fault_init();
+#endif
     if (handler == _pop_errsig_handler)
         sigfillset(&sa.sa_mask);
     else
@@ -521,7 +527,7 @@ void (* _pop_sigaction(int sig, void (*handler)()))() {
 #ifdef SA_INTERRUPT
     sa.sa_flags |= SA_INTERRUPT;
 #endif
-#if defined(SVR4) && !defined(__sgi) || defined(__linux__)
+#if defined(SVR4) && !defined(__sgi) || defined(__linux__) || defined(__CYGWIN__)
     /* pass signal context information to handler */
     sa.sa_flags |= SA_SIGINFO;
 #endif
@@ -569,12 +575,12 @@ int set_libc_errno(int x) {
  *  Handler for error-type signals, i.e. QUIT, ILL, IOT, EMT, FPE, BUS, SEGV
  */
 
-#if defined(SVR4) || defined(__linux__) || defined(__NetBSD__) || defined(__APPLE__)
+#if defined(SVR4) || defined(__linux__) || defined(__NetBSD__) || defined(__APPLE__) || defined(__CYGWIN__)
 /* Default case for SVR4, but not (yet) used for SG IRIX */
 #if !defined(__sgi)
 #define _POP_ERRSIG_HANDLER_
 
-#if !(defined(__linux__) || defined(__NetBSD__) || defined(__APPLE__))
+#if !(defined(__linux__) || defined(__NetBSD__) || defined(__APPLE__) || defined(__CYGWIN__))
 #include <siginfo.h>
 #endif
 #if defined(__APPLE__)
@@ -613,6 +619,21 @@ int set_libc_errno(int x) {
 #endif
 #endif
 
+#if defined(__CYGWIN__)
+#include <stdio.h>          /* snprintf for the signal diagnostics */
+/* Cygwin's mcontext is the Windows CONTEXT record: named registers, no
+   gregs[] array and no greg_t. */
+#define POP_GREG_T      unsigned long
+#define POP_UC_PC(c)    ((c)->uc_mcontext.rip)
+/* Set by the vectored exception handler (pop_win_fault.c) around its call
+   of _pop_errsig_handler.  See the comment there. */
+extern int _pop_in_fault_handler;
+extern void _pop_win_fault_init(void);
+#else
+#define POP_GREG_T      greg_t
+#define POP_UC_PC(c)    ((c)->uc_mcontext.gregs[REG_PC])
+#endif
+
 #if defined(__NetBSD__)
 #define greg_t __greg_t
 #define gregs __gregs
@@ -630,6 +651,28 @@ void _pop_errsig_handler(int sig, siginfo_t *info, ucontext_t *context) {
 
     int code = 0;
     caddr_t addr = NULL;
+
+#if defined(__CYGWIN__)
+    /* This handler works by changing the saved PC.  Cygwin ignores such a
+       change when it returns from a signal handler: the faulting instruction
+       runs again and the handler is called again, for ever (measured:
+       tools/port-windows/spikes, S1).  Faults in Pop code therefore arrive
+       through the vectored exception handler in pop_win_fault.c, which calls
+       this function with a context it can act on.  If we are here by any
+       other route -- a fault inside the Cygwin DLL that it turned into a
+       signal, or an error signal sent with kill -- there is nothing useful
+       to do, and a process spinning silently is worse than one that says
+       so and stops. */
+    if (!_pop_in_fault_handler) {
+        char msg[160];
+        int n = snprintf(msg, sizeof msg,
+            "\nPoplog: signal %d (code %d, address %p) delivered outside the"
+            " fault handler; cannot recover\n",
+            sig, info ? info->si_code : -1, info ? info->si_addr : (void *) 0);
+        write(2, msg, n);
+        _exit(1);
+    }
+#endif
 
 #if defined(__APPLE__)
     /* Lazy W^X: a fetch/write fault on a Pop heap page may just need that
@@ -732,10 +775,10 @@ void _pop_errsig_handler(int sig, siginfo_t *info, ucontext_t *context) {
 
 #if defined(i386)||defined(__x86_64__)
     if (sig == SIGFPE) {
-        extern greg_t __pop_fpe_handler;
+        extern POP_GREG_T __pop_fpe_handler;
         if (__pop_fpe_handler) {
             /* return to the handler and zero it */
-            context->uc_mcontext.gregs[REG_PC] = __pop_fpe_handler;
+            POP_UC_PC(context) = __pop_fpe_handler;
             __pop_fpe_handler = 0;
             return;
         }
@@ -774,7 +817,7 @@ void _pop_errsig_handler(int sig, siginfo_t *info, ucontext_t *context) {
         /* riscv64 glibc: mcontext_t.__gregs[REG_PC] (REG_PC==0) holds the PC */
         __pop_sigcontext.PSC_PC = (char *) context->uc_mcontext.__gregs[REG_PC];
 #else
-    __pop_sigcontext.PSC_PC = (char *) context->uc_mcontext.gregs[REG_PC];
+    __pop_sigcontext.PSC_PC = (char *) POP_UC_PC(context);
 #endif
     __pop_sigcontext.PSC_ADDR   = (char *) addr;
 
@@ -788,7 +831,7 @@ void _pop_errsig_handler(int sig, siginfo_t *info, ucontext_t *context) {
 #elif defined(__riscv)
         context->uc_mcontext.__gregs[REG_PC] = (greg_t) __pop_errsig;
 #else
-    context->uc_mcontext.gregs[REG_PC] = (greg_t) __pop_errsig;
+    POP_UC_PC(context) = (POP_GREG_T) __pop_errsig;
 #endif
 #if defined(REG_nPC)
     /* for RISC processors */
@@ -1096,7 +1139,7 @@ bool _pop_needs_cache_flush(void) {
  *                      Async I/O                                         *
  **************************************************************************/
 
-#if defined(__hpux) || defined(sequent)
+#if defined(__hpux) || defined(sequent) || defined(__CYGWIN__)
 #define SIM_ASYNC_IO
 #endif
 
@@ -1414,7 +1457,7 @@ extern char *sbrk();
 #if defined(SVR4)
 /* SVR4 getpwnam needs lots of space */
 #define POP_MEM_BLOCK_SIZE 200000
-#elif defined(__linux__) || defined(__APPLE__)
+#elif defined(__linux__) || defined(__APPLE__) || defined(__CYGWIN__)
 /* Modern dlopen chains (glibc loader structures, TLS, constructor
  * allocations across 20+ dependency libraries -- e.g. libcurl's) can
  * malloc megabytes during external load, which draws from this block
@@ -1465,6 +1508,11 @@ typedef union OVERHEAD {
 
 
 #define MAGIC       0xff00fe01  /* magic # on accounting info */
+#if defined(__CYGWIN__)
+/* an aligned allocation: see memalign, after cfree */
+#define MAGIC_ALIGNED   0xff00fe02
+#define ALIGNED_RAW(a)  (((char **) (a))[-2])
+#endif
 #define NBUCKETS    62          /* number of buckets in table */
 
 /*
@@ -1644,8 +1692,16 @@ void *malloc(size_t nbytes) {
                      * (tested for by System_error)
                      */
                     __pop_malloc_exhausted = nbytes;
+#if defined(__CYGWIN__)
+                    /* a signal sent with kill cannot be turned into a
+                       mishap on this system; see pop_win_fault.c */
+                    {   extern void _pop_win_raise(int);
+                        _pop_win_raise(SIGEMT);
+                    }
+#else
                     kill(getpid(), SIGEMT);
                     pause();                    /* allow sig to be sent */
+#endif
                 }
                 errno = ENOMEM;
                 return(NULL);
@@ -1669,6 +1725,14 @@ void free(void *cp) {
 
     if (cp == NULL) return;
     p = (ALLOCP)(cp - sizeof (union OVERHEAD));
+#if defined(__CYGWIN__)
+    if (p->magic_num == MAGIC_ALIGNED) {
+        /* from memalign and friends, below: free the enclosing block */
+        p->magic_num = 0;
+        free(ALIGNED_RAW(cp));
+        return;
+    }
+#endif
     if (p->magic_num != MAGIC) return;
 
     /* Stop poll_appcons getting called asynchronously, since the X event
@@ -1726,6 +1790,16 @@ void *realloc(void * cp, size_t nbytes) {
     if (cp == NULL) return(malloc(nbytes));
 
     p = (ALLOCP)(cp - sizeof(union OVERHEAD));
+#if defined(__CYGWIN__)
+    if (p->magic_num == MAGIC_ALIGNED) {
+        /* the result need not keep the alignment */
+        size = p->bucket_index;
+        if ((res = malloc(nbytes)) == NULL) return (NULL);
+        copybytes(cp, res, (nbytes < size) ? nbytes : size);
+        free(cp);
+        return(res);
+    }
+#endif
     if (p->magic_num == MAGIC) {
         was_alloced++;
         bucket = p->bucket_index;
@@ -1789,6 +1863,63 @@ void *calloc(size_t num, size_t size) {
 void cfree(char * p, unsigned num, unsigned size) {
     free(p);
 }
+
+#if defined(__CYGWIN__)
+
+/*  Aligned allocation.
+ *
+ *  A program that supplies its own malloc on Cygwin is used for every
+ *  allocation in the process, the C library's and every DLL's included.
+ *  It must then supply the aligned allocators as well: if it does not,
+ *  Cygwin's own posix_memalign calls itself until the stack is exhausted
+ *  and the process ends with no message.  OpenSSL (LIB CRYPTO, and curl
+ *  through it) asks for 64-byte-aligned memory the first time it is used,
+ *  so that is how this was found.
+ *
+ *  The aligned address is taken from inside an ordinary block.  Just below
+ *  it sit the usual 8-byte header, with MAGIC_ALIGNED in place of MAGIC and
+ *  the requested size in place of the bucket, and below that the address
+ *  of the block itself, which is what free() releases.
+ */
+void *memalign(size_t alignment, size_t nbytes) {
+    char *raw, *a;
+    ALLOCP h;
+    size_t slack = 2 * sizeof(union OVERHEAD);
+
+    if (alignment < sizeof(union OVERHEAD)) alignment = sizeof(union OVERHEAD);
+    if ((alignment & (alignment - 1)) != 0) { errno = EINVAL; return(NULL); }
+    if (nbytes > 0xffffffffUL - alignment - slack) { errno = ENOMEM; return(NULL); }
+
+    raw = malloc(nbytes + alignment + slack);
+    if (raw == NULL) return(NULL);
+    a = (char *) (((unsigned long) raw + slack + alignment - 1)
+                  & ~((unsigned long) alignment - 1));
+    ALIGNED_RAW(a) = raw;
+    h = (ALLOCP) (a - sizeof(union OVERHEAD));
+    h->magic_num = MAGIC_ALIGNED;
+    h->bucket_index = (unsigned) nbytes;
+    return(a);
+}
+
+int posix_memalign(void **memptr, size_t alignment, size_t nbytes) {
+    void *p;
+    if (alignment % sizeof(void *) != 0 || (alignment & (alignment - 1)) != 0
+        || alignment == 0)
+        return(EINVAL);
+    if ((p = memalign(alignment, nbytes)) == NULL) return(ENOMEM);
+    *memptr = p;
+    return(0);
+}
+
+void *aligned_alloc(size_t alignment, size_t nbytes) {
+    return(memalign(alignment, nbytes));
+}
+
+void *valloc(size_t nbytes) {
+    return(memalign(65536, nbytes));
+}
+
+#endif  /* __CYGWIN__ */
 
 
 
@@ -1862,6 +1993,127 @@ char * _pop_sbrk(int nbytes) {
 }
 
 #endif  /* AIX */
+
+
+#if defined(__CYGWIN__)
+
+/****************************************************************************
+ * Cygwin: emulate the memory break over a fixed reserve, so that
+ * GET_REAL_BREAK / SET_REAL_BREAK (x86_64/sysdefs_cygwin.p) work.
+ *
+ * Cygwin's own sbrk heap is above 4 GB and not ours to place; saved images
+ * hold absolute addresses, so the Pop heap must start at the same address
+ * in every run.  The reserve is mapped once, inaccessible, and the break is
+ * moved with mprotect: pages below it are readable, writable and executable
+ * (Windows allows that; Poplog generates code into its heap), pages above it
+ * fault, which is how user-stack underflow is detected.  Lowering the break
+ * hands the pages back (they read zero if the break is raised again).
+ *
+ * It must be Cygwin's mmap and not VirtualAlloc, because fork reproduces
+ * only mappings Cygwin knows about.  Measured: tools/port-windows/spikes,
+ * S3 and S4.
+ *
+ * The reserve ends at 0x70000000: Windows keeps KUSER_SHARED_DATA at
+ * 0x7FFE0000, and the x86-64 backend has only ever run with its heap below
+ * 2 GB.
+ ****************************************************************************/
+
+#include <sys/types.h>
+#include <sys/mman.h>
+
+#define POP_BREAK_BASE      ((char *) 0x10000000UL)
+#define POP_BREAK_RESERVE   ((size_t) 0x60000000UL)     /* 1.5 GB */
+#define POP_BREAK_GRAIN     ((unsigned long) 65536)     /* == VPAGE_OFFS */
+
+static char *current_break = (char *) 0;
+
+/* set POP_FAULT_TRACE in the environment to see the break move */
+#include <stdio.h>
+#include <stdlib.h>
+static void pop_break_trace(const char *what, char *a) {
+    if (getenv("POP_FAULT_TRACE")) {
+        char b[100];
+        int n = snprintf(b, sizeof b, "[pop break] %s %p (break %p)%c", what, a, current_break, 10);
+        write(2, b, n);
+    }
+}
+
+extern void _pop_win_stack_commit(void);
+
+static int pop_break_init(void) {
+    if (current_break) return 0;
+    /* This is the first C routine Pop calls at start-up, which makes it the
+       place for a Windows chore that has to precede any deep use of the
+       stack: see _pop_win_stack_commit in pop_win_fault.c. */
+    _pop_win_stack_commit();
+    pop_break_trace("reserving", POP_BREAK_BASE);
+    if (mmap(POP_BREAK_BASE, POP_BREAK_RESERVE, PROT_NONE,
+             MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0)
+            != (void *) POP_BREAK_BASE) {
+        static const char msg[] =
+            "Poplog: cannot reserve the heap region at 0x10000000\n";
+        write(2, msg, sizeof msg - 1);
+        return -1;
+    }
+    current_break = POP_BREAK_BASE;
+    return 0;
+}
+
+/* bounds of the reserve and the current break, for the fault handler */
+void _pop_break_info(char **base, char **brk, char **limit) {
+    *base = POP_BREAK_BASE;
+    *brk = current_break ? current_break : POP_BREAK_BASE;
+    *limit = POP_BREAK_BASE + POP_BREAK_RESERVE;
+}
+
+int _pop_brk(char *new_break) {
+    if (pop_break_init() == -1) return -1;
+    pop_break_trace("brk", new_break);
+    new_break = (char *) (((unsigned long) new_break + POP_BREAK_GRAIN - 1)
+                          & ~(POP_BREAK_GRAIN - 1));
+    if (new_break < POP_BREAK_BASE
+        || new_break > POP_BREAK_BASE + POP_BREAK_RESERVE) {
+        errno = ENOMEM;
+        return -1;
+    }
+    if (new_break > current_break) {
+        if (mprotect(current_break, new_break - current_break,
+                     PROT_READ | PROT_WRITE | PROT_EXEC) == -1)
+            return -1;
+    } else if (new_break < current_break) {
+        if (mprotect(new_break, current_break - new_break, PROT_NONE) == -1)
+            return -1;
+    }
+    current_break = new_break;
+    return 0;
+}
+
+char * _pop_sbrk(long nbytes) {
+    char *new_break;
+    if (pop_break_init() == -1) return (char *) -1;
+    new_break = current_break + nbytes;
+    if (nbytes != 0 && _pop_brk(new_break) == -1) return (char *) -1;
+    return current_break;
+}
+
+/* Cygwin has no networks database and no getnetbyname.  LIB UNIX_SOCKETS
+   declares it with everything else it loads, so without a definition the
+   whole sockets library fails to load.  Answering "no such network" is what
+   a system with an empty /etc/networks would do. */
+struct netent;
+struct netent *getnetbyname(const char *name) {
+    (void) name;
+    return (struct netent *) 0;
+}
+
+/* environ lives in the Cygwin DLL; Pop code cannot address a DLL's data
+   directly (see setpop.p), so it calls this. */
+char **_pop_environ(void) {
+    extern char **environ;
+    return environ;
+}
+
+#endif  /* __CYGWIN__ */
 
 
 #if defined(__APPLE__)
@@ -2329,7 +2581,24 @@ static void copybytes(char * from, char * to, int nbytes) {
 globalref int (**_WEAK_pop_external_callback)(void *);
 #define POP_EXTERNAL_CALLBACK (**_WEAK_pop_external_callback)
 #else
-globalref int (*_WEAK_pop_external_callback)(void *);
+/*
+ *  Calling convention of routines that hand-written assembly calls, or
+ *  that C calls in hand-written assembly.  The x86-64 assembly runtime
+ *  (pop/src/x86_64) passes arguments the System V way.  Windows compilers
+ *  use the Microsoft convention, so on that target these few functions are
+ *  marked as System V and the compiler does the conversion at each call.
+ *  Calls out to arbitrary C functions (_call_sys, _call_external) cannot be
+ *  handled this way and are converted in the assembly itself.
+ *  See PORTING-X86-64-WINDOWS.md section 3.3.
+ */
+#ifndef POP_ASM_ABI
+#if defined(__CYGWIN__) && defined(__x86_64__)
+#define POP_ASM_ABI __attribute__((sysv_abi))
+#else
+#define POP_ASM_ABI
+#endif
+#endif
+globalref int (POP_ASM_ABI *_WEAK_pop_external_callback)(void *);
 #define POP_EXTERNAL_CALLBACK (*_WEAK_pop_external_callback)
 #endif
 

@@ -75,6 +75,23 @@ iconstant macro (
     EINPROGRESS     = 115,
     );
 
+#_ELSEIF DEF CYGWIN
+
+    ;;; newlib's numbering (tools/port-windows/cygdefs.c)
+iconstant macro (
+    EWOULDBLOCK     = EAGAIN,
+    ENOSR           = 63,
+    ELOOP           = 92,
+    EDQUOT          = 132,
+    ENOTSOCK        = 108,
+    EADDRINUSE      = 112,
+    EISCONN         = 127,
+    ENOTCONN        = 128,
+    ECONNREFUSED    = 111,
+    EALREADY        = 120,
+    EINPROGRESS     = 119,
+    );
+
 #_ELSEIF DEF HPUX
 
 iconstant macro (

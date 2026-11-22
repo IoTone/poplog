@@ -49,6 +49,9 @@ e.g.
 
 (same scheme for corepop-x86_64-linux, corepop-aarch64-linux and
 corepop-aarch64-darwin; verify against the SHA256SUMS asset).
+
+Windows is different enough to have its own instructions:
+see INSTALL-WINDOWS.md (experimental, branch windows-checkout).
 The same binaries are vendored in-tree under nix/seeds/ for the
 Nix flake build.
 

@@ -24,11 +24,22 @@ true -> pop_record_writeable;
 
 load lib.p
 compile(pop_architecture ><
-    ;;; native build targets the host OS: pick the matching sysdefs
-    ;;; (cross builds swap the file in the build tree instead)
-    if member("darwin", sys_os_type) then '/sysdefs_darwin.p'
-    else '/sysdefs.p'
-    endif);
+    ;;; Pick the sysdefs for the target OS: $POP_TARGET_OS when it is set
+    ;;; (a cross build, e.g. POP_TARGET_OS=cygwin on a Linux host),
+    ;;; otherwise the OS this is running on (a native build).
+    procedure() -> file;
+        lvars file, os = systranslate('POP_TARGET_OS');
+        unless os then
+            if member("darwin", sys_os_type) then 'darwin'
+            elseif member("cygwin", sys_os_type) then 'cygwin'
+            else 'default'
+            endif -> os
+        endunless;
+        if os = 'darwin' then '/sysdefs_darwin.p'
+        elseif os = 'cygwin' then '/sysdefs_cygwin.p'
+        else '/sysdefs.p'
+        endif -> file
+    endprocedure());
 load mcdata.p
 load files.p
 load wordflags.p

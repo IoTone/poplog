@@ -89,13 +89,14 @@ Poplog builds and runs natively on a growing set of platforms
 | **Solaris** | x86 (i386) | ✅ Supported | Upstream port (W. Hebisch); tested on Solaris 10 (`CC=gcc`, vendored `corepop_solaris.i386`).  Not benchmarked here |
 | **FreeBSD** | x86-64 | ✅ Supported | Upstream port (W. Hebisch); tested on x86-64.  Not benchmarked here |
 | **Linux** | RISC-V (`riscv64`, RV64GC) | ✅ Supported | Native RV64GC/LP64D port, self-hosting on a **StarFive VisionFive** (dual SiFive U74) — all four languages, saved images, terminal VED, and the FFI float ABI.  `tools/validate-riscv64.sh` = 14/14; also bootstrapped from the released seed corepop on a cloud RV64 host (Ubuntu 24.04), where the `lib json`/`lib crypto` suites pass.  See `PORTING-RISCV64-LINUX.md` |
-| **Windows** | x86-64 | 🚧 TODO | Not yet ported (WSL2 runs the Linux build as an interim) |
+| **Windows** | x86-64 | 🚧 Experimental (branch `windows-checkout`) | Native Cygwin port, self-hosting on Windows 11: all four languages, saved images, terminal VED, external calls and callbacks, sockets, and native graphics (Dear ImGui on Direct3D 11).  `tools/validate-cygwin.sh` = 48/48 and `tools/test-libs.sh` = 19/19 on one machine; seed vendored as `nix/seeds/corepop-x86_64-cygwin`.  Setup: [`INSTALL-WINDOWS.md`](INSTALL-WINDOWS.md); design and test record: `PORTING-X86-64-WINDOWS.md` |
 
 "Supported" means it builds and runs.  The first three rows plus RISC-V are
 validated *and* benchmarked in this fork; ARM32, Solaris/x86 and FreeBSD/x86-64
 are existing Poplog ports (ARM32 long-standing; Solaris + FreeBSD recent upstream
 additions by W. Hebisch) that simply haven't been re-tested or benchmarked here.
-The one remaining 🚧 row (Windows) is genuinely not yet ported.  See the
+The one remaining 🚧 row (Windows) is an experimental port on its own branch,
+not yet part of the default branch.  See the
 [platform-coverage table in BENCHMARKS.md](BENCHMARKS.md#platform-coverage).
 
 Per-platform porting notes: `PORTING-ARM64-LINUX-RPI5.md` and
@@ -136,7 +137,8 @@ publish step reads off the release rather than assuming three platforms.
 
 **2. From source** — see [INSTALL](INSTALL): seed `target/pop/corepop`
 (binaries vendored under `nix/seeds/` for the four ported platforms),
-then `./configure && make all`.
+then `./configure && make all`.  On Windows, see
+[INSTALL-WINDOWS.md](INSTALL-WINDOWS.md).
 
 **3. Nix** — see the next section.
 

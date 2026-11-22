@@ -42,7 +42,25 @@ globalref POPWORD
     _pop_external_flags;    /* pop Sys$- _external_flags */
 globalref POPOBJ
     pop_exfunc_arg;
-extern int _pop_external_callback(void *);
+/*
+ *  Calling convention of routines that hand-written assembly calls, or
+ *  that C calls in hand-written assembly.  The x86-64 assembly runtime
+ *  (pop/src/x86_64) passes arguments the System V way.  Windows compilers
+ *  use the Microsoft convention, so on that target these few functions are
+ *  marked as System V and the compiler does the conversion at each call.
+ *  Calls out to arbitrary C functions (_call_sys, _call_external) cannot be
+ *  handled this way and are converted in the assembly itself.
+ *  See PORTING-X86-64-WINDOWS.md section 3.3.
+ */
+#ifndef POP_ASM_ABI
+#if defined(__CYGWIN__) && defined(__x86_64__)
+#define POP_ASM_ABI __attribute__((sysv_abi))
+#else
+#define POP_ASM_ABI
+#endif
+#endif
+/* defined in pop/src/<arch>/aextern.s */
+extern int POP_ASM_ABI _pop_external_callback(void *);
 
 
 /*

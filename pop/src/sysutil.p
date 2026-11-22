@@ -99,7 +99,16 @@ vars _unix_usrstack = _NULL;    ;;; must be vars so it's not restored
     */
 define Abs_callstack_lim();
 
-#_IF DEF SUNOS or DEF NCR or DEF DGUX or DEF HPUX or DEF LINUX or DEF FREEBSD or DEF NETBSD or DEF DARWIN
+#_IF DEF CYGWIN
+    ;;; Cygwin keeps the argument and environment strings in its own heap,
+    ;;; far above the stack, so the search used below would find the wrong
+    ;;; end of memory.  The stack size comes from the executable's header
+    ;;; (the -Wl,--stack link option), which getrlimit reports.
+    if _unix_usrstack == _NULL then
+        _system_stack_base@(b.r->segment) -> _unix_usrstack
+    endif;
+
+#_ELSEIF DEF SUNOS or DEF NCR or DEF DGUX or DEF HPUX or DEF LINUX or DEF FREEBSD or DEF NETBSD or DEF DARWIN
     ;;; They have several different USRSTACK values (and they're liable
     ;;; to change with a new release, etc). The following code finds the
     ;;; highest arg or env string address, and then takes that rounded up
@@ -189,7 +198,7 @@ lconstant macro BSD_PWENT = DEF BERKELEY and not(DEF HPUX) and not(DEF NETBSD);
 struct PASSWD_ENTRY
   { (byte)  PWE_NAME,
             PWE_PASSWD;
-#_IF DEFV SYSTEM_V >= 4.0 or DEF OSF1 or DEF LINUX or DEF AIX or DEF FREEBSD or DEF NETBSD
+#_IF DEFV SYSTEM_V >= 4.0 or DEF OSF1 or DEF LINUX or DEF AIX or DEF FREEBSD or DEF NETBSD or DEF CYGWIN
     uid_t   PWE_UID;
     gid_t   PWE_GID;
 #_ELSE
@@ -199,6 +208,10 @@ struct PASSWD_ENTRY
 #_IF DEF NETBSD
     time_t  PWE_CHANGE;
     (byte)  PWE_CLASS;
+#_ELSEIF DEF CYGWIN
+    ;;; name @0, passwd @8, uid @16, gid @20, comment @24, gecos @32,
+    ;;; dir @40, shell @48 (tools/port-windows/cygdefs.c)
+    (byte)  PWE_COMMENT;
 #_ELSEIF not(DEF LINUX or DEF AIX)
   #_IF BSD_PWENT
     int     PWE_QUOTA;
@@ -243,7 +256,7 @@ define sysgetpasswdentry(name);
         GID:
             return(Uint_->_pint(_pwent!PWE_GID));
         QUOTA:
-          #_IF DEF LINUX or DEF AIX or DEF NETBSD
+          #_IF DEF LINUX or DEF AIX or DEF NETBSD or DEF CYGWIN
             ;;; dummy
             return(0);
           #_ELSEIF DEF BSD_PWENT

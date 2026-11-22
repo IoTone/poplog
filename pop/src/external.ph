@@ -97,6 +97,14 @@ lconstant
     ;;; No DL_LIB: dlopen/dlsym live in libSystem, so extern_symbols.p skips
     ;;; the dummy -ldl exload for Darwin (as it does for IRIX 5 / OSF1).
 
+#_ELSEIF DEF CYGWIN
+
+lconstant
+    SHLIB_EXTN = '.dll',                    ;;; Windows DLL (PE)
+    SHLIB_NAME = 'dynamic-link library',
+;
+    ;;; No DL_LIB: dlopen/dlsym are in cygwin1.dll.
+
 #_ELSE_ERROR
 #_ENDIF
 #_ENDIF     ;;; DEF SHARED_LIBRARIES or DEF VMS

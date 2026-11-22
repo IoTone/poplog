@@ -15,10 +15,13 @@ usage() {
   echo "  --with_motif      fail if no Motif"
   echo "  --with_xt         use X toolkit instead of Motif"
   echo "  --with_no_x       do not use X"
-  echo "  --experimental-graphics[=metal|sdl]  native ImGui graphics; implies no X."
+  echo "  --experimental-graphics[=metal|sdl|win32]  native ImGui graphics; implies no X."
   echo "                           No value picks the default backend by OS:"
-  echo "                           Metal+Cocoa on macOS, SDL3+OpenGL elsewhere."
-  echo "                           =metal is macOS-only; =sdl works on macOS and Linux"
+  echo "                           Metal+Cocoa on macOS, Win32+Direct3D 11 on Windows"
+  echo "                           (Cygwin), SDL3+OpenGL elsewhere."
+  echo "                           =metal is macOS-only; =win32 is Windows-only and needs"
+  echo "                           nothing installed beyond Cygwin's gcc-g++;"
+  echo "                           =sdl works on macOS and Linux"
   echo "                           and needs SDL3 (pkg-config, or SDL3_CFLAGS/SDL3_LIBS)."
   echo "  --experimental-gfx[=...]  alias for --experimental-graphics"
   echo "  --with_packages   fail if package tree is missing"
@@ -95,16 +98,39 @@ HOST_OS=`uname -s`
 # Metal is macOS-only; SDL needs SDL3 (pkg-config, or SDL3_CFLAGS/SDL3_LIBS env).
 if [ "$GFX_REQ" = yes ]; then
     case "$GFX_BACKEND" in
-        auto)  if [ "$HOST_OS" = Darwin ]; then GFX_BACKEND=metal; else GFX_BACKEND=sdl; fi ;;
-        metal|sdl) ;;
-        *) echo "ERROR: --experimental-graphics=$GFX_BACKEND: unknown backend (use metal or sdl)."; exit 1 ;;
+        auto)  case "$HOST_OS" in
+                   Darwin)  GFX_BACKEND=metal ;;
+                   CYGWIN*) GFX_BACKEND=win32 ;;
+                   *)       GFX_BACKEND=sdl ;;
+               esac ;;
+        metal|sdl|win32) ;;
+        *) echo "ERROR: --experimental-graphics=$GFX_BACKEND: unknown backend (use metal, sdl or win32)."; exit 1 ;;
     esac
+    if [ "$GFX_BACKEND" = win32 ]; then
+        case "$HOST_OS" in
+            CYGWIN*) ;;
+            *) echo "ERROR: the Win32 graphics backend is Windows-only; use --experimental-graphics=sdl."
+               exit 1 ;;
+        esac
+        if ! command -v c++ >/dev/null 2>&1; then
+            echo "ERROR: --experimental-graphics=win32 needs a C++ compiler (Cygwin package gcc-g++)."
+            exit 1
+        fi
+        if [ ! -f pop/extern/imgui/imgui.cpp ]; then
+            echo "ERROR: Dear ImGui is not vendored yet; run ./tools/fetch-imgui.sh first."
+            exit 1
+        fi
+    fi
     if [ "$GFX_BACKEND" = metal ] && [ "$HOST_OS" != Darwin ]; then
         echo "ERROR: the Metal graphics backend is macOS-only; use --experimental-graphics=sdl."
         exit 1
     fi
     if [ "$GFX_BACKEND" = metal ]; then
         GFX_CONF=imgui
+    elif [ "$GFX_BACKEND" = win32 ]; then
+        # Dear ImGui's Win32 platform backend and Direct3D 11 renderer; the
+        # libraries ship with Windows and Cygwin's w32api has the headers.
+        GFX_CONF=imgui-win32
     else
         GFX_CONF=imgui-sdl
         # SDL3 build flags: honour SDL3_CFLAGS/SDL3_LIBS from the environment
@@ -157,6 +183,24 @@ if [ "$HOST_OS" = Darwin ]; then
     # executable at startup.
     CC_LINK_OPTIONS=""
 fi
+case "$HOST_OS" in
+  CYGWIN*)
+    # Windows, Cygwin runtime (PORTING-X86-64-WINDOWS.md).  The x86-64 backend
+    # uses 32-bit absolute addresses, so the image must sit at a fixed base
+    # below 2 GB; Cygwin's default is above 4 GB and randomised.  The stack
+    # reserve is kept modest because Windows uses it for every thread and
+    # places those stacks low, where the Pop heap has to go; it is also
+    # committed in full at start-up (pop_win_fault.c).
+    if [ "$HOST_ARCH" != x86_64 ]; then
+        echo "ERROR: Poplog on Windows is only ported to x86_64 (this is $HOST_ARCH)."
+        exit 1
+    fi
+    HOST_OS=Cygwin
+    # --export-all-symbols stands in for -export-dynamic: it lets dlsym find
+    # the C runtime that is linked into the executable.
+    CC_LINK_OPTIONS="-Wl,--image-base=0x400000 -Wl,--disable-dynamicbase -Wl,--stack,0x800000 -Wl,--export-all-symbols"
+    ;;
+esac
 case "$HOST_ARCH" in
   i86pc)
       # Solaris
@@ -230,6 +274,10 @@ if [ "$HOST_OS" = Darwin ]; then
     # below do not exist there. Skip the probes.
     HAS_NOPIE=no; HAS_AS_NEEDED=no; HAS_HASH_STYLE=no; HASH_STYLE_OPT=""
     echo "Darwin: skipping GNU-ld option probes (PIE mandatory)"
+elif [ "$HOST_OS" = Cygwin ]; then
+    # These are ELF linker options; the PE link options were set above.
+    HAS_NOPIE=no; HAS_AS_NEEDED=no; HAS_HASH_STYLE=no; HASH_STYLE_OPT=""
+    echo "Cygwin: skipping ELF linker option probes"
 else
 echo -n "Testing if compiler recognizes -no-pie"
 NO_PIE_OPT=-no-pie

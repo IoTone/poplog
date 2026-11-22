@@ -569,7 +569,7 @@ define Convert_func_spec(spec, exptr) -> fdesc;
    #_IF DEF ALPHA
                ;;; all Alpha float results are in double form
                FLWEAK Float_val_s_C -> fsv(FD_VAL_SPEC,fdesc)
-   #_ELSEIF DEF LINUX and DEF PC
+   #_ELSEIF (DEF LINUX or DEF CYGWIN) and DEF PC
                ;;; Inserted by A.S. 6 Jan 2005
                ;;; all PC linux float results are in double form
                FLWEAK Float_val_s_C -> fsv(FD_VAL_SPEC,fdesc)

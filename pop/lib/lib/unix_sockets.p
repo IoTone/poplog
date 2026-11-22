@@ -54,6 +54,33 @@ l_typespec
       },
 #_ENDIF
 
+#_IF DEF CYGWIN
+    ;;; Cygwin's name-lookup structures have Winsock's shapes, not Unix's:
+    ;;; the address type and length, the port and the protocol number are
+    ;;; all 16 bits (tools/port-windows/cygdefs.c).  With the Unix layout
+    ;;; h_addrtype read as AF_INET plus the length in its upper half, and
+    ;;; every host name was "unknown or invalid".
+    hostent
+      { h_name      !exptr,
+        h_aliases   !exptr,
+        h_addrtype  !short,
+        h_length    !short,
+        h_addr      !exptr.:exptr
+      },
+
+    servent
+      { s_name      !exptr,
+        s_aliases   !exptr,
+        s_port      !short,
+        s_proto     !exptr.exacc_ntstring.consword
+      },
+
+    protoent
+      { p_name      !exptr,
+        p_aliases   !exptr,
+        p_proto     !short
+      },
+#_ELSE
     hostent
       { h_name      !exptr,
         h_aliases   !exptr,
@@ -74,6 +101,7 @@ l_typespec
         p_aliases   !exptr,
         p_proto     !int
       },
+#_ENDIF
 
     netent
       { n_name      !exptr,
@@ -661,7 +689,12 @@ define sys_socket_option(sock, option) -> value;
     endif;
     intvec2(1) -> value;
     if option == SO_LINGER then
+#_IF DEF CYGWIN
+        ;;; struct linger is two 16-bit fields here, both in the first int
+        (value && 16:FFFF) /== 0 and (value >> 16) -> value
+#_ELSE
         value /== 0 and intvec2(2) -> value
+#_ENDIF
     elseif bool then
         value /== 0 -> value
     endif
@@ -671,8 +704,13 @@ define updaterof sys_socket_option(value, sock, option);
     lvars   value, sock, option, res, len = SIZEOFTYPE(:int),
             (opt, level, bool) = get_option_args(sock, option);
     if option == SO_LINGER then
+#_IF DEF CYGWIN
+        ;;; struct linger is { short l_onoff, l_linger }: four bytes
+        if value then 1 || (value << 16) else 0 endif
+#_ELSE
         SIZEOFTYPE(:int[2]) -> len;
         if value then 1, value else 0, 0 endif -> intvec2(2);
+#_ENDIF
     elseif bool then
         if value then 1 else 0 endif
     else

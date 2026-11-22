@@ -1,1 +1,8 @@
-teachnums.p
+TEACH TEACHNUMS                                 Aaron Sloman 10 Aug 2009
+
+This teach file is kept as  teachnums.p , because it is also a program
+that can be loaded.  Please see TEACH * TEACHNUMS.P
+
+(This used to be a symbolic link to teachnums.p.  Windows does not
+check out symbolic links without special permissions, so it is now a
+pointer instead.  See https://github.com/IoTone/poplog/issues/18 )
