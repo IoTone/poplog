@@ -69,6 +69,22 @@ define sysexecute(execfile, arglist, envlist);
     ;;; (doesn't matter if any are closed already)
     for dev in devlist do
         _extern[NI] fcntl(dev!D_FILE_DESC, _F_SETFD, _0) ->
+#_IF DEF CYGWIN
+        ;;; Cygwin (seen in 3.6.12): a FIFO that was close-on-exec when
+        ;;; this process was forked keeps handles that are not inherited,
+        ;;; and clearing the flag here does not mend them -- the program
+        ;;; exec'd then dies with "Can't reopen shared memory during
+        ;;; exec".  A descriptor made by dup while the flag is clear is
+        ;;; sound, so replace this one with a copy of itself.  It matters
+        ;;; when a standard device is a FIFO, as the pop11 skill's session
+        ;;; input is.
+        ;
+        if _nonneg(_extern[NI] fcntl(dev!D_FILE_DESC, _F_DUPFD, _3) ->> _ptr)
+        then
+            _extern[NI] dup2(_ptr, dev!D_FILE_DESC) -> ;
+            _extern[NI] close(_ptr) ->
+        endif
+#_ENDIF
     endfor;
 
     rs@V_WORDS@(w.r -> (b)) -> _argp;   ;;; ensure correctly aligned

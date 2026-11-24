@@ -37,6 +37,11 @@ popsession start --poplog-root /path/to/built/poplog-checkout
 (or `export POPLOG_ROOT=...`). All commands below live in this skill's
 `bin/` directory.
 
+To check that the skill works on a machine, run `selftest` (about 15
+seconds, no network): it drives a session of its own through everything
+this file describes and ends with `POP11 SKILL OK` or a list of failures.
+On Windows, run it and every other command here from a Cygwin shell.
+
 ## The session lifecycle
 
 ```sh

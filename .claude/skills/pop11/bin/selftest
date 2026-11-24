@@ -1,0 +1,271 @@
+#!/bin/sh
+# selftest — check that the pop11 skill works on this machine.
+#
+#   selftest                 run every check
+#   selftest --no-shims      skip the C shims (popcurl, popsqlite)
+#   selftest --keep          leave the scratch directory behind for inspection
+#
+# It drives the skill the way SKILL.md tells Claude to: it starts a session
+# under a name of its own, sends chunks by -c, -f and stdin, provokes a
+# mishap, checkpoints, restores, and stops.  It uses no network.  The shim
+# checks are skipped, not failed, where the C library or compiler is absent.
+#
+# The engine is found as popsession finds it: $POPLOG_ROOT, then the config
+# written by install.sh, and failing both, the checkout this file sits in.
+#
+# On Windows run it from a Cygwin shell (see INSTALL-WINDOWS.md).
+#
+# Exit status: 0 if nothing failed, 1 otherwise.
+
+bin="$(cd "$(dirname "$0")" && pwd)"
+shims=yes
+keep=no
+for a in "$@"; do
+    case "$a" in
+        --no-shims) shims=no ;;
+        --keep)     keep=yes ;;
+        *) echo "usage: selftest [--no-shims] [--keep]" >&2; exit 2 ;;
+    esac
+done
+
+if [ -z "$POPLOG_ROOT" ] && [ ! -f "$HOME/.cache/pop11-skill/config.json" ]; then
+    guess="$(cd "$bin/../../../.." 2>/dev/null && pwd)"
+    if [ -x "$guess/poplog" ] && [ -x "$guess/target/pop/basepop11" ]; then
+        POPLOG_ROOT="$guess"; export POPLOG_ROOT
+    fi
+fi
+
+name="selftest-$$"
+work="$(mktemp -d "${TMPDIR:-/tmp}/pop11-selftest.XXXXXX")"
+pass=0; fail=0; skip=0
+
+cleanup() {
+    "$bin/popsession" stop --name "$name" >/dev/null 2>&1
+    rm -rf "$HOME/.cache/pop11-skill/session-$name"
+    [ "$keep" = yes ] && echo "scratch directory kept: $work" || rm -rf "$work"
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM
+
+ok()   { pass=$((pass + 1)); echo "  [PASS] $1"; }
+bad()  { fail=$((fail + 1)); echo "  [FAIL] $1"; [ -n "$2" ] && printf '%s\n' "$2" | sed 's/^/         | /' | head -12; }
+skp()  { skip=$((skip + 1)); echo "  [SKIP] $1"; }
+
+# want NAME REGEX      -- $out must match REGEX
+want() { if printf '%s\n' "$out" | grep -Eq -- "$2"; then ok "$1"; else bad "$1 (wanted /$2/)" "$out"; fi; }
+# wantrc NAME N        -- $rc must be N
+wantrc() { if [ "$rc" -eq "$2" ]; then ok "$1"; else bad "$1 (exit status $rc, wanted $2)" "$out"; fi; }
+
+ps_() { out="$("$bin/popsession" "$@" 2>&1)"; rc=$?; }
+send() { out="$("$bin/popsession" send --name "$name" --timeout 60 -c "$1" 2>&1)"; rc=$?; }
+# chunk FILE <<'EOF' ... EOF   -- write the chunk on stdin to a file, send it with -f
+chunk() { cat > "$work/$1"; out="$("$bin/popsession" send --name "$name" --timeout 60 -f "$work/$1" 2>&1)"; rc=$?; }
+
+echo "pop11 skill selftest"
+echo "  system:  $(uname -srm)"
+echo "  python:  $(python3 --version 2>&1)"
+echo "  root:    ${POPLOG_ROOT:-(from config)}"
+echo
+
+echo "== 1. one-shot runner (pop11run)"
+out="$("$bin/pop11run" -c 'npr(6 * 7);' 2>&1)"; rc=$?
+want "pop11run -c" '^42$'
+printf '%s\n' "vars i, s = 0; for i from 1 to 100 do s + i -> s endfor; npr('sum=' sys_>< s);" > "$work/one.p"
+out="$("$bin/pop11run" "$work/one.p" 2>&1)"; rc=$?
+want "pop11run file.p" '^sum=5050$'
+
+echo "== 2. session start"
+ps_ start --name "$name"
+wantrc "start exits 0" 0
+want "start reports the session up" "session '$name' up"
+ps_ status --name "$name"
+want "status says running" 'running'
+
+echo "== 3. send, three ways"
+send 'npr(6 * 7);'
+want "send -c" '^42$'
+want "timing line present" 'pop [0-9.]+ m?s'
+chunk two.p <<EOF
+npr('from ' sys_>< 'a file');
+EOF
+want "send -f" '^from a file$'
+out="$(printf '%s\n' "npr('from ' sys_>< 'stdin');" | "$bin/popsession" send --name "$name" 2>&1)"; rc=$?
+want "send on stdin" '^from stdin$'
+send 'sys_os_type =>'
+want "sys_os_type prints" '^\*\* \['
+echo "         engine: $(printf '%s\n' "$out" | grep '^\*\* ')"
+
+echo "== 4. state and compiled procedures persist between sends"
+chunk defs.p <<'EOF'
+vars counter = 0;
+define bump(); counter + 1 -> counter; counter enddefine;
+define nfib(n); if n < 2 then 1 else nfib(n - 1) + nfib(n - 2) + 1 endif enddefine;
+define greet(who); npr('hello ' sys_>< who) enddefine;
+EOF
+wantrc "definitions accepted" 0
+send 'bump() -> ; bump() -> ; npr(bump());'
+want "variable carried across sends" '^3$'
+send 'npr(nfib(20));'
+want "procedure carried across sends" '^21891$'
+chunk redef.p <<'EOF'
+define greet(who); npr('goodbye ' sys_>< who) enddefine;
+EOF
+send "greet('world');"
+want "redefinition takes effect" '^goodbye world$'
+
+echo "== 5. a mishap is reported and the session survives"
+send "npr('before'); 1 + 'two' -> counter;"
+wantrc "mishap gives exit status 1" 1
+want "mishap text shown" 'MISHAP'
+send 'npr(bump());'
+wantrc "next send exits 0" 0
+want "state intact after the mishap" '^4$'
+
+echo "== 6. the language idioms SKILL.md teaches"
+chunk lang.p <<'EOF'
+vars x = 5, a, b, t, m;
+define pair(); 1; 2; enddefine;
+pair() -> b -> a;
+npr([^a ^b ^(x + 1)]);
+npr(length({% 1, 2, 3, 4 %}));
+newproperty([], 50, false, true) -> t;
+"red" -> t(consword('colour'));
+npr(t("colour"));
+newmapping([], 50, false, true) -> m;
+7 -> m('key');
+npr(m('k' >< 'ey'));
+npr(2 ** 100);
+npr(22 / 7);
+npr(sqrt(2.0) > 1.41 and sqrt(2.0) < 1.42);
+EOF
+want "list interpolation and multiple results" '^\[1 2 6\]$'
+want "vector" '^4$'
+want "property with word keys" '^red$'
+want "mapping with string keys" '^7$'
+want "big integers" '^1267650600228229401496703205376$'
+want "ratios" '^22_/7$'
+want "floating point" '^<true>$'
+
+echo "== 7. regular expressions"
+chunk re.p <<'EOF'
+vars err, p, s, n;
+regexp_compile('ERROR @[0-9@]@{1,@}') -> (err, p);
+npr(err);
+p(1, 'an ERROR 42 happened', false, false) -> (s, n);
+npr(substring(s, n, 'an ERROR 42 happened'));
+regexp_compile('ERROR [0-9]+') -> (err, p);
+p(1, 'an ERROR 42 happened', false, false) -> (s, n);
+npr([literal ^s]);
+EOF
+want "pattern compiles" '^<false>$'
+want "match extracted" '^ERROR 42$'
+want "PCRE spelling is literal, as documented" '^\[literal <false>\]$'
+
+echo "== 8. files and child processes"
+printf 'alpha\nERROR one\nbeta\nERROR two\ngamma\n' > "$work/log.txt"
+chunk io.p <<EOF
+vars dev = sysopen('$work/log.txt', 0, "line");
+vars rep = line_repeater(dev, inits(1024)), line, hits = 0, lines = 0;
+repeat
+    rep() -> line;
+    quitif(line == termin);
+    lines + 1 -> lines;
+    if issubstring('ERROR', 1, line) then hits + 1 -> hits endif;
+endrepeat;
+sysclose(dev);
+npr('lines=' sys_>< lines sys_>< ' hits=' sys_>< hits);
+vars out = discout('$work/written.txt');
+appdata('written by pop11', out); out(10); out(termin);
+sysobey('echo obeyed > $work/obeyed.txt');
+vars r = sys_obey_linerep('echo one; echo two; echo three'), got = [];
+repeat r() -> line; quitif(line == termin); [^^got ^line] -> got; endrepeat;
+npr(got);
+vars q = sys_obey_linerep('set +e; false; echo rc=\$?');
+npr(q());
+EOF
+want "read a file line by line" '^lines=5 hits=2$'
+want "sys_obey_linerep streams output" '^\[one two three\]$'
+want "exit status through set +e" '^rc=1$'
+out="$(cat "$work/written.txt" 2>&1)"; want "file written by discout" '^written by pop11$'
+out="$(cat "$work/obeyed.txt" 2>&1)";  want "sysobey ran a shell command" '^obeyed$'
+
+echo "== 9. checkpoint and restore"
+ps_ checkpoint --name "$name" "$work/state.psv"
+wantrc "checkpoint exits 0" 0
+want "checkpoint reports the image" 'checkpoint saved'
+if [ -s "$work/state.psv" ]; then ok "image file written ($(wc -c < "$work/state.psv" | tr -d ' ') bytes)"; else bad "image file written"; fi
+send "999 -> counter; define nfib(n); 0 enddefine; npr(nfib(20));"
+want "session changed after the checkpoint" '^0$'
+ps_ restore --name "$name" "$work/state.psv"
+wantrc "restore exits 0" 0
+send 'npr(counter); npr(nfib(20));'
+want "variable restored" '^4$'
+want "compiled procedure restored" '^21891$'
+send "greet('again');"
+want "restored session accepts new sends" '^goodbye again$'
+
+echo "== 10. checkpoint --verify"
+ps_ checkpoint --name "$name" --verify 'counter = 4' "$work/good.psv"
+wantrc "a true gate checkpoints" 0
+[ -s "$work/good.psv" ] && ok "gated image written" || bad "gated image written"
+ps_ checkpoint --name "$name" --verify 'counter = 5' "$work/bad.psv"
+wantrc "a false gate exits 1" 1
+[ ! -e "$work/bad.psv" ] && ok "no image written by a false gate" || bad "no image written by a false gate"
+send 'npr(counter);'
+want "session alive after the failed gate" '^4$'
+
+echo "== 11. timeout, report, stop"
+out="$("$bin/popsession" send --name "$name" --timeout 2 -c 'repeat endrepeat;' 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ]; then ok "a runaway chunk times out (exit status $rc)"; else bad "a runaway chunk times out" "$out"; fi
+ps_ report --name "$name"
+want "report prints the all-time line" 'all-time'
+ps_ stop --name "$name"
+want "stop" 'stopped|not running'
+ps_ status --name "$name"
+if [ "$rc" -ne 0 ]; then ok "status reports the session gone"; else bad "status reports the session gone" "$out"; fi
+ps_ start --name "$name"
+send 'npr(isdefined("counter"));'
+want "a fresh session starts clean" '^<false>$'
+
+echo "== 12. C shims"
+if [ "$shims" = no ]; then
+    skp "popcurl (--no-shims)"; skp "popsqlite (--no-shims)"
+else
+    cache="$HOME/.cache/pop11-skill"
+    if b="$("$bin/build-popcurl" 2>&1)"; then
+        printf 'fetched through libcurl\n' > "$work/src.txt"
+        chunk curl.p <<EOF
+load '$cache/popcurl.p';
+npr(isstring(curl_version_string()) and issubstring('libcurl', 1, curl_version_string()) /== false);
+npr('status=' sys_>< http_get('file://$work/src.txt', '$work/dst.txt'));
+EOF
+        want "popcurl loads and reports its version" '^<true>$'
+        want "popcurl http_get returns" '^status='
+        out="$(cat "$work/dst.txt" 2>&1)"; want "popcurl wrote the fetched body" '^fetched through libcurl$'
+    else
+        skp "popcurl (did not build: $(printf '%s' "$b" | tail -1))"
+    fi
+    if b="$("$bin/build-popsqlite" 2>&1)"; then
+        chunk sql.p <<EOF
+load '$cache/popsqlite.p';
+vars db = sqlite_open('$work/t.db'), rows;
+sqlite_exec(db, 'create table ev (kind text, n int)');
+sqlite_run_b(db, 'insert into ev values (?, ?)', ['warn' '3']);
+sqlite_run_b(db, 'insert into ev values (?, ?)', ['info' '9']);
+sqlite_query_b(db, 'select kind, n from ev where n > ?', ['5']) -> rows;
+npr(rows);
+npr(length(sqlite_query(db, 'select * from ev')));
+sqlite_close(db);
+EOF
+        want "popsqlite bound query" '^\[\{info 9\}\]$'
+        want "popsqlite row count" '^2$'
+    else
+        skp "popsqlite (did not build: $(printf '%s' "$b" | tail -1))"
+    fi
+fi
+
+echo
+echo "== summary: $pass passed, $fail failed, $skip skipped =="
+[ "$fail" -eq 0 ] && { echo "   POP11 SKILL OK"; exit 0; }
+echo "   POP11 SKILL HAS FAILURES"
+exit 1

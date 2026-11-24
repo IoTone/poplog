@@ -46,6 +46,7 @@ packages instead:
 | any build | `gcc-core` `binutils` `make` `libncurses-devel` |
 | graphics | `gcc-g++` `git` |
 | LIB CRYPTO, LIB PCRE, LIB HTTP_CLIENT | `libssl-devel` `libpcre2-devel` `libcurl-devel` `pkg-config` |
+| the pop11 skill (`popsession`, its SQLite shim) | `python3` `libsqlite3-devel` |
 | the test runners, debugging | `perl` `curl` `gdb` |
 
 Everything from here on is typed in a **Cygwin shell**, not PowerShell. Open
@@ -121,6 +122,13 @@ Each is a small C shim built once, against a Cygwin package from step 2:
 tools/build-popcrypto.sh        # LIB CRYPTO       (OpenSSL)
 tools/build-poppcre.sh          # LIB PCRE         (pcre2)
 tools/build-popcurl.sh          # LIB HTTP_CLIENT  (curl)
+```
+
+The pop11 skill for Claude Code (`.claude/skills/pop11`) works here too. To
+check it, sessions, checkpoints and its curl and SQLite shims included:
+
+```sh
+.claude/skills/pop11/bin/selftest
 ```
 
 ## Things that are different on Windows

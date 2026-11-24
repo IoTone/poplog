@@ -33,6 +33,110 @@ static void set_err(const char *msg) {
 
 const char *psq_version(void) { return sqlite3_libversion(); }
 
+#ifdef __CYGWIN__
+/* Cygwin: SQLite's allocation calls are redirected to the routines below.
+ *
+ * Poplog supplies its own malloc, and on Cygwin a program's malloc serves
+ * every DLL in the process.  malloc_usable_size is not part of that
+ * arrangement: once malloc has been replaced, cygwin1.dll's answers 0 for
+ * every block.  Cygwin's SQLite sizes its hash tables from that answer, so
+ * the first sqlite3_open divided by zero (signal 8, which ends a Poplog
+ * process).  Nor does this SQLite build call an allocator installed with
+ * sqlite3_config(SQLITE_CONFIG_MALLOC): it accepts one and goes on using
+ * the C library (measured, 3.49.1-1).
+ *
+ * What is left is the SQLite DLL's import table.  Its entries for malloc,
+ * calloc, realloc, free and malloc_usable_size are pointed at wrappers that
+ * keep each block's size in a 16-byte header of their own, so that the
+ * size can be answered without asking the C library.  The header carries a
+ * tag: a block that does not have it came from somewhere else and is
+ * passed through untouched.  Done once, before SQLite first allocates.
+ */
+#include <stdlib.h>
+#include <windows.h>
+
+#define PM_TAG 0x706f7073716c6974ULL    /* "popsqlit" */
+typedef struct { unsigned long long tag; size_t size; } pm_hdr;
+
+static int pm_ours(void *q) { return q && ((pm_hdr *) q)[-1].tag == PM_TAG; }
+
+static void *pm_malloc(size_t n) {
+    pm_hdr *h = malloc(n + sizeof(pm_hdr));
+    if (!h) return NULL;
+    h->tag = PM_TAG; h->size = n;
+    return h + 1;
+}
+static void *pm_calloc(size_t count, size_t each) {
+    size_t n = count * each;
+    void *q;
+    if (each && n / each != count) return NULL;
+    if ((q = pm_malloc(n))) memset(q, 0, n);
+    return q;
+}
+static void pm_free(void *q) {
+    if (!pm_ours(q)) { free(q); return; }
+    ((pm_hdr *) q)[-1].tag = 0;
+    free((pm_hdr *) q - 1);
+}
+static void *pm_realloc(void *q, size_t n) {
+    pm_hdr *h;
+    if (!q) return pm_malloc(n);
+    if (!pm_ours(q)) return realloc(q, n);
+    if (!(h = realloc((pm_hdr *) q - 1, n + sizeof(pm_hdr)))) return NULL;
+    h->size = n;
+    return h + 1;
+}
+static size_t pm_usable_size(void *q) {
+    return pm_ours(q) ? ((pm_hdr *) q)[-1].size : 0;
+}
+
+static void pm_redirect(unsigned char *base, const char *name, void *fn) {
+    IMAGE_NT_HEADERS *nt =
+        (IMAGE_NT_HEADERS *) (base + ((IMAGE_DOS_HEADER *) base)->e_lfanew);
+    IMAGE_DATA_DIRECTORY dir =
+        nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    IMAGE_IMPORT_DESCRIPTOR *imp;
+    if (!dir.VirtualAddress) return;
+    for (imp = (IMAGE_IMPORT_DESCRIPTOR *) (base + dir.VirtualAddress);
+         imp->Name; imp++) {
+        IMAGE_THUNK_DATA *names, *slots;
+        if (!imp->OriginalFirstThunk) continue;
+        names = (IMAGE_THUNK_DATA *) (base + imp->OriginalFirstThunk);
+        slots = (IMAGE_THUNK_DATA *) (base + imp->FirstThunk);
+        for (; names->u1.AddressOfData; names++, slots++) {
+            IMAGE_IMPORT_BY_NAME *by;
+            DWORD old;
+            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
+            by = (IMAGE_IMPORT_BY_NAME *) (base + names->u1.AddressOfData);
+            if (strcmp((const char *) by->Name, name) != 0) continue;
+            if (!VirtualProtect(slots, sizeof *slots, PAGE_READWRITE, &old))
+                continue;
+            slots->u1.Function = (ULONG_PTR) fn;
+            VirtualProtect(slots, sizeof *slots, old, &old);
+        }
+    }
+}
+
+static void psq_setup(void) {
+    static int done;
+    HMODULE mod;
+    if (done) return;
+    done = 1;
+    /* the version string lives in SQLite's DLL, which is how to find it */
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                            | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCSTR) sqlite3_libversion(), &mod))
+        return;
+    pm_redirect((unsigned char *) mod, "malloc", pm_malloc);
+    pm_redirect((unsigned char *) mod, "calloc", pm_calloc);
+    pm_redirect((unsigned char *) mod, "realloc", pm_realloc);
+    pm_redirect((unsigned char *) mod, "free", pm_free);
+    pm_redirect((unsigned char *) mod, "malloc_usable_size", pm_usable_size);
+}
+#else
+#define psq_setup()
+#endif
+
 /* Most recent error: per-db if the handle is live, else the saved one
  * (covers failed open/prepare where no live handle exists). */
 const char *psq_errmsg(int db) {
@@ -42,6 +146,7 @@ const char *psq_errmsg(int db) {
 
 int psq_open(const char *path) {
     int h;
+    psq_setup();
     for (h = 1; h <= MAX_DB && dbs[h]; h++) ;
     if (h > MAX_DB) { set_err("too many open databases"); return 0; }
     sqlite3 *db = NULL;

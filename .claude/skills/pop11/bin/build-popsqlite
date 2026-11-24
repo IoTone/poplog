@@ -19,7 +19,7 @@ if [ ! -f "$lib" ] || [ "$here/lib/popsqlite_shim.c" -nt "$lib" ]; then
     }
     cc -O2 -shared -fPIC -o "$lib" "$here/lib/popsqlite_shim.c" -lsqlite3 || {
         echo "build-popsqlite: compile failed — missing sqlite3.h/libsqlite3?" >&2
-        echo "  (Debian/Ubuntu: apt install libsqlite3-dev; macOS: xcode CLT)" >&2
+        echo "  (Debian/Ubuntu: apt install libsqlite3-dev; macOS: xcode CLT; Cygwin: libsqlite3-devel)" >&2
         exit 2
     }
     echo "built $lib"

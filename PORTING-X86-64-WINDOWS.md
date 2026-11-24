@@ -711,6 +711,31 @@ produced on an arm64 Mac through the Jupyter kernel.
     `POP_GFX_MAX_FRAMES` (the window reports itself closed after that many
     frames) and `POP_GFX_CAPTURE` (the last frame is written as a PPM at
     shutdown). The Metal and SDL backends do not have them.
+22. (2026-11-23, found by the pop11 skill's selftest.) A FIFO that is
+    close-on-exec when a Cygwin process forks cannot be handed to an
+    exec'd program afterwards: clearing the flag in the child does not
+    make its handles inheritable again, and the new program dies at start
+    with "Can't reopen shared memory during exec, Win32 error 6" (Cygwin
+    3.6.12; reproduced in a few lines of Python). Poplog marks its
+    standard descriptors close-on-exec and clears the flag just before
+    `execve`, so `sysobey` and `sys_obey_linerep` failed whenever standard
+    input was a FIFO, which is how the skill's `popsession` feeds a
+    session. `sysexecute` now replaces each kept descriptor with a `dup`
+    of itself on Cygwin, which is sound. Files, pipes and terminals were
+    never affected.
+23. (2026-11-23, the same way.) A second consequence of replacing `malloc`
+    on Cygwin, after finding 19's aligned allocators: `malloc_usable_size`
+    in `cygwin1.dll` answers 0 for every block once the program supplies
+    `malloc`, and a DLL's call to it cannot be overridden from the
+    executable. Cygwin's SQLite (3.49.1-1) sizes its hash tables from that
+    answer and divided by zero in the first `sqlite3_open`; it also
+    ignores `SQLITE_CONFIG_MALLOC`. The fix is in the skill's SQLite shim,
+    not the engine: it points the SQLite DLL's imports of `malloc`,
+    `calloc`, `realloc`, `free` and `malloc_usable_size` at wrappers that
+    record each block's size. Any other DLL that relies on
+    `malloc_usable_size` will meet the same thing; the general cure would
+    be for Poplog not to replace `malloc` on Cygwin, which has not been
+    tried.
 
 ## 10. Later: a native build
 
