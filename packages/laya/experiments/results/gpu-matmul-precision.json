@@ -1,6 +1,6 @@
 {
   "device": "Apple M5 Pro",
-  "mlx": "0.32.2",
+  "mlx": "0.32.5",
   "DeviceType.gpu": {
     "max_relative_error": 0.0011673464417851426,
     "row0_last": 22892054528.0

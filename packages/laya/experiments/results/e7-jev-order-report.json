@@ -2,7 +2,7 @@
  "base_url": "https://api.typesafe.ai/v1",
  "model_asked": "jev-latest",
  "model_reported": [
-  "jev-1.13.0"
+  "jev-1.14.0"
  ],
  "calls": 39,
  "deterministic_on_repeat": true,
@@ -85,7 +85,7 @@
    },
    "urgency": {
     "orderings": 6,
-    "max_numeric_spread": 0.020000000000000018,
+    "max_numeric_spread": 0.06000000000000005,
     "worst_field": "/confidence",
     "fields_that_changed_categorically": [],
     "above_control_noise": true
@@ -94,10 +94,10 @@
   "crash": {
    "refund": {
     "orderings": 6,
-    "max_numeric_spread": 0.0,
-    "worst_field": null,
+    "max_numeric_spread": 0.010000000000000002,
+    "worst_field": "/noul",
     "fields_that_changed_categorically": [],
-    "above_control_noise": false
+    "above_control_noise": true
    },
    "team": {
     "orderings": 6,
@@ -108,7 +108,7 @@
    },
    "urgency": {
     "orderings": 6,
-    "max_numeric_spread": 0.12,
+    "max_numeric_spread": 0.18,
     "worst_field": "/confidence",
     "fields_that_changed_categorically": [],
     "above_control_noise": true
