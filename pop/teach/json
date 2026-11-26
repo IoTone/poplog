@@ -93,10 +93,16 @@ data-format library you write will contain at least one decision like
 this — find it before coding, not after.
 
 One consequence to document rather than fix: newmapping's default
-means looking up a *missing* key returns false.  Callers who need to
-distinguish "absent" from "false" should test with the property's
-domain, or choose a different default.  Small honest caveats beat
-clever magic.
+means looking up a *missing* key returns false.  And it goes further
+than lookup.  A property REMOVES a key when it is assigned its default
+value, so a member whose value is false is never stored at all:
+'{"a":1,"t":false}' parses to an object with one member, not two.  No
+test on the property afterwards can recover it.  json_object (HELP JSON)
+keeps its members in a list and has no such limit, which is why
+json_ordered_objects is the lossless way to parse.  Small honest
+caveats beat clever magic -- but check that the caveat is true: this
+one was first written as "test with the property's domain", which
+cannot work.
 
 -- Step 2: the skeleton of a library file -----------------------------
 

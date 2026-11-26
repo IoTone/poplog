@@ -107,10 +107,20 @@ json_ordered_objects
 
 -- Notes and limits ---------------------------------------------------
 
-  * Looking up a key absent from a parsed object returns false (the
-    newmapping default) — the same value as JSON false.  Where the
-    difference matters, test membership before use, or copy into a
-    property with a different default.
+  * A member whose value is false is DROPPED when json_parse builds a
+    property, which it does unless json_ordered_objects is true.  A
+    property removes a key when it is assigned its default value, and
+    the default is false.  So
+
+        json_generate(json_parse('{"a":1,"t":false}')) =>
+        ** {"a":1}
+
+    Reading the key still gives the right answer -- obj('t') is false --
+    but the member is gone: json_object_app and appproperty do not visit
+    it, a round trip loses it, and nothing done after the parse can tell
+    a false member from an absent one.  Where that matters, parse with
+    json_ordered_objects true: a json_object keeps every member,
+    including false ones.
 
   * Member order is not preserved for properties (they are hash
     tables); RFC 8259 makes no ordering promise.  Where order

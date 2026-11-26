@@ -12,7 +12,8 @@
  >   string   <->  string          (UTF-8 bytes; \uXXXX decoded to UTF-8)
  >   number   <->  integer/bigint or ddecimal
  >   true     <->  true
- >   false    <->  false
+ >   false    <->  false   (but a property cannot hold a false member:
+ >                             see HELP JSON, json_ordered_objects)
  >   null     <->  json_null       (a distinct constant; false is taken)
  */
 compile_mode :pop11 +strict;
