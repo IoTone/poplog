@@ -16,9 +16,9 @@
       96,
       1024
     ],
-    "max_abs_error": 1.9073486328125e-05,
-    "max_abs_value": 41.14280319213867,
-    "max_rel_error": 0.0456989247311828,
+    "max_abs_error": 5.7220458984375e-06,
+    "max_abs_value": 41.14278793334961,
+    "max_rel_error": 0.01662049861495845,
     "bit_identical": false
   },
   "layer1": {
@@ -27,9 +27,9 @@
       96,
       1024
     ],
-    "max_abs_error": 1.9073486328125e-05,
-    "max_abs_value": 57.70546340942383,
-    "max_rel_error": 0.024971623155505107,
+    "max_abs_error": 7.62939453125e-06,
+    "max_abs_value": 57.7054557800293,
+    "max_rel_error": 0.012772751463544438,
     "bit_identical": false
   }
 }

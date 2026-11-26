@@ -217,6 +217,24 @@ def serve_http(service, host="127.0.0.1", port=8765, verbose=False):
         server.server_close()
 
 
+def router_kwargs(args):
+    """The arguments `laya_mlx.Router` is built with, kept apart so a test can bind them.
+
+    * `max_loaded=3`: keep every routed checkpoint resident. A long-lived server that reloads
+      weights whenever the input language changes would spend seconds per switch.
+    * `agent_kwargs={"dtype": ...}`: since laya-mlx 0.4 the Router takes checkpoint options
+      through `agent_kwargs`. Passing `dtype=` directly, as against 0.2.0, is a TypeError.
+    * `default="english"`: text whose language cannot be told is answered by the English
+      checkpoint, as before. Upstream 0.4.0 changed its own default to the multilingual one.
+    """
+    return {
+        "device": args.device,
+        "max_loaded": 3,
+        "default": "english",
+        "agent_kwargs": {"dtype": args.dtype},
+    }
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     transport = parser.add_mutually_exclusive_group(required=True)
@@ -242,9 +260,7 @@ def main(argv=None):
     if args.router:
         from laya_mlx import Router
 
-        # Keep every routed checkpoint resident: a long-lived server that reloads weights
-        # whenever the input language changes would spend seconds per switch.
-        predictor = Router(dtype=args.dtype, device=args.device, max_loaded=3)
+        predictor = Router(**router_kwargs(args))
     else:
         from laya_mlx import Agent
 

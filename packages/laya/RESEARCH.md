@@ -8,7 +8,7 @@ Question: how should Poplog programs call Laya's typed decisions running locally
 
 Answer: most of it already existed. [`packages/typesafe`](https://github.com/IoTone/poplog/tree/dev/packages/typesafe) in IoTone/poplog is a Pop-11 client for TypeSafe's hosted Jev model at `POST /v1/systemone`, and Laya takes the same request and returns the same answers. So the extension API is a **local backend behind the existing `ts_*` calls**. It is now built, all in `packages/laya`:
 
-- `laya_serve.py` (stdio and HTTP): a uv project that pins [laya-mlx](https://github.com/mizorewww/laya-mlx) `0.2.0` from PyPI, **unmodified**, and uses only its public API;
+- `laya_serve.py` (stdio and HTTP): a uv project that pins [laya-mlx](https://github.com/mizorewww/laya-mlx) from PyPI, **unmodified** (`0.2.0` when this was written, `0.9.1` since 2026-11-26; see §4), and uses only its public API;
 - `lib laya`, a `ts_transport` that syncs the uv environment and runs `laya_serve.py --stdio` with its Python as a child process.
 
 Pop-11 gets the same answers as Python, field for field, and the transport adds about 0.1 ms to a ~8 ms answer.
@@ -76,10 +76,12 @@ All orderings of the same options, with the same text (`experiments/option_order
 
 | Checkpoint | Options | Orderings agreeing with written order | Largest change in one option's probability |
 |---|---:|---:|---:|
-| multilingual | 3 | **1 / 6** (picks `billing` or `sales`) | **0.54** |
-| multilingual | 5 | 120 / 120 | 0.38 |
-| English | 5 | 120 / 120 | 0.28 |
+| multilingual | 3 | **1 / 6** (picks `billing` or `sales`) | **0.56** |
+| multilingual | 5 | 120 / 120 | 0.39 |
+| English | 5 | 120 / 120 | 0.27 |
 | typed-decisions | 5 | 120 / 120 | 0.10 |
+
+Figures from the 2026-11-26 rerun on laya-mlx 0.9.1; the October run on 0.2.0 gave the same agreement counts and spreads within 0.02 (0.54, 0.38, 0.28, 0.10).
 
 The pick is usually stable, but probabilities aren't. For close calls the pick isn't stable either. Treat the option order as part of the question: keep it fixed, and record it with the result.
 
@@ -92,25 +94,27 @@ Differences are ~1e-4, and in these fixtures no choice pick changed. Two consequ
 - question order in a request is part of reproducibility;
 - upstream laya-mlx's own `test_all_primitives_empty_request_and_chunking` (batched vs one-by-one must be identical) fails on the GPU because of this effect. It passes on CPU, which is what its CI runs.
 
-**Measured, 2026-10-03** (`experiments/batch_independence.py`, saved in `experiments/results/batch-independence.json`). The setup is 12 questions and 200 random requests of 2–24 questions, giving 2,529 answers per configuration. Each answer is compared, field by field at laya-mlx's 4-decimal rounding, with the same question asked alone. English checkpoint, M5 Pro.
+**Measured, 2026-10-03, and again 2026-11-26 on laya-mlx 0.9.1 / MLX 0.32.5** (`experiments/batch_independence.py`, saved in `experiments/results/batch-independence.json`). The setup is 12 questions and 200 random requests of 2–24 questions, giving 2,529 answers per configuration. Each answer is compared, field by field at laya-mlx's 4-decimal rounding, with the same question asked alone. English checkpoint, M5 Pro. The figures are the November run; October's are in brackets where they differ.
 
 | Configuration | Answers differing | Largest difference | 1 question | 16 questions |
 |---|---:|---:|---:|---:|
-| default (batch 16, padded to longest), FP16 | 50.2% | 0.0021 | 9.5 ms | 96 ms |
-| padded to a multiple of 64 | 56.0% | 0.0021 | 9.5 ms | 118 ms |
-| padded to the full context (512) | 65.6% | 0.0021 | 24.7 ms | 365 ms |
-| full context **and** every batch filled to 16 rows | **0%** | 0 | 480 ms | 474 ms |
-| **`batch_size=1`** | **0%** | 0 | 9.7 ms | 164 ms |
-| default, FP32 | 50.2% | 0.0008 | 11.6 ms | 107 ms |
-| default on the CPU, FP32 | 0% | 0 | 97 ms | 1,781 ms |
+| default (batch 16, padded to longest), FP16 | 58.7% (50.2%) | 0.0019 (0.0021) | 8.7 ms | 78 ms (96) |
+| padded to a multiple of 64 | 67.1% (56.0%) | 0.0019 (0.0021) | 8.7 ms | 115 ms (118) |
+| padded to the full context (512) | 74.1% (65.6%) | 0.0019 (0.0021) | 22.4 ms | 391 ms (365) |
+| full context **and** every batch filled to 16 rows | **0%** | 0 | 416 ms (480) | 402 ms (474) |
+| **`batch_size=1`** | **0%** | 0 | 9.5 ms | 150 ms (164) |
+| default, FP32 | 67.1% (50.2%) | 0.0012 (0.0008) | 11.0 ms | 102 ms (107) |
+| default on the CPU, FP32 | 0% | 0 | 95 ms | 1,433 ms (1,781) |
+
+The new version differs from "asked alone" more often but by slightly less at FP16. The fractions are deterministic: a run at load average 50–100 earlier the same day gave exactly the same fractions and differences, with only the timings inflated.
 
 - **The cause is the shape of the forward pass, not padding.** More padding makes it worse. Only identical shapes (fixed length *and* a fixed number of rows) remove it on the GPU, consistent with kernel selection by shape. The CPU is row-independent.
 - **No choice pick changed** in any configuration. The effect is in the 3rd–4th decimal of probabilities and confidence.
-- **The exact and practical option is `batch_size=1`.** A single question costs the same, and a 16-question request about 1.7×. With `lib laya`, set `['--batch-size' '1'] -> laya_extra_args`. Fixed shapes would cost ~480 ms per request.
+- **The exact and practical option is `batch_size=1`.** A single question costs the same, and a 16-question request about 1.9× (1.7× in October). With `lib laya`, set `['--batch-size' '1'] -> laya_extra_args`. Fixed shapes would cost ~480 ms per request.
 
 ### 3.3 Float32 matmul on this GPU is not IEEE float32 accurate
 
-The input is deliberately hard (512×512, values up to 2.6e5), on an Apple M5 Pro with MLX 0.32.2 (`gpu_matmul_precision.py`):
+The input is deliberately hard (512×512, values up to 2.6e5), on an Apple M5 Pro with MLX 0.32.2, and identically to every printed digit with MLX 0.32.5 (`gpu_matmul_precision.py`):
 
 | | max relative error |
 |---|---:|
@@ -129,25 +133,32 @@ The input is deliberately hard (512×512, values up to 2.6e5), on an Apple M5 Pr
 
 ## 4. Experiments
 
-Machine: Apple M5 Pro, 48 GiB, macOS 26.4. Poplog `basepop11` built from IoTone/poplog `dev` at `5c93912`.
+Machine: Apple M5 Pro, 48 GiB. October runs: macOS 26.4, Poplog `basepop11` from IoTone/poplog `dev` at `5c93912`. November runs: macOS 27.2.1, `basepop11` from `dev` at `d956951`.
 
-All results below were **rerun on 2026-10-01 in this package's pinned uv environment**: `laya-mlx==0.2.0` from PyPI and `mlx==0.32.2`. They replace the first runs, which used a local laya-mlx checkout carrying the server. Scripts are in `experiments/`; paths below are relative to it. Run them from the Poplog root with `uv run --project packages/laya python packages/laya/experiments/<script>`.
+All results below were **rerun on 2026-11-26 after the pins moved** to `laya-mlx==0.9.1` (upstream tag `v0.9.1`) and `mlx==0.32.5`. The checkpoints did not change (`aac6fef/laya-mlx` is still `20aed815`). They had been rerun on 2026-10-01 in the previous pins, `laya-mlx==0.2.0` and `mlx==0.32.2`, which replaced the first runs on a local laya-mlx checkout. The table gives the November figures, with October's where they differ. Scripts are in `experiments/`; paths below are relative to it. Run them from the Poplog root with `uv run --project packages/laya python packages/laya/experiments/<script>`.
+
+**What the version change did to answers** (`compare_versions.py`, saved in `results/pins-0.2.0-vs-0.9.1.jsonl`). E1 compares Pop-11 with Python inside one environment, so it cannot see a change between versions. This compares Python's answers to the same 16 cases under the old and the new pins, for each checkpoint and precision. **No choice pick changed** (132 of 132). The largest numeric change is 0.0005 at FP16 and 0.0028 at FP32 (a `confidence`); between 64% and 90% of shared fields are identical. 0.9.1 adds an `answer_confidence` to every answer, and one `score` legend entry changed shape. It also clamps one of the English checkpoint's choice temperatures and warns that confidence from those buckets is "uncalibrated".
+
+**One upstream change needed code.** `Router` now takes the precision through `agent_kwargs`, so `--router` raised a `TypeError` on 0.9.1 while every test passed, because the tests use a fake router. A test now binds the server's arguments to the installed `Router`.
 
 The first runs shared the machine with an unrelated process at 100% CPU, which is why latency is measured paired (E3): the pairing makes it robust to load.
 
 | # | Question | Result | Evidence |
 |---|---|---|---|
-| E1 | Does Pop-11 get Python's answers? | **Yes, exactly.** The 16 validation cases (63 questions) through `ts_eval` → `lib laya` → `laya_serve.py --stdio`, for 3 checkpoints × FP16/FP32: **2,868 / 2,868 answer fields identical** to in-process `Agent.predict`, 132 / 132 choice picks, plus equal `usage` and the `model` checkpoint. The first run found G4. | `results/e1-parity.jsonl`; `parity_cases.py`, `parity.p`, `compare.py` |
+| E1 | Does Pop-11 get Python's answers? | **Yes, exactly.** The 16 validation cases (63 questions) through `ts_eval` → `lib laya` → `laya_serve.py --stdio`, for 3 checkpoints × FP16/FP32: **3,246 / 3,246 answer fields identical** to in-process `Agent.predict` (2,868 / 2,868 on 0.2.0, which has fewer fields), 132 / 132 choice picks, and the same `model` checkpoint. `usage` is equal except that 0.9.1's new `"truncated": false` member does not come back: LIB JSON drops a `false` member when it parses into a property (#83). Reading it gives `false` either way. The first run found G4. | `results/e1-parity.jsonl`; `parity_cases.py`, `parity.p`, `compare.py` |
 | E2 | Does the coprocess hold up? | **Yes.** 10,000 sequential calls on one child, all well-formed. A malformed question raised a mishap and the child kept serving. `kill -9` mid-call raised a mishap, and the next call started a new child and answered. No leaked processes. | `results/e2-robustness.txt`; `robustness.p` |
-| E3 | What does the transport cost? | Paired per call (client time minus the server's own time for that call), median of 3 rounds × 300 calls: **stdio 0.107 ms P50 / 0.129 ms P95**; HTTP from Pop-11 0.413 / 0.493; HTTP from Python 0.365 / 0.449. So most of the HTTP cost is the Python server, not libcurl or Pop-11. Pop-11 JSON: encode 0.011 ms, decode 0.013 ms. In-process inference for this request: 8.25–8.30 ms P50. (The first run, on a machine at load 4–11, measured 0.16 / 0.54 ms with ~10 ms inference: same conclusions.) | `results/latency.json`; `latency.py`, `latency.p`, `timed_serve.py` |
-| E4 | Can Pop-11 drive the model through mlx-c? | **Yes**, for the embeddings and layers 0–1 (global attention; then sliding-window attention with its attention norm), 96 tokens, FP32. The structure is written in Pop-11 over single-op C entry points. On CPU vs Python on CPU: embeddings **bit-identical**, layers within **1.9e-5** of values up to 58 (a few float32 ulps; the rest is MLX's compiled GELU). On GPU: within 0.0023 / 0.0040, **15× smaller** than Python's own GPU-vs-CPU spread (0.038 / 0.059). | `results/e4-*.json`; `encoder_ref.py`, `encoder_layers.p`, `mlx_shim/pm_ops.c` |
-| E6 | Does the **router** path get Python's answers too? | **Yes, exactly.** The same 16 cases through `ts_eval` → `lib laya` → `laya_serve.py --stdio --router`, FP16 and FP32: **956 / 956 answer fields identical** to in-process `Router.predict`, 44 / 44 choice picks, and every response named the checkpoint that actually answered it. Routing was the same at both precisions and is what the fixtures were built to exercise: 9 cases to `english`, 7 (zh, de, fr, es, hi, ja, ru) to `multilingual`. Added 2026-10-15. | `results/e6-router-parity.jsonl`, `results/e6-routing.json`; `router_cases.py`, `parity.p` with `LAYA_ROUTER=1`, `compare.py` |
-| E7 | Is the **hosted Jev API** order-sensitive, the way Laya is? | **Not to option order; yes, mildly, to question order — and only on `score`.** 39 calls to `jev-latest` (served by `jev-1.13.0`), measured 2026-10-15. **Control: exactly deterministic** — the identical request three times gave byte-identical answers for all three cases, spread 0.0. That is what makes the rest readable: the serving is deterministic, so any difference below is signal, not sampling noise. **Option order (G3): no effect at all.** All six orderings of three `ts_choice` options gave not just the same pick but the identical probability vector, in all three cases. **Question order (G4): the `score` answer moves.** Reordering the three questions left `choice` and `noul` answers completely unchanged, but shifted `urgency`'s score by up to 0.08 and its confidence by up to 0.12 (`crash`: score 1.25–1.33, confidence 0.47–0.59). No pick, label or band changed. The shift does not track the question's position — two orderings that place `urgency` third gave the two extreme values — so it is the identity of the neighbouring questions, not the distance down the list. | `results/e7-jev-order.json`, `results/e7-jev-order-report.json`; `jev_order.p`, `jev_order_report.py`. Rehearsal against Laya: `results/e7-dryrun-laya.json` |
+| E3 | What does the transport cost? | Paired per call (client time minus the server's own time for that call), median of 3 rounds × 300 calls: **stdio 0.141 ms P50 / 0.192 ms P95** (0.107 / 0.129 in October); HTTP from Pop-11 0.462 / 0.530 (0.413 / 0.493); HTTP from Python 0.474 / 0.580 (0.365 / 0.449). So most of the HTTP cost is the Python server, not libcurl or Pop-11. Pop-11 JSON: encode 0.011 ms, decode 0.015 ms. In-process inference for this request: 8.01–8.06 ms P50 (8.25–8.30). The November run is on a newer macOS as well as newer pins, so the ~0.03 ms rise is not attributable to either. (The first run, on a machine at load 4–11, measured 0.16 / 0.54 ms with ~10 ms inference: same conclusions.) | `results/latency.json`; `latency.py`, `latency.p`, `timed_serve.py` |
+| E4 | Can Pop-11 drive the model through mlx-c? | **Yes**, for the embeddings and layers 0–1 (global attention; then sliding-window attention with its attention norm), 96 tokens, FP32. The structure is written in Pop-11 over single-op C entry points. On CPU vs Python on CPU: embeddings **bit-identical**, layers within **7.6e-6** of values up to 58 (1.9e-5 in October; a few float32 ulps, the rest MLX's compiled GELU). On GPU: within 0.0010 / 0.0014 (0.0023 / 0.0040), **about 40× smaller** than Python's own GPU-vs-CPU spread of 0.040 / 0.063 (15× in October). In November mlx-c needed a one-line patch; see below. | `results/e4-*.json`; `encoder_ref.py`, `encoder_layers.p`, `mlx_shim/pm_ops.c` |
+| E6 | Does the **router** path get Python's answers too? | **Yes, exactly.** The same 16 cases through `ts_eval` → `lib laya` → `laya_serve.py --stdio --router`, FP16 and FP32: **1,082 / 1,082 answer fields identical** to in-process `Router.predict` (956 / 956 on 0.2.0), 44 / 44 choice picks, and every response named the checkpoint that actually answered it. Routing was the same at both precisions and is what the fixtures were built to exercise: 9 cases to `english`, 7 (zh, de, fr, es, hi, ja, ru) to `multilingual`. Added 2026-10-15. | `results/e6-router-parity.jsonl`, `results/e6-routing.json`; `router_cases.py`, `parity.p` with `LAYA_ROUTER=1`, `compare.py` |
+| E7 | Is the **hosted Jev API** order-sensitive, the way Laya is? | **Not to option order; yes, mildly, to question order — mostly on `score`.** 39 calls to `jev-latest`, measured 2026-10-15 (served by `jev-1.13.0`) and again 2026-11-26 (`jev-1.14.0`); the November figures follow the October ones. **Control: exactly deterministic** — the identical request three times gave byte-identical answers for all three cases, spread 0.0. That is what makes the rest readable: the serving is deterministic, so any difference below is signal, not sampling noise. **Option order (G3): no effect at all.** All six orderings of three `ts_choice` options gave not just the same pick but the identical probability vector, in all three cases. **Question order (G4): the `score` answer moves.** Reordering the three questions left `choice` and `noul` answers completely unchanged, but shifted `urgency`'s score by up to 0.08 and its confidence by up to 0.12 (`crash`: score 1.25–1.33, confidence 0.47–0.59). On 1.14.0 the shift is larger and reaches one `noul`: `crash` urgency score 1.35–1.47 and confidence 0.30–0.48, and its `refund` noul 0.03–0.04. The rest of the conclusion is unchanged: deterministic on repeat, no effect from option order. No pick, label or band changed in either run. (The report script measured each answer's distance from the first ordering's, which understates a range; it now measures the range, and the October data reads the same 0.12 under it.) The shift does not track the question's position — two orderings that place `urgency` third gave the two extreme values — so it is the identity of the neighbouring questions, not the distance down the list. | `results/e7-jev-order.json`, `results/e7-jev-order-report.json`; `jev_order.p`, `jev_order_report.py`. Rehearsal against Laya: `results/e7-dryrun-laya.json` |
 | E5 | Can MLX run inside Poplog? | **Yes.** `basepop11` (MAP_JIT, W^X) loaded mlx-c and ran matmuls on GPU and CPU. Doubles crossed the FFI correctly. GPU results print identically to Python MLX's. Afterwards Pop-11 still compiled code and garbage-collected. | `results/e5-mlx-inprocess.txt`; `mlx_inprocess.p`, `mlx_shim/pm_shim.c` |
 
-Reproduce E4/E5: build mlx-c (`main` at `a341b49`, which pins MLX v0.32.2) against this package's MLX:
+Reproduce E4/E5: build mlx-c against this package's MLX. In October that was mlx-c `main` at `a341b49` (which pins MLX v0.32.2). No mlx-c release builds against MLX 0.32.5 yet: `v0.8.0` (`a26f2d5`, pinning 0.32.4) fails on one call, because 0.32.5 inserted a `window_size` parameter into `fast::scaled_dot_product_attention` ahead of `mask_mode`. The November runs used `v0.8.0` with that call passing `-1`, which is MLX's own default and means no window, so behaviour is as before:
 
 ```sh
+git clone --depth 1 --branch v0.8.0 https://github.com/ml-explore/mlx-c.git
+# MLX 0.32.5 only: pass window_size=-1 (no window) ahead of mask_mode
+perl -0pi -e 's/(            scale,\n)(            std::string\(mask_mode\),)/$1            -1,\n$2/' mlx-c/mlx/c/fast.cpp
 MLX=$(uv run --project packages/laya python -c "import mlx.core, os; print(os.path.dirname(mlx.core.__file__))")
 cmake -S mlx-c -B mlx-c/build -DMLX_C_USE_SYSTEM_MLX=ON -DBUILD_SHARED_LIBS=ON \
   -DMLX_DIR=$MLX/share/cmake/MLX

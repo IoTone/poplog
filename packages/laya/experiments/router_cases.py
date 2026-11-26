@@ -21,6 +21,7 @@ the write-up can show routing actually varied).  parity.p run with LAYA_ROUTER=1
 the same requests through Pop-11; compare.py checks the two agree.
 """
 
+import argparse
 import json
 import sys
 import warnings
@@ -29,7 +30,7 @@ from pathlib import Path
 from laya_mlx import Router
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from laya_serve import checkpoint  # noqa: E402
+from laya_serve import checkpoint, router_kwargs  # noqa: E402
 
 DTYPES = ("float16", "float32")
 
@@ -44,9 +45,9 @@ def main():
     print("%d cases, %d questions" % (len(cases), sum(len(c["questions"]) for c in cases)))
     warnings.simplefilter("ignore", RuntimeWarning)
     for dtype in DTYPES:
-        # max_loaded=3 as laya_serve.py does: with cases alternating language, the
-        # default of 1 would evict and rebuild a checkpoint on nearly every call.
-        router = Router(dtype=dtype, max_loaded=3)
+        # Built exactly as laya_serve.py builds it (max_loaded=3, the English fallback, the
+        # precision through agent_kwargs), so the expected answers are the server's.
+        router = Router(**router_kwargs(argparse.Namespace(dtype=dtype, device=None)))
         expected = {}
         for case in cases:
             result = router.predict(case["state"], case["questions"])

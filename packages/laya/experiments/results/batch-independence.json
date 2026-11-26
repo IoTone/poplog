@@ -10,34 +10,34 @@
     {
       "config": "default",
       "answers_compared": 2529,
-      "answers_differing_from_alone": 1269,
-      "fraction_differing": 0.5018,
+      "answers_differing_from_alone": 1485,
+      "fraction_differing": 0.5872,
       "choice_picks_changed": 0,
-      "max_abs_difference": 0.0021,
-      "1_question_ms": 9.49,
-      "16_question_ms": 96.04,
+      "max_abs_difference": 0.0019,
+      "1_question_ms": 8.7,
+      "16_question_ms": 78.49,
       "dtype": "mlx.core.float16"
     },
     {
       "config": "pad64",
       "answers_compared": 2529,
-      "answers_differing_from_alone": 1416,
-      "fraction_differing": 0.5599,
+      "answers_differing_from_alone": 1696,
+      "fraction_differing": 0.6706,
       "choice_picks_changed": 0,
-      "max_abs_difference": 0.0021,
-      "1_question_ms": 9.52,
-      "16_question_ms": 117.66,
+      "max_abs_difference": 0.0019,
+      "1_question_ms": 8.7,
+      "16_question_ms": 114.78,
       "dtype": "mlx.core.float16"
     },
     {
       "config": "fixed",
       "answers_compared": 2529,
-      "answers_differing_from_alone": 1658,
-      "fraction_differing": 0.6556,
+      "answers_differing_from_alone": 1875,
+      "fraction_differing": 0.7414,
       "choice_picks_changed": 0,
-      "max_abs_difference": 0.0021,
-      "1_question_ms": 24.69,
-      "16_question_ms": 364.83,
+      "max_abs_difference": 0.0019,
+      "1_question_ms": 22.38,
+      "16_question_ms": 390.89,
       "dtype": "mlx.core.float16"
     },
     {
@@ -47,8 +47,8 @@
       "fraction_differing": 0.0,
       "choice_picks_changed": 0,
       "max_abs_difference": 0.0,
-      "1_question_ms": 480.42,
-      "16_question_ms": 474.27,
+      "1_question_ms": 415.82,
+      "16_question_ms": 401.78,
       "dtype": "mlx.core.float16"
     },
     {
@@ -58,19 +58,19 @@
       "fraction_differing": 0.0,
       "choice_picks_changed": 0,
       "max_abs_difference": 0.0,
-      "1_question_ms": 9.73,
-      "16_question_ms": 163.99,
+      "1_question_ms": 9.49,
+      "16_question_ms": 150.04,
       "dtype": "mlx.core.float16"
     },
     {
       "config": "default-fp32",
       "answers_compared": 2529,
-      "answers_differing_from_alone": 1270,
-      "fraction_differing": 0.5022,
+      "answers_differing_from_alone": 1698,
+      "fraction_differing": 0.6714,
       "choice_picks_changed": 0,
-      "max_abs_difference": 0.0008,
-      "1_question_ms": 11.62,
-      "16_question_ms": 106.97,
+      "max_abs_difference": 0.0012,
+      "1_question_ms": 10.98,
+      "16_question_ms": 102.44,
       "dtype": "mlx.core.float32"
     },
     {
@@ -80,8 +80,8 @@
       "fraction_differing": 0.0,
       "choice_picks_changed": 0,
       "max_abs_difference": 0.0,
-      "1_question_ms": 96.82,
-      "16_question_ms": 1780.58,
+      "1_question_ms": 94.62,
+      "16_question_ms": 1433.12,
       "dtype": "mlx.core.float32"
     }
   ]

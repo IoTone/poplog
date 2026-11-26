@@ -35,7 +35,11 @@ def leaves(x, prefix=""):
 
 
 def spread(answers):
-    """Largest absolute difference at any numeric leaf, and the worst path.
+    """Largest range (max minus min) at any numeric leaf across the answers, and its path.
+
+    The range, not the distance from the first answer: measured against the first, a
+    value in the middle of the spread hides half of it, and the crash case's urgency
+    confidence (0.30 to 0.48 over six orderings) read as 0.12 instead of 0.18.
 
     Non-numeric leaves that differ are reported separately: a changed `choice` is a
     categorical difference, not a small one, and averaging it into a float would hide it.
@@ -43,19 +47,17 @@ def spread(answers):
     worst, where, categorical = 0.0, None, set()
     if not answers:
         return worst, where, categorical
-    base = dict(leaves(answers[0]))
-    for other in answers[1:]:
-        for path, v in leaves(other):
-            w = base.get(path)
-            if (
-                isinstance(v, (int, float))
-                and isinstance(w, (int, float))
-                and not isinstance(v, bool)
-            ):
-                if abs(v - w) > worst:
-                    worst, where = abs(v - w), path
-            elif v != w:
-                categorical.add(path)
+    values = {}
+    for answer in answers:
+        for path, v in leaves(answer):
+            values.setdefault(path, []).append(v)
+    for path, vs in sorted(values.items()):
+        nums = [v for v in vs if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        if len(nums) == len(vs) == len(answers):
+            if max(nums) - min(nums) > worst:
+                worst, where = max(nums) - min(nums), path
+        elif len(set(map(json.dumps, vs))) > 1 or len(vs) != len(answers):
+            categorical.add(path)
     return worst, where, categorical
 
 
