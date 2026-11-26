@@ -312,7 +312,10 @@ TYPESAFE_API_KEY=$(cat ~/.typesafe-key) \
 ```
 
 Run 2026-09-21 against `api.typesafe.ai/v1` with `jev-latest`
-(answered by `jev-1.13.0`): **all 23 hold.** The envelope, the question ids
+(answered by `jev-1.13.0`): **all 23 hold.** Rerun 2026-11-26, when
+`jev-latest` resolved to `jev-1.14.0`: all 23 still hold, with the same
+picks (the register's confidence 0.98 where it was 1.0). The examples on
+this page are the 1.13.0 runs. The envelope, the question ids
 coming back as sent, all three answer shapes, an object-valued `state`, and
 a bad key being rejected rather than retried.
 
@@ -326,7 +329,10 @@ model    : asked jev-latest, answered jev-1.13.0
 ## What this client does not do
 
 Reviewed against the live OpenAPI schema (`api.typesafe.ai/openapi.json`,
-"TypeSafe 0.2.0") and the official Python SDK at `v0.7.5`, 2026-10-15. The
+"TypeSafe 0.2.0") and the official Python SDK at `v0.7.5`, 2026-10-15, and
+checked again 2026-11-26: the schema is still 0.2.0 with the same endpoints
+and fields, and SDK `v0.7.6` only changes how it serialises non-finite
+numbers. The
 wire contract we use is unchanged and correct: `POST /v1/systemone`, Bearer
 auth, `{model, state, questions}` out and `{model, answers, usage}` back. Be
 aware when reading that SDK that its `nouls`/`choices`/`scores`/`boxes` are

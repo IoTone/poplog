@@ -8,7 +8,7 @@ Question: how should Poplog programs call Laya's typed decisions running locally
 
 Answer: most of it already existed. [`packages/typesafe`](https://github.com/IoTone/poplog/tree/dev/packages/typesafe) in IoTone/poplog is a Pop-11 client for TypeSafe's hosted Jev model at `POST /v1/systemone`, and Laya takes the same request and returns the same answers. So the extension API is a **local backend behind the existing `ts_*` calls**. It is now built, all in `packages/laya`:
 
-- `laya_serve.py` (stdio and HTTP): a uv project that pins [laya-mlx](https://github.com/mizorewww/laya-mlx) `0.2.0` from PyPI, **unmodified**, and uses only its public API;
+- `laya_serve.py` (stdio and HTTP): a uv project that pins [laya-mlx](https://github.com/mizorewww/laya-mlx) from PyPI, **unmodified** (`0.2.0` when this was written, `0.9.1` since 2026-11-26; see §4), and uses only its public API;
 - `lib laya`, a `ts_transport` that syncs the uv environment and runs `laya_serve.py --stdio` with its Python as a child process.
 
 Pop-11 gets the same answers as Python, field for field, and the transport adds about 0.1 ms to a ~8 ms answer.
@@ -133,6 +133,8 @@ Machine: Apple M5 Pro, 48 GiB, macOS 26.4. Poplog `basepop11` built from IoTone/
 
 All results below were **rerun on 2026-10-01 in this package's pinned uv environment**: `laya-mlx==0.2.0` from PyPI and `mlx==0.32.2`. They replace the first runs, which used a local laya-mlx checkout carrying the server. Scripts are in `experiments/`; paths below are relative to it. Run them from the Poplog root with `uv run --project packages/laya python packages/laya/experiments/<script>`.
 
+**Pins moved on 2026-11-26** to `laya-mlx==0.9.1` and `mlx==0.32.5`; the checkpoints did not change (`aac6fef/laya-mlx` is still `20aed815`). Rerun on the new pins: the Python tests and the Pop-11 suite pass; the README example gives billing 0.8892 (was 0.8893) and refund 0.8357 (was 0.8355); and E6's routing is identical, the same 9 cases to `english` and 7 to `multilingual` at both precisions. One upstream change needed code: `Router` now takes the precision through `agent_kwargs`, so `--router` raised a `TypeError` on 0.9.1 while every test passed, because the tests use a fake router. A test now binds the server's arguments to the installed `Router`. The other experiments were not rerun, so their figures are from the old pins. To rerun one exactly, check out the earlier `uv.lock`.
+
 The first runs shared the machine with an unrelated process at 100% CPU, which is why latency is measured paired (E3): the pairing makes it robust to load.
 
 | # | Question | Result | Evidence |
@@ -145,7 +147,7 @@ The first runs shared the machine with an unrelated process at 100% CPU, which i
 | E7 | Is the **hosted Jev API** order-sensitive, the way Laya is? | **Not to option order; yes, mildly, to question order — and only on `score`.** 39 calls to `jev-latest` (served by `jev-1.13.0`), measured 2026-10-15. **Control: exactly deterministic** — the identical request three times gave byte-identical answers for all three cases, spread 0.0. That is what makes the rest readable: the serving is deterministic, so any difference below is signal, not sampling noise. **Option order (G3): no effect at all.** All six orderings of three `ts_choice` options gave not just the same pick but the identical probability vector, in all three cases. **Question order (G4): the `score` answer moves.** Reordering the three questions left `choice` and `noul` answers completely unchanged, but shifted `urgency`'s score by up to 0.08 and its confidence by up to 0.12 (`crash`: score 1.25–1.33, confidence 0.47–0.59). No pick, label or band changed. The shift does not track the question's position — two orderings that place `urgency` third gave the two extreme values — so it is the identity of the neighbouring questions, not the distance down the list. | `results/e7-jev-order.json`, `results/e7-jev-order-report.json`; `jev_order.p`, `jev_order_report.py`. Rehearsal against Laya: `results/e7-dryrun-laya.json` |
 | E5 | Can MLX run inside Poplog? | **Yes.** `basepop11` (MAP_JIT, W^X) loaded mlx-c and ran matmuls on GPU and CPU. Doubles crossed the FFI correctly. GPU results print identically to Python MLX's. Afterwards Pop-11 still compiled code and garbage-collected. | `results/e5-mlx-inprocess.txt`; `mlx_inprocess.p`, `mlx_shim/pm_shim.c` |
 
-Reproduce E4/E5: build mlx-c (`main` at `a341b49`, which pins MLX v0.32.2) against this package's MLX:
+Reproduce E4/E5: build mlx-c (`main` at `a341b49`, which pins MLX v0.32.2) against MLX 0.32.2, which is this package's MLX before 2026-11-26 (newer mlx-c, `v0.8.0`, pins 0.32.4, and the shims have not been rebuilt against 0.32.5):
 
 ```sh
 MLX=$(uv run --project packages/laya python -c "import mlx.core, os; print(os.path.dirname(mlx.core.__file__))")

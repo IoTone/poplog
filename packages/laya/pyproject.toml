@@ -5,11 +5,11 @@ description = "The Python half of Poplog's LIB LAYA: serves laya-mlx typed decis
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    # Upstream, unmodified: https://github.com/mizorewww/laya-mlx (PyPI 0.2.0 is main @ 0a85951)
-    "laya-mlx==0.2.0",
-    # Exact, not laya-mlx's range: the mlx-c shims in experiments/mlx_shim are built against
-    # this MLX, and results are only reproducible on one version.
-    "mlx==0.32.2",
+    # Upstream, unmodified: https://github.com/mizorewww/laya-mlx (PyPI 0.9.1 is tag v0.9.1 @ e00fbf2)
+    "laya-mlx==0.9.1",
+    # Exact, not laya-mlx's range: results are only reproducible on one version.  (The E4/E5
+    # mlx-c shims in experiments/mlx_shim were built against 0.32.2; see RESEARCH.md.)
+    "mlx==0.32.5",
 ]
 
 [dependency-groups]

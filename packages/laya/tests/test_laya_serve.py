@@ -17,6 +17,7 @@ from laya_serve import (
     handle_rpc,
     is_loopback,
     make_http_server,
+    router_kwargs,
     serve_stdio,
 )
 
@@ -210,3 +211,21 @@ def test_router_responses_name_the_routed_checkpoint(questions):
     assert service.systemone({"state": "hi", "questions": questions})["model"].endswith(
         "english float16"
     )
+
+
+def test_router_kwargs_fit_the_installed_router():
+    """The fake routers above accept anything, so only this catches an upstream signature change.
+
+    laya-mlx 0.4 moved `dtype` into `agent_kwargs`, and `--router` failed with a TypeError
+    while every other test here passed.
+    """
+    import argparse
+    import inspect
+
+    from laya_mlx import Router
+    from laya_mlx.agent import Agent
+
+    args = argparse.Namespace(dtype="float16", device=None)
+    kwargs = router_kwargs(args)
+    inspect.signature(Router).bind(**kwargs)
+    inspect.signature(Agent.__init__).bind(None, "model", **kwargs["agent_kwargs"])

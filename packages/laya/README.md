@@ -24,8 +24,8 @@ lvars answers = ts_eval('I was billed twice. Please refund the duplicate.',
      [refund ^(ts_noul('Does the customer ask for money back?', false, false))]]);
 
 answers('team')('choice') =>            ** billing
-answers('team')('probabilities')('billing') =>   ** 0.8893
-answers('refund')('noul') =>            ** 0.8355
+answers('team')('probabilities')('billing') =>   ** 0.8892
+answers('refund')('noul') =>            ** 0.8357
 ts_last_model =>   ** aac6fef/laya-mlx@20aed815fc6acde75733882e7ec0e3f28aeb9717 float16
 ```
 
@@ -46,9 +46,9 @@ Why a child process rather than HTTP or loading MLX into Poplog:
 
 You need [uv](https://docs.astral.sh/uv/) on `$PATH`, and Apple Silicon with macOS 14 or
 later. The Python side is a uv project in this directory. `pyproject.toml` pins
-[laya-mlx](https://github.com/mizorewww/laya-mlx) **unmodified** from PyPI (`0.2.0`,
-which is upstream `main` at `0a85951`) and MLX `0.32.2`, and `uv.lock` pins everything
-else.
+[laya-mlx](https://github.com/mizorewww/laya-mlx) **unmodified** from PyPI (`0.9.1`,
+which is upstream tag `v0.9.1` at `e00fbf2`) and MLX `0.32.5`, and `uv.lock` pins
+everything else.
 
 ```sh
 uv sync --project packages/laya       # optional: the first call would do it anyway
@@ -90,7 +90,7 @@ so typesafe pointed at `http://127.0.0.1:8765/v1` works with no key.
 | `laya_home` | `$LAYA_HOME`, or where `laya.p` was loaded from | holds `laya_serve.py`, `pyproject.toml`, `uv.lock` |
 | `laya_command` | `$LAYA_SERVER` or `false` | `false`: run `laya_serve.py` with uv. A command: run that instead, with the same arguments (tests use a stand-in) |
 | `laya_model` | `'aac6fef/laya-mlx'` | Hub id or local directory; `aac6fef/laya-multilingual-mlx` for non-English text |
-| `laya_router` | `false` | `true`: choose a checkpoint per call by language, keeping all three loaded |
+| `laya_router` | `false` | `true`: choose a checkpoint per call by language, keeping all three loaded. Text whose language cannot be told goes to the English checkpoint, as it did before laya-mlx 0.4 changed its own default to the multilingual one |
 | `laya_dtype` | `'float16'` | `'float32'` for closer agreement with the reference |
 | `laya_extra_args` | `[]` | passed to `laya_serve.py`, e.g. `['--device' 'cpu']` |
 | `laya_start_timeout` | `false` | seconds allowed for the server to load the model; `false` is no limit, because a first run downloads ~0.9 GB with its progress on stderr |
