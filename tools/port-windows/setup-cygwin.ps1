@@ -38,11 +38,12 @@ $ErrorActionPreference = 'Stop'
 #   graphics  g++ for the Dear ImGui backend (./configure --experimental-graphics)
 #   libraries headers for the optional shims: LIB CRYPTO, LIB PCRE, LIB HTTP_CLIENT
 #   tools     git for tools/fetch-imgui.sh; perl and curl for the test runners;
-#             gdb for when something goes wrong
+#             gdb for when something goes wrong; python3 for the pop11
+#             skill's popsession
 $build     = 'gcc-core', 'binutils', 'make', 'libncurses-devel'
 $graphics  = 'gcc-g++'
-$libraries = 'libssl-devel', 'libpcre2-devel', 'libcurl-devel', 'pkg-config'
-$tools     = 'git', 'perl', 'curl', 'gdb'
+$libraries = 'libssl-devel', 'libpcre2-devel', 'libcurl-devel', 'libsqlite3-devel', 'pkg-config'
+$tools     = 'git', 'perl', 'curl', 'gdb', 'python3'
 
 $packages = $build
 if (-not $Minimal) { $packages = $build + $graphics + $libraries + $tools }
