@@ -87,12 +87,20 @@ vars seen = [];
 json_object_app(oo, procedure(k, v); [^^seen ^k] -> seen endprocedure);
 check('json_object_app in order', seen, ['zeta' 'alpha' 'mid']);
 check('parse still gives properties', isproperty(json_parse('{"a":1}')), true);
+;;; A property removes a key assigned its default, false, so a false member
+;;; cannot survive a parse into one.  Pinned, so a change to it is a choice.
+check('a false member reads as false', json_parse('{"a":1,"t":false}')('t'), false);
+check('a property parse drops a false member',
+      json_generate(json_parse('{"a":1,"t":false}')), '{"a":1}');
 true -> json_ordered_objects;
 check('ordered parse round trip',
       json_generate(json_parse('{"z":1,"a":{"y":2,"b":[{"k2":1,"k1":2}]}}')),
       '{"z":1,"a":{"y":2,"b":[{"k2":1,"k1":2}]}}');
 check('ordered parse duplicate keeps first place, last value',
       json_generate(json_parse('{"a":1,"b":2,"a":3}')), '{"a":3,"b":2}');
+check('an ordered parse keeps a false member',
+      json_generate(json_parse('{"a":1,"t":false,"u":{"f":false}}')),
+      '{"a":1,"t":false,"u":{"f":false}}');
 false -> json_ordered_objects;
 
 ;;; --- strings and escapes ---
