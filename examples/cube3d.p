@@ -3,7 +3,8 @@
  * Eight vertices, twelve edges; each frame rotates them about two axes,
  * applies a perspective projection, and redraws, with a live stats badge
  * (graphics backend, GPU, FPS).  Demonstrates per-frame animation on the
- * retained canvas (gfx_clear / gfx_step) plus gfx introspection.
+ * retained canvas (gfx_clear / gfx_step) plus gfx introspection.  Spins
+ * for a minute, or until you close the window.
  *
  * Needs a graphics build (./configure --experimental-graphics, or
  * `nix build .#poplog-gfx`).  Run from the Poplog source tree with:
@@ -58,7 +59,11 @@ enddefine;
 ;;; Smooth spin: the backend paces the loop on the display refresh (Metal via
 ;;; nextDrawable back-pressure, SDL via the blocking SwapWindow), so no sleep
 ;;; is needed -- a fixed step per frame gives constant angular velocity.
-lvars angle = 20.0, i, e, pts, k = 0;
+;;; It stops after a minute like the other demos (examples/README.md), by
+;;; the wall clock: a frame count would mean a minute at 60 Hz and half
+;;; of one on a 120 Hz display.
+lvars angle = 20.0, i, e, pts, k = 0,
+      stop_at = sys_microtime() + 60 * 1000000;
 repeat
     gfx_clear();
     {% for i from 1 to 8 do project(verts(i), angle, 25) endfor %} -> pts;
@@ -68,6 +73,7 @@ repeat
     endfor;
     badge(k);
     quitunless(gfx_step());
+    quitif(sys_microtime() > stop_at);
     angle + 1.0 -> angle;  k + 1 -> k;
     if angle >= 360.0 then angle - 360.0 -> angle endif
 endrepeat;

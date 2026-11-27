@@ -67,8 +67,12 @@ I am sorry to hear that you are depressed.
     My mother takes care of me.
 Tell me more about your family.
     It is raining today.                  <- no keyword: a stored memory returns
-Lets discuss further why your mother takes care of you.
+Lets discuss further why your boyfriend made you come here.
 ```
+
+The memory is a queue, so the first "my …" stashed is the first one
+back. That is the boyfriend, as in the paper ("Does that have anything
+to do with the fact that your boyfriend made you come here?").
 
 Type `bye`, `goodbye`, `quit`, or end-of-file (Ctrl-D) to leave. Swap in a
 different script by editing `doctor.txt`.
