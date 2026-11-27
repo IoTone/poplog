@@ -643,6 +643,7 @@ extern void _pop_win_fault_init(void);
 #if defined(__APPLE__)
 /* defined below, next to the break emulation whose bounds it needs */
 extern int _pop_wx_fixup(siginfo_t *info, ucontext_t *context);
+extern int pop_fault_trace(void);
 #endif
 
 void _pop_errsig_handler(int sig, siginfo_t *info, ucontext_t *context) {
@@ -684,8 +685,10 @@ void _pop_errsig_handler(int sig, siginfo_t *info, ucontext_t *context) {
     /* diagnostic: every fatal signal reaching the Pop error machinery,
        with the GC-in-progress flag (an exception raised while
        _memory_is_corrupt is set is treated as fatal and can exit(1) without
-       managing to print anything -- errors.p Sys$-Raise_exception). */
-    if (context != NULL) {
+       managing to print anything -- errors.p Sys$-Raise_exception).
+       Only with POP_FAULT_TRACE set: an ordinary "STACK EMPTY" reaches
+       here too, and every one arrived wrapped in two register dumps. */
+    if (context != NULL && pop_fault_trace()) {
         extern unsigned long i_Sys_S_031memory__is__corrupt[]
             __asm__("i_Sys_S_031memory__is__corrupt");
         char fb[220];
@@ -2278,6 +2281,18 @@ char * _pop_sbrk(int nbytes) {
 #include <libkern/OSCacheControl.h>
 #include <unistd.h>
 
+/* POP_FAULT_TRACE in the environment turns on the fault diagnostics.
+   Read once and cached: this is called from the signal handler. */
+extern char *getenv(const char *);
+int pop_fault_trace(void) {
+    static int on = -1;
+    if (on < 0) {
+        const char *v = getenv("POP_FAULT_TRACE");
+        on = (v != 0 && *v != 0);
+    }
+    return on;
+}
+
 /* no-progress guard state; reset by _pop_wx_make_writable below, whose
    direct mprotects would otherwise make a legitimate re-flip look like a
    repeat of the previous one */
@@ -2295,15 +2310,30 @@ int _pop_wx_fixup(siginfo_t *info, ucontext_t *context) {
        property. */
     char *wx_limit = exec_fault ? break_limit : current_break;
     if (break_base == (char *) 0 || addr < break_base || addr >= wx_limit) {
-        /* TEMP: why was this fault not repaired? */
-        char db[160];
-        int dn = snprintf(db, sizeof db,
-            "[wx-decline] addr=%lx base=%lx brk=%lx exec=%d\n",
-            (unsigned long) addr, (unsigned long) break_base,
-            (unsigned long) current_break, exec_fault);
-        write(2, db, dn);
+        if (pop_fault_trace()) {
+            char db[160];
+            int dn = snprintf(db, sizeof db,
+                "[wx-decline] addr=%lx base=%lx brk=%lx exec=%d\n",
+                (unsigned long) addr, (unsigned long) break_base,
+                (unsigned long) current_break, exec_fault);
+            write(2, db, dn);
+        }
         return 0;                               /* not a Pop heap access */
     }
+
+    /* A DATA FAULT IS NOT A W^X FAULT WHEN THE VIEW IS UP.  Execution runs
+       in the RX alias, so a canonical page is never made executable and a
+       read or write that faults on one has hit a protection Poplog set
+       itself -- above all the user stack's lim page, which getstore.p
+       locks PROT_NONE just above _userhi so that popping an empty stack
+       faults and errors.p reports "ste: STACK EMPTY".  Flipping that page
+       RW here unlocked it: the pop read whatever lay beyond the stack, a
+       later pop faulted past the break as a SYSTEM ERROR, and a value read
+       from the gap and stored in a variable could crash the GC.  Only the
+       no-view fallback flips canonical pages to RX, so only it has data
+       faults to repair. */
+    if (!exec_fault && view_base != (char *) 0)
+        return 0;
 
     long pagesz = sysconf(_SC_PAGESIZE);
     char *page = (char *) ((unsigned long) addr & ~((unsigned long) pagesz - 1));
@@ -2311,10 +2341,12 @@ int _pop_wx_fixup(siginfo_t *info, ucontext_t *context) {
     /* No-progress guard: flipping the same page to the same mode twice in a
        row means the fault is not W^X -- let the error machinery have it. */
     if (page == wx_last_page && exec_fault == wx_last_exec) {
-        char db[120];
-        int dn = snprintf(db, sizeof db,
-            "[wx-noprogress] page=%lx exec=%d\n", (unsigned long) page, exec_fault);
-        write(2, db, dn);
+        if (pop_fault_trace()) {
+            char db[120];
+            int dn = snprintf(db, sizeof db,
+                "[wx-noprogress] page=%lx exec=%d\n", (unsigned long) page, exec_fault);
+            write(2, db, dn);
+        }
         return 0;
     }
 

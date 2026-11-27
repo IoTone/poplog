@@ -223,6 +223,18 @@ define System_error(_sig, _fault_code, _pc, _fault_addr);
                     mishap)
     endif;
 
+#_IF DEF DARWIN
+    ;;; A fault on the lim page above _userhi is userstack underflow.  macOS
+    ;;; raises a protection fault as SIGBUS, not SIGSEGV, and the PC may be
+    ;;; in the RX execution view rather than in the canonical heap, so
+    ;;; neither the SEGV branch below nor its PC range would see it: it came
+    ;;; out as "SYSTEM ERROR: Signal = 10".  The fault address is reliable.
+    if (_sig == _:SIG_SEGV or _sig == _:SIG_BUS)
+    and _fault_addr@(w.t->vpage) == _userhi then
+        chain(User_underflow)
+    endif;
+#_ENDIF
+
     if _sig == _:SIG_SEGV then
         ;;; segmentation violation
 #_IF DEF SUNOS or DEF MIPS or DEF OSF1 or DEF NCR or DEF AIX or DEF DGUX or DEF LINUX or DEF FREEBSD or DEF NETBSD or DEF CYGWIN
